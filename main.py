@@ -1,4 +1,6 @@
 import os
+import pickle
+import re
 import shutil
 import time
 from collections import deque
@@ -26,23 +28,44 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+# TODO: If a rate limit error is raised, keep going after waiting.
+
 console = Console()
 
 # Define rate limit constants
 RATE_LIMIT_PER_MINUTE = 15
 RATE_LIMIT_WINDOW = 60
 
+INPUT_DIR = Path("input")
+
+if not INPUT_DIR.exists():
+
+    raise FileNotFoundError(f"Input Directory {INPUT_DIR} not found")
+
+OUTPUT_DIR = Path("output")
+
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+PICKLE_DIR = Path(OUTPUT_DIR, "response-pickles")
+
+PICKLE_DIR.mkdir(parents=True, exist_ok=True)
+
+LATEX_PREAMBLE_PATH = Path("utils", "slide-template.txt")
+
+if not LATEX_PREAMBLE_PATH.exists():
+
+    raise FileNotFoundError(f"Latex preamble file {LATEX_PREAMBLE_PATH} not found")
+
+LATEX_PREAMBLE = LATEX_PREAMBLE_PATH.read_text()
+
 
 def PDFToPNG():
 
-    pdfPath = Path("465-Lecture-1.pdf")
-
+    pdfPath = Path(input, "465-Lecture-1.pdf")
     images = convert_from_path(pdfPath)
-
-    outputDir = Path(f"{pdfPath.stem}-pages")
+    outputDir = Path(OUTPUT_DIR, f"{pdfPath.stem}-pages")
 
     if outputDir.exists():
-
         shutil.rmtree(outputDir)
 
     outputDir.mkdir(parents=True, exist_ok=True)
@@ -63,10 +86,103 @@ def PDFToPNG():
         task = progress.add_task(f"Converting {pdfPath.name} to PNG", total=len(images))
 
         for i, image in enumerate(images):
-
             image.save(Path(outputDir, f"{pdfPath.stem}-{i}.png"), "PNG")
-
             progress.update(task, advance=1)
+
+
+def SleepWithProgress(progress, task, sleepTime, defaultDescription):
+    """
+    Sleeps for sleepTime seconds while updating the progress bar description.
+
+    Parameters
+    ----------
+    progress : Progress
+        The progress object.
+    task : TaskID
+        The task to update.
+    sleepTime : float
+        The total sleep time in seconds.
+    defaultDescription : str
+        The description to revert to after sleeping.
+    """
+    targetTime = time.time() + sleepTime
+
+    while True:
+        remaining = targetTime - time.time()
+        if remaining <= 0:
+            break
+        progress.update(
+            task, description=f"Sleeping for {remaining:.1f} sec due to rate limit"
+        )
+        time.sleep(min(0.5, remaining))
+    progress.update(task, description=defaultDescription)
+
+
+def CleanResponse(
+    combinedResponse: str,
+    preamble: str,
+    title: str = "",
+    author: str = "",
+    date: str = "",
+) -> str:
+
+    preambleLines = preamble.splitlines()
+
+    for line in preambleLines:
+
+        combinedResponse = re.sub(
+            rf"^{re.escape(line)}$", "", combinedResponse, flags=re.MULTILINE
+        )
+
+    END_DOCUMENT_LINE = r"\end{document}"
+
+    combinedResponse = re.sub(
+        rf"^{re.escape(END_DOCUMENT_LINE)}$", "", combinedResponse, flags=re.MULTILINE
+    )
+
+    TITLE_LINE = r"\\title\{.*\}"
+    AUTHOR_LINE = r"\\author\{.*\}"
+    DATE_LINE = r"\\date\{.*\}"
+
+    OTHER_LINES = [
+        TITLE_LINE,
+        AUTHOR_LINE,
+        DATE_LINE,
+    ]
+
+    for line in OTHER_LINES:
+
+        combinedResponse = re.sub(
+            rf"^{line}$", "", combinedResponse, flags=re.MULTILINE
+        )
+
+    combinedResponse = combinedResponse.strip()
+
+    combinedResponse = re.sub(r"\n{2,}", "\n\n", combinedResponse)
+
+    remainingPackages = re.findall(
+        r"^\\usepackage\{([^\}]*)\}", combinedResponse, flags=re.MULTILINE
+    )
+
+    for package in remainingPackages:
+
+        preambleLines.insert(1, f"\\usepackage{{{package}}}")
+
+    preamble = "\n".join(preambleLines)
+
+    preamble = re.sub(
+        r"^\\title\{(.*)\}", rf"\\title{{{title}}}", preamble, flags=re.MULTILINE
+    )
+    preamble = re.sub(
+        r"^\\author\{(.*)\}", rf"\\author{{{author}}}", preamble, flags=re.MULTILINE
+    )
+    preamble = re.sub(
+        r"^\\date\{(.*)\}", rf"\\date{{{date}}}", preamble, flags=re.MULTILINE
+    )
+
+    cleanedResponse = f"{preamble}\n{combinedResponse}\n{END_DOCUMENT_LINE}"
+
+    return cleanedResponse
 
 
 def ImageQuery(limiterMethod: str = "tracking"):
@@ -84,7 +200,7 @@ def ImageQuery(limiterMethod: str = "tracking"):
         Defaults to "tracking".
     """
 
-    IMAGE_DIR = Path("465-Lecture-1-pages")
+    IMAGE_DIR = Path(OUTPUT_DIR, "465-Lecture-1-pages")
     images = [PIL.Image.open(imagePath) for imagePath in IMAGE_DIR.glob("*.png")]
 
     apiKey = os.getenv("GEMINI_API_KEY")
@@ -92,17 +208,11 @@ def ImageQuery(limiterMethod: str = "tracking"):
         raise ValueError("GEMINI_API_KEY environment variable not set")
 
     responses = []
-
-    # Determine if rate limiting is needed based on number of images.
+    defaultDescription = "Querying images"
     useRateLimit = len(images) >= RATE_LIMIT_PER_MINUTE
-
-    # For fixed delay method
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
-
-    # For tracking method, initialize a deque to store timestamps.
     requestTimes = deque()
 
-    defaultDescription = "Querying images"
     with Progress(
         SpinnerColumn(),
         TextColumn(f"[bold blue]{defaultDescription}", justify="left"),
@@ -119,17 +229,24 @@ def ImageQuery(limiterMethod: str = "tracking"):
         task = progress.add_task(defaultDescription, total=len(images))
 
         for image in images:
+
             currentTime = time.time()
 
-            # If rate limiting is needed, enforce the chosen method
             if useRateLimit:
+
                 if limiterMethod == "fixedDelay":
                     startTime = currentTime
                     client = genai.Client(api_key=apiKey)
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
                         contents=[
-                            f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and describe the contents.\n\nLatex Preamble:{Path('slide-template.txt').read_text()}",
+                            (
+                                f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
+                                f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
+                                f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
+                                f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
+                                f"describe the contents.\n\nLatex Preamble:{LATEX_PREAMBLE}"
+                            ),
                             image,
                         ],
                     )
@@ -138,61 +255,59 @@ def ImageQuery(limiterMethod: str = "tracking"):
 
                     if elapsed < delayBetweenCalls:
                         sleepTime = delayBetweenCalls - elapsed
-                        progress.update(
-                            task,
-                            description=f"Sleeping for {sleepTime:.1f} sec due to rate limit",
-                            refresh=True,
-                        )
-                        time.sleep(sleepTime)
-                        progress.update(task, description=defaultDescription)
+                        SleepWithProgress(progress, task, sleepTime, defaultDescription)
 
                 elif limiterMethod == "tracking":
-                    # Remove timestamps older than the window.
                     while (
                         requestTimes
                         and currentTime - requestTimes[0] >= RATE_LIMIT_WINDOW
                     ):
                         requestTimes.popleft()
 
-                    # If adding a new request would breach the rate limit, sleep until it's safe.
                     if len(requestTimes) >= RATE_LIMIT_PER_MINUTE:
                         sleepTime = RATE_LIMIT_WINDOW - (currentTime - requestTimes[0])
-                        progress.update(
-                            task,
-                            description=f"Sleeping for {sleepTime:.1f} sec due to rate limit",
-                            refresh=True,
-                        )
-                        time.sleep(sleepTime)
+                        SleepWithProgress(progress, task, sleepTime, defaultDescription)
                         currentTime = time.time()
                         while (
                             requestTimes
                             and currentTime - requestTimes[0] >= RATE_LIMIT_WINDOW
                         ):
                             requestTimes.popleft()
-                        progress.update(task, description=defaultDescription)
 
                     client = genai.Client(api_key=apiKey)
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
                         contents=[
-                            f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and describe the contents.\n\nLatex Preamble:{Path('slide-template.txt').read_text()}",
+                            (
+                                f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
+                                f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
+                                f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
+                                f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
+                                f"describe the contents.\n\nLatex Preamble:{LATEX_PREAMBLE}"
+                            ),
                             image,
                         ],
                     )
                     responses.append(response)
                     requestTimes.append(time.time())
                 else:
+
                     raise ValueError(
                         "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
                     )
             else:
 
-                # No rate limiting needed; simply make the API call.
                 client = genai.Client(api_key=apiKey)
                 response = client.models.generate_content(
                     model="gemini-2.0-flash",
                     contents=[
-                        f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and describe the contents.\n\nLatex Preamble:{Path('slide-template.txt').read_text()}",
+                        (
+                            f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
+                            f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
+                            f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
+                            f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
+                            f"describe the contents.\n\nLatex Preamble:{LATEX_PREAMBLE}"
+                        ),
                         image,
                     ],
                 )
@@ -200,19 +315,57 @@ def ImageQuery(limiterMethod: str = "tracking"):
 
             progress.update(task, advance=1)
 
-    # Combine responses for final output.
-    combinedResponse = ""
-    for response in responses:
-        responseText: str = response.text
-        if responseText.splitlines()[0].strip() == "```":
-            responseText = responseText.splitlines()[1:]
-        if responseText.splitlines()[-1].strip() == "```":
-            responseText = responseText.splitlines()[:-1]
-        combinedResponse += "\n".join(responseText) + "\n"
+    try:
 
-    print(combinedResponse)
-    Path("response.txt").write_text(combinedResponse)
+        picklePath = Path(PICKLE_DIR, "responses.pkl")
+
+        if picklePath.exists():
+
+            uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+            picklePath = picklePath.with_name(uniquePath)
+
+            if picklePath.exists():
+
+                raise FileExistsError(
+                    f"File {picklePath} already exists. Attempt to create unique file failed."
+                )
+
+        with picklePath.open("wb") as file:
+
+            pickle.dump(responses, file)
+
+    except Exception as e:
+
+        console.print(f"{e}\n\n\n[bold red]Failed to save responses[/bold red]")
+
+    combinedResponse = ""
+
+    for response in responses:
+
+        responseText: str | list[str] = response.text
+
+        if isinstance(responseText, str):
+
+            responseText = responseText.splitlines()
+
+            if responseText[0].strip().startswith("```"):
+                responseText = responseText[1:]
+
+            if responseText[-1].strip() == "```":
+                responseText = responseText[:-1]
+
+        combinedResponse += ("\n".join(responseText) + "\n").strip()
+
+    # print(combinedResponse)
+    Path(OUTPUT_DIR, "response.txt").write_text(combinedResponse)
+
+    cleanedResponse = CleanResponse(
+        combinedResponse=combinedResponse, preamble=LATEX_PREAMBLE
+    )
+
+    Path(OUTPUT_DIR, "response.tex").write_text(cleanedResponse)
 
 
 if __name__ == "__main__":
+
     ImageQuery(limiterMethod="tracking")
