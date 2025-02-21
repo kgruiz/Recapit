@@ -668,11 +668,35 @@ def TranscribeLectureImages(
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
 
-def BulkSlideTranscribe():
+def BulkSlideTranscribe(excludeSlideNums: list[int] = []):
 
     SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math465/Slides")
 
     slideFiles = list(SLIDES_DIR.glob("*.pdf"))
+
+    cleanedSlideFiles = []
+
+    for slideFile in slideFiles:
+
+        parts = slideFile.name.split(" ")
+
+        numParts = parts[-1].replace(".pdf", "")
+
+        try:
+
+            num = int(numParts)
+
+        except ValueError:
+
+            console.print(f"Error extracting slide number from {slideFile.name}")
+
+            raise
+
+        if num not in excludeSlideNums:
+
+            cleanedSlideFiles.append(slideFile)
+
+    slideFiles = cleanedSlideFiles
 
     numSlideFiles = len(slideFiles)
 
@@ -727,4 +751,4 @@ if __name__ == "__main__":
     #     imageDir=Path(OUTPUT_DIR, "465-Lecture-1-pages"), limiterMethod="tracking"
     # )
 
-    BulkSlideTranscribe()
+    BulkSlideTranscribe(excludeSlideNums=[1])
