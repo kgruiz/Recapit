@@ -9,6 +9,7 @@ from pathlib import Path
 import PIL.Image
 from google import genai
 from google.genai import types
+from natsort import natsorted
 from pdf2image import convert_from_path
 from rich import box
 from rich.align import Align
@@ -712,7 +713,7 @@ def BulkSlideTranscribe(excludeSlideNums: list[int] = []):
 
             cleanedSlideFiles.append(slideFile)
 
-    slideFiles = cleanedSlideFiles
+    slideFiles = natsorted(cleanedSlideFiles)
 
     numSlideFiles = len(slideFiles)
 
