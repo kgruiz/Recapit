@@ -100,7 +100,7 @@ def PDFToPNG(pdfPath: Path, pagesDir: Path = None, progress=None):
 
         progress = Progress(
             SpinnerColumn(),
-            TextColumn(f"[bold blue]Converting {pdfPath.name} to png", justify="left"),
+            TextColumn("[bold blue]{task.description}", justify="left"),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             BarColumn(bar_width=None),
             MofNCompleteColumn(),
@@ -317,7 +317,7 @@ def TranscribeSlideImages(
 
         progress = Progress(
             SpinnerColumn(),
-            TextColumn(f"[bold blue]{defaultDescription}", justify="left"),
+            TextColumn("[bold blue]{task.description}", justify="left"),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             BarColumn(bar_width=None),
             MofNCompleteColumn(),
@@ -503,7 +503,7 @@ def TranscribeLectureImages(
 
         progress = Progress(
             SpinnerColumn(),
-            TextColumn(f"[bold blue]{defaultDescription}", justify="left"),
+            TextColumn("[bold blue]{task.description}", justify="left"),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             BarColumn(bar_width=None),
             MofNCompleteColumn(),
@@ -652,7 +652,7 @@ def BulkSlideTranscribe():
 
     with Progress(
         SpinnerColumn(),
-        TextColumn(f"[bold blue]Transcribing slide files", justify="left"),
+        TextColumn("[bold blue]{task.description}", justify="left"),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         BarColumn(bar_width=None),
         MofNCompleteColumn(),
