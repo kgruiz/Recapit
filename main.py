@@ -449,15 +449,23 @@ def TranscribeSlideImages(
         console.print(f"{e}\n\n\n[bold red]Failed to save responses[/bold red]")
 
     combinedResponse = ""
-    for response in responses:
-        responseText: str | list[str] = response.text
+    for i, response in enumerate(responses):
+
+        responseText: str | list[str] | None = response.text
+
+        if responseText is None:
+
+            combinedResponse += f"\n\\begin{{frame}}\n\\frametitle{{Slide {i}}}\n\nError: Slide text content is None\n\n\\end{{frame}}"
+            continue
+
         if isinstance(responseText, str):
             responseText = responseText.splitlines()
-            if responseText[0].strip().startswith("```"):
-                responseText = responseText[1:]
-            if responseText[-1].strip() == "```":
-                responseText = responseText[:-1]
-        combinedResponse += ("\n".join(responseText) + "\n").strip()
+
+        if responseText[0].strip().startswith("```"):
+            responseText = responseText[1:]
+        if responseText[-1].strip() == "```":
+            responseText = responseText[:-1]
+        combinedResponse += "\n".join(responseText) + "\n"
 
     Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
     cleanedResponse = CleanResponse(
@@ -650,16 +658,24 @@ def TranscribeLectureImages(
 
     combinedResponse = ""
 
-    for response in responses:
+    for i, response in enumerate(responses):
 
-        responseText: str | list[str] = response.text
+        responseText: str | list[str] | None = response.text
+
+        if responseText is None:
+
+            combinedResponse += (
+                f"\n\\section{{Page {i}}}\n\nError: Text content is None"
+            )
+            continue
+
         if isinstance(responseText, str):
             responseText = responseText.splitlines()
-            if responseText[0].strip().startswith("```"):
-                responseText = responseText[1:]
-            if responseText[-1].strip() == "```":
-                responseText = responseText[:-1]
-        combinedResponse += ("\n".join(responseText) + "\n").strip()
+        if responseText[0].strip().startswith("```"):
+            responseText = responseText[1:]
+        if responseText[-1].strip() == "```":
+            responseText = responseText[:-1]
+        combinedResponse += "\n".join(responseText) + "\n"
 
     Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
     cleanedResponse = CleanResponse(
@@ -740,6 +756,47 @@ def BulkSlideTranscribe(excludeSlideNums: list[int] = []):
             )
 
 
+def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
+
+    with picklePath.open("rb") as file:
+
+        responses = pickle.load(file)
+
+    combinedResponse = ""
+
+    i = 0
+
+    for response in responses:
+
+        responseText: str | list[str] = response.text
+        # print(responseText)
+        # print(type(responseText))
+        if isinstance(responseText, str):
+            responseText = responseText.splitlines()
+        if responseText is None:
+
+            # print(response)
+
+            print(i)
+            i += 1
+            continue
+
+        i += 1
+        # print(responseText)
+        # print(type(responseText))
+        if responseText[0].strip().startswith("```"):
+            responseText = responseText[1:]
+        if responseText[-1].strip() == "```":
+            responseText = responseText[:-1]
+        combinedResponse += "\n".join(responseText) + "\n"
+
+    Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
+    cleanedResponse = CleanResponse(
+        combinedResponse=combinedResponse, preamble=LECTURE_LATEX_PREAMBLE
+    )
+    Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
+
+
 if __name__ == "__main__":
 
     # PDFToPNG(
@@ -751,4 +808,4 @@ if __name__ == "__main__":
     #     imageDir=Path(OUTPUT_DIR, "465-Lecture-1-pages"), limiterMethod="tracking"
     # )
 
-    BulkSlideTranscribe(excludeSlideNums=[1])
+    BulkSlideTranscribe(excludeSlideNums=[])
