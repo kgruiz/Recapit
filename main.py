@@ -29,6 +29,7 @@ from rich.table import Table
 from rich.text import Text
 
 # TODO: If a rate limit error is raised, keep going after waiting.
+# TODO: Add other slide formats
 
 console = Console()
 
@@ -71,10 +72,7 @@ if not LATEX_PREAMBLE_PATH.exists():
 LECTURE_LATEX_PREAMBLE = LECTURE_LATEX_PREAMBLE_PATH.read_text()
 
 
-def PDFToPNG(
-    pdfPath: Path,
-    pagesDir: Path = None,
-):
+def PDFToPNG(pdfPath: Path, pagesDir: Path = None, progress=None):
     """
     Converts a PDF file to PNG images, saving them in the specified directory.
 
@@ -98,18 +96,26 @@ def PDFToPNG(
 
     pagesDir.mkdir(parents=True, exist_ok=True)
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn(f"[bold blue]Converting {pdfPath.name} to png", justify="left"),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        BarColumn(bar_width=None),
-        MofNCompleteColumn(),
-        TextColumn("•"),
-        TimeElapsedColumn(),
-        TextColumn("•"),
-        TimeRemainingColumn(),
-        expand=True,
-    ) as progress:
+    if progress is None:
+
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn(f"[bold blue]Converting {pdfPath.name} to png", justify="left"),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            BarColumn(bar_width=None),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            TextColumn("•"),
+            TimeRemainingColumn(),
+            expand=True,
+        )
+
+    elif not isinstance(progress, Progress):
+
+        raise ValueError("progress must be a rich.progress.Progress instance")
+
+    with progress:
 
         task = progress.add_task(f"Converting {pdfPath.name} to png", total=len(images))
 
@@ -219,6 +225,7 @@ def TranscribeSlideImages(
     limiterMethod: str = "tracking",
     outputDir: Path = OUTPUT_DIR,
     outputName: str = "response",
+    progress=None,
 ):
     """
     Processes images and queries an API, optionally rate-limiting the calls if the number
@@ -256,18 +263,27 @@ def TranscribeSlideImages(
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
     requestTimes = deque()
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn(f"[bold blue]{defaultDescription}", justify="left"),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        BarColumn(bar_width=None),
-        MofNCompleteColumn(),
-        TextColumn("•"),
-        TimeElapsedColumn(),
-        TextColumn("•"),
-        TimeRemainingColumn(),
-        expand=True,
-    ) as progress:
+    if progress is None:
+
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn(f"[bold blue]{defaultDescription}", justify="left"),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            BarColumn(bar_width=None),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            TextColumn("•"),
+            TimeRemainingColumn(),
+            expand=True,
+        )
+
+    elif not isinstance(progress, Progress):
+
+        raise ValueError("progress must be a rich.progress.Progress instance")
+
+    with progress:
+
         task = progress.add_task(defaultDescription, total=len(images))
 
         for image in images:
@@ -358,6 +374,7 @@ def TranscribeSlideImages(
     localPickleDir.mkdir(parents=True, exist_ok=True)
 
     try:
+
         picklePath = Path(localPickleDir, f"{outputName}.pkl")
         if picklePath.exists():
             uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
@@ -394,6 +411,7 @@ def TranscribeLectureImages(
     limiterMethod: str = "tracking",
     outputDir: Path = OUTPUT_DIR,
     outputName: str = "response",
+    progress=None,
 ):
     """
     Processes images and queries an API, optionally rate-limiting the calls if the number
@@ -431,21 +449,31 @@ def TranscribeLectureImages(
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
     requestTimes = deque()
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn(f"[bold blue]{defaultDescription}", justify="left"),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        BarColumn(bar_width=None),
-        MofNCompleteColumn(),
-        TextColumn("•"),
-        TimeElapsedColumn(),
-        TextColumn("•"),
-        TimeRemainingColumn(),
-        expand=True,
-    ) as progress:
+    if progress is None:
+
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn(f"[bold blue]{defaultDescription}", justify="left"),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            BarColumn(bar_width=None),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            TextColumn("•"),
+            TimeRemainingColumn(),
+            expand=True,
+        )
+
+    elif not isinstance(progress, Progress):
+
+        raise ValueError("progress must be a rich.progress.Progress instance")
+
+    with progress:
+
         task = progress.add_task(defaultDescription, total=len(images))
 
         for image in images:
+
             currentTime = time.time()
 
             if useRateLimit:
@@ -562,6 +590,53 @@ def TranscribeLectureImages(
         combinedResponse=combinedResponse, preamble=LECTURE_LATEX_PREAMBLE
     )
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
+
+
+def BulkSlideTranscribe():
+
+    SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math465/Slides")
+
+    slideFiles = list(SLIDES_DIR.glob("*.pdf"))
+
+    numSlideFiles = len(slideFiles)
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn(f"[bold blue]Transcribing slide files", justify="left"),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        BarColumn(bar_width=None),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        expand=True,
+    ) as progress:
+
+        task = progress.add_task(f"Transcribing slide files", total=numSlideFiles)
+
+        for slideFile in slideFiles:
+
+            progress.update(
+                task, description=f"Transcribing {slideFile.name}", refresh=True
+            )
+
+            PDFToPNG(pdfPath=slideFile, progress=progress)
+
+            TranscribeSlideImages(
+                imageDir=Path(OUTPUT_DIR, f"{slideFile.stem}-pages"),
+                limiterMethod="tracking",
+                outputDir=Path(OUTPUT_DIR, f"{slideFile.stem}-output"),
+                outputName=f"{slideFile.stem}-response",
+                progress=progress,
+            )
+
+            progress.update(
+                task,
+                description=f"Transcribed {slideFile.name}",
+                advance=1,
+                refresh=True,
+            )
 
 
 if __name__ == "__main__":
