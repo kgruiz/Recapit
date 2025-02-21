@@ -31,9 +31,19 @@ def ImageQuery():
 
     # IMAGE_PATH = Path("puppy.png")
 
-    IMAGE_PATH = Path("465-Lecture-1-pages/465-Lecture-1-21.png")
+    # IMAGE_PATH = Path("465-Lecture-1-pages/465-Lecture-1-21.png")
 
-    image = PIL.Image.open(IMAGE_PATH)
+    IMAGE_DIR = Path("465-Lecture-1-pages")
+
+    images = []
+
+    for imagePath in IMAGE_DIR.glob("*.png"):
+
+        image = PIL.Image.open(imagePath)
+
+        images.append(image)
+
+    # image = PIL.Image.open(IMAGE_PATH)
 
     apiKey = os.getenv("GEMINI_API_KEY")
 
@@ -43,7 +53,10 @@ def ImageQuery():
     client = genai.Client(api_key=apiKey)
     response = client.models.generate_content(
         model="gemini-2.0-flash",
-        contents=["Transcribe this image, including all math, in latex format", image],
+        contents=[
+            "Transcribe each image, including all math, in latex format. Every slide should be a different section in a single final latex document.",
+            images,
+        ],
     )
 
     print(response.text)

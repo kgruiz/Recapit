@@ -1,45 +1,76 @@
-\documentclass{article}
-\usepackage{amsmath}
-\usepackage{amssymb}
-\usepackage{amsfonts}
-\usepackage{amsthm}
-\usepackage{mathtools}
+\documentclass[aspectratio=43]{beamer}
+
+% Theme and color settings
+\usetheme{Madrid} % Keep the Madrid theme
+\usecolortheme{default}
+
+%gets rid of bottom navigation symbols
+\setbeamertemplate{navigation symbols}{}
+
+%gets rid of footer
+\setbeamertemplate{footline}{}
+
+% Title and author information
+\title{My Beamer Slideshow}
+\author{Your Name}
+\date{\today}
 
 \begin{document}
 
-\noindent
-Subsets and binary strings
+% Title Slide
+\begin{frame}
+    \titlepage
+\end{frame}
 
-\noindent
-\hrulefill
+% Slide 1 - Introduction
+\begin{frame}{Introduction}
+    \begin{itemize}
+        \item Point one
+        \item Point two
+        \item Point three
+    \end{itemize}
+\end{frame}
 
-\noindent
-\textbf{Theorem}
+% Slide 2 - Equations Example
+\begin{frame}{Mathematical Expressions}
+    \begin{itemize}
+        \item Famous equation:
+              \[
+                  E = mc^2
+              \]
+        \item Summation formula:
+              \[
+                  S_n = \sum_{i=1}^{n} i = \frac{n(n+1)}{2}
+              \]
+    \end{itemize}
+\end{frame}
 
-\noindent
-A $k$-element set has $2^k$ subsets.
+% Slide 3 - Table Example
+\begin{frame}{Data Table}
+    \begin{table}[]
+        \centering
+        \begin{tabular}{|c|c|}
+            \hline
+            Column 1 & Column 2 \\ \hline
+            Value A  & Value B  \\ \hline
+            Value C  & Value D  \\ \hline
+        \end{tabular}
+    \end{table}
+\end{frame}
 
-\noindent
-\begin{tabular}{ccccccccc}
-    $\boxed{k=3}$ & $\emptyset$ & \{A\} & \{B\} & \{C\} & \{A,B\} & \{A,C\} & \{B,C\} & \{A,B,C\}
-\end{tabular}
+% Slide 4 - Bullet Points
+\begin{frame}{Key Takeaways}
+    \begin{enumerate}
+        \item First key insight
+        \item Second key insight
+        \item Final takeaway
+    \end{enumerate}
+\end{frame}
 
-\noindent
-\hrulefill
-
-\noindent
-\textbf{Proof}
-
-\noindent
-The subsets of a $k$-element set are encoded by binary strings of length $k$, i.e., by $k$-letter words in a 2-letter alphabet:
-
-\noindent
-\begin{tabular}{cccccccc}
-    $\emptyset$ & \{A\} & \{B\} & \{C\} & \{A,B\} & \{A,C\} & \{B,C\} & \{A,B,C\} \\
-    000         & 100   & 010   & 001   & 110     & 101     & 011     & 111
-\end{tabular}
-
-\noindent
-The number of such words is $2^k$.
+% Slide 5 - Final Slide
+\begin{frame}
+    \centering
+    \Huge Thank You!
+\end{frame}
 
 \end{document}

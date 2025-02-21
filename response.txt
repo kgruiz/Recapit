@@ -1,43 +1,384 @@
 ```latex
 \documentclass{article}
 \usepackage{amsmath}
-
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
 \begin{document}
 
-\noindent
+\section*{}
+
+\textbf{Problem}
+How many Boolean functions in $k$ variables are there?
+
+\textbf{Solution}
+Each of the $k$ input bits can take value 0 or 1. There are $2^k$ possible input binary strings. A Boolean function can send each of them to either 0 or 1. So the total number of possibilities is $2^{2^k}$.
+
+\textbf{Exercise}
+Count microchips with $k$ binary inputs and $\ell$ binary outputs.
+Two microchips are considered identical if they compute the same function \{binary strings of length $k\} \rightarrow \{\text{binary strings of length } \ell \}$.
+
+For $\ell = 1$, you should recover the previous answer.
+
+\section*{}
+Problem-solving challenges
+
+In past years, many students ended up dropping out of Math 465.
+Why? Much of the content is quite elementary.
+
+However, many problems are "one of a kind," with no off-the-shelf algorithmic solution.
+
+The first two quizzes will give you some idea of where you stand.
+
+How do I prepare for quizzes/exams/homework?
+Use problems in the textbooks to practice!
+
+Also, come to office hours.
+
+Questions?
+
+\section*{}
+Basic counting principles [Chapter 3]
+
+First half of the course: \textit{enumerative combinatorics}.
+
+We will study the basic techniques of \textit{counting}, or \textit{enumeration}.
+
+\textbf{Two versions of counting}
+\begin{enumerate}
+    \item Counting concrete objects;
+    \item Counting choices/possibilities.
+\end{enumerate}
+
+\textbf{Examples}
+\begin{enumerate}
+    \item counting beer bottles in a party store;
+    \item buying plane tickets for a given itinerary.
+\end{enumerate}
+
+\section*{}
 Subsets and binary strings
 
-\noindent
-\hrulefill
-
-\noindent
 \textbf{Theorem}
-
-\noindent
 A $k$-element set has $2^k$ subsets.
 
-\noindent
-\begin{tabular}{cccccccc}
-$\boxed{k=3}$ & $\emptyset$ & \{A\} & \{B\} & \{C\} & \{A,B\} & \{A,C\} & \{B,C\} & \{A,B,C\}
-\end{tabular}
+\framebox{$k=3$} $\emptyset$ \{A\} \{B\} \{C\} \{A,B\} \{A,C\} \{B,C\} \{A,B,C\}
 
-\noindent
-\hrulefill
-
-\noindent
 \textbf{Proof}
-
-\noindent
 The subsets of a $k$-element set are encoded by binary strings of length $k$, i.e., by $k$-letter words in a 2-letter alphabet:
 
-\noindent
-\begin{tabular}{cccccccc}
-$\emptyset$ & \{A\} & \{B\} & \{C\} & \{A,B\} & \{A,C\} & \{B,C\} & \{A,B,C\} \\
-000 & 100 & 010 & 001 & 110 & 101 & 011 & 111
-\end{tabular}
+$\emptyset$ \{A\} \{B\} \{C\} \{A,B\} \{A,C\} \{B,C\} \{A,B,C\}
 
-\noindent
+000 100 010 001 110 101 011 111
+
 The number of such words is $2^k$.
+
+\section*{}
+Counting words
+
+An \textbf{alphabet} is a finite set of symbols (letters).
+
+A \textbf{word} in an alphabet is a string (i.e., finite sequence) of letters.
+
+\textbf{Theorem}
+The number of $k$-letter words in an $n$-letter alphabet is $n^k$.
+
+$k=2$ \quad AA AB AC BA BB BC CA CB CC
+$n=3$
+
+$k=3$ \quad AAA AAB ABA ABB BAA BAB BBA BBB
+$n=2$
+
+\section*{}
+Cyclic permutations
+
+\textbf{Problem}
+How many ways are there to arrange $n$ distinct objects in a circle, up to rotation?
+
+Example: seating a party of $n$ people around a round table.
+
+\includegraphics[scale=0.2]{./slide6.png}
+
+Answer: $(n-1)!$.
+
+\textbf{Exercise}
+Given $n$ beads of different colors, how many circular necklaces are there that use all of these beads?
+
+\section*{}
+The Subtraction Principle
+
+The Subtraction Principle is used in situations where it is more practical to count the objects of interest together with some other objects, and then subtract the number of those extra objects.
+
+\textbf{Problem}
+How many ways are there to place 5 people named Amy, Bernie, Cory, Donald, and Elizabeth on the stage so that Amy and Bernie are \textit{not} adjacent to each other?
+
+\textbf{Solution}
+$5! - 4! \cdot 2 = 72$.
+
+\section*{}
+The Division Principle
+
+The Division Principle is used in situations where each object of interest is counted several times (a fixed number).
+
+\textbf{Problem}
+How many diagonals are there in a convex $n$-gon?
+
+\includegraphics[scale=0.3]{./slide8.png}
+
+\textbf{Solution}
+For each of the $n$ vertices, there are $n-3$ diagonals connecting to it. Each diagonal is counted twice. \textbf{Answer}: $n(n-3)/2$.
+
+\section*{}
+Course management
+
+I am teaching Math 465 section 3 this Fall
+Location: East Hall B737
+Time: Tuesday and Thursday, 2:30-3:50 PM.
+
+The best way to communicate with me is by \textit{email}.
+
+Most of the course management will occur on \textit{Canvas}.
+
+\textit{Office hours} will be conducted in my office, EH 3827:
+\begin{itemize}
+    \item Tuesday/Thursady 3:50-5:20 PM
+\end{itemize}
+
+\section*{}
+Math 465: Introduction to Combinatorics
+
+Andrew Sack
+
+asack@umich.edu
+
+These slides will be posted on Canvas.
+
+\section*{}
+Permutations of subsets
+
+\textbf{Problem}
+Given 34 people, how many ways are there for \textit{at most} 4 of them to wait in line?
+
+\textbf{Solution}
+Let us divide the set of possibilities into \textit{cases}:
+\begin{itemize}
+    \item The line has 0 people. There is 1 way this can happen.
+    \item The line has 1 person. There are 34 ways this can happen.
+    \item The line has 2 people. There are $34 \cdot 33 = 1122$ ways.
+    \item The line has 3 people. There are $34 \cdot 33 \cdot 32 = 35904$ ways.
+    \item The line has 4 people. There are $34 \cdot 33 \cdot 32 \cdot 31 = 1113024$ ways.
+\end{itemize}
+Hence the total number of ways is
+$$1+34+1122+35904+1113024 = \mathbf{1150085}.$$
+
+Note that we used both Addition and Multiplication Principles.
+
+\section*{}
+The Multiplication Principle, continued
+
+\textbf{Problem}
+How many divisors does the number 600 have?
+
+\textbf{Solution}
+Since $600 = 2^3 \cdot 3 \cdot 5^2$, the answer is $4 \cdot 2 \cdot 3 = 24$.
+
+\textbf{Problem}
+How many rectangles are there in this picture?
+
+\includegraphics[scale=0.3]{./slide12.png}
+
+\textbf{Solution}
+$(3+2+1) \times (3+2+1) = \mathbf{36}$.
+
+\section*{}
+Grading
+
+The grade will be based on:
+\begin{itemize}
+    \item homework (45\%),
+    \item quizzes (15\%), and
+    \item two 1.5-hour exams (20\% each).
+\end{itemize}
+
+This course will \textit{not} be graded on a curve, i.e., there are not a set percentage of each grade to be given out.
+
+Final grade cutoffs:
+\begin{itemize}
+    \item total score of 90\% guarantees the final grade of A or higher;
+    \item total score of 80\% guarantees the final grade of B or higher;
+    \item total score of 70\% guarantees the final grade of C or higher;
+    \item total score of 60\% guarantees the final grade of D.
+\end{itemize}
+
+\section*{}
+Exams and quizzes
+
+\textbf{Exams (20\% each)}
+
+There will be two exams, each covering one half of the course. These exams will \textit{not} be cumulative.
+
+\textbf{Quizzes (15\% total)}
+
+There will be three quizzes, administered via \textit{Canvas}:
+\begin{itemize}
+    \item at the end of next week, on Friday-Saturday, January 17-18;
+    \item at the end of the week after, on Friday-Saturday, January 24-25;
+    \item in the first week after spring break.
+\end{itemize}
+
+The goal of the first two quizzes is to help you decide whether this course is a good match for you.
+
+\section*{}
+Counting permutations
+
+\textbf{Theorem}
+An $n$-element set has $n!$ permutations.
+
+\framebox{$n=3$} \quad 123 \quad 132 \quad 213 \quad 231 \quad 312 \quad 321
+
+\textbf{Proof \#1: selecting the entries, left to right}
+
+$n$ choices for the $1^{\text{st}}$ entry, then $n-1$ choices for the $2^{\text{nd}}$ entry, etc.
+
+\textbf{Proof \#2: inserting the entries, in increasing order}
+
+$n=3$ \quad 123 \quad 132 \quad 213 \quad 231 \quad 312 \quad 321
+\newline
+$n=4$ \quad 1234 \quad 1324 \quad 2134 \quad 2314 \quad 3124 \quad 3214
+\newline
+\quad 1243 \quad 1342 \quad 2143 \quad 2341 \quad 3142 \quad 3241
+\newline
+\quad 1423 \quad 1432 \quad 2413 \quad 2431 \quad 3412 \quad 3421
+\newline
+\quad 4123 \quad 4132 \quad 4213 \quad 4231 \quad 4312 \quad 4321
+
+\section*{}
+The Addition Principle (=Summation Rule)
+
+Two incarnations of the Addition Principle:
+\begin{enumerate}
+    \item splitting a set into subsets;
+    \item splitting choices into cases.
+\end{enumerate}
+
+\textbf{Problem}
+How many squares can be found in this picture?
+
+\includegraphics[scale=0.3]{./slide16.png}
+
+\textbf{Solution}
+$16+9+4+1 = \mathbf{30}$.
+
+(We shall later solve this for the $n \times n$ grid.)
+
+\section*{}
+Proofs
+
+This is a \textit{proof-based} course. Students are expected to understand rigorous mathematical proofs, and perhaps even more importantly, supply their own proofs when asked.
+
+Some specific prerequisites:
+\begin{itemize}
+    \item proofs by induction,
+    \item proofs by contradiction,
+    \item basic set theory terminology (intersection, union, etc.),
+    \item basic function terminology (one-to-one, onto, composition, etc.).
+\end{itemize}
+
+If you are not familiar with Mathematical Induction, read either [Bóna, Chapter 2] or [Shahriari, Sections 1.1-1.2].
+
+\section*{}
+Content overview
+
+This course introduces the fundamental notions, techniques, and theorems of \textit{enumerative combinatorics} and \textit{graph theory}.
+
+Level: undergraduate. Next level courses: Math 565, Math 566.
+
+Recommended texts (neither is required):
+\begin{itemize}
+    \item M. Bóna, \textit{A walk through combinatorics}, $4^{\text{th}}$ ed., World Scientific, 2016-17.
+    \item S. Shahriari, \textit{Invitation to Combinatorics}, Cambridge University Press, 2022.
+\end{itemize}
+
+We will roughly cover Part II (\textit{Enumerative Combinatorics}) and Part III (\textit{Graph Theory}) of Bóna's textbook, plus some other topics.
+
+We will not follow either textbook too closely. The lectures and the books will often provide slightly different approaches.
+
+\section*{}
+The golden rule
+
+\textbf{The golden rule of counting}
+
+Count everything \textit{exactly} once.
+
+That is: count everything, and don't count anything more than once.
+
+As we develop more sophisticated methods of counting, it will be important to make mental checks that everything is accounted for, and nothing is overcounted.
+
+\section*{}
+Unordered set partitions
+
+\textbf{Problem}
+In how many ways can a 4-element set be partitioned into nonempty subsets (=blocks)?
+
+Example: distributing students among Zoom breakout rooms.
+
+\textbf{Solution}
+There are 4 cases, depending on the number of blocks:
+\begin{itemize}
+    \item 1 block: $abcd$
+    \item 2 blocks: $abc | d$ \quad $abd | c$ \quad $acd | b$ \quad $bcd | a$ \quad $ab | cd$ \quad $ac | bd$ \quad $ad | bc$
+    \item 3 blocks: $ab | c | d$ \quad $ac | b | d$ \quad $ad | b | c$ \quad $bc | a | d$ \quad $bd | a | c$ \quad $cd | a | b$
+    \item 4 blocks: $a | b | c | d$
+\end{itemize}
+Total: 1+7+6+1=15.
+
+Exercise: Solve the analogous problem for a 5-element set.
+
+\section*{}
+Homework
+
+There will be approximately 11 problem sets, posted on Canvas.
+
+Homework \#1 will be released on Tuesday, Jan 14. It will be due on Jan 20 at 11:59pm.
+
+Homework \textit{answers have to be justified}. No justification---no credit.
+
+Collaboration in small groups (up to four people total in a group) is allowed---but each case of collaboration has to be explicitly acknowledged on every homework submission.
+
+\section*{}
+Homework submission and grading
+
+Homework submission and grading will be done via \textit{Gradescope}.
+
+On each problem set, only 5 problems will be graded.
+
+Late homework will \textit{not} be accepted.
+
+The lowest homework score will be dropped in the final calculation.
+
+Gradescope has a built-in mechanism for regrade requests.
+
+Any questions about the administrative aspects of the course?
+
+\section*{}
+The Multiplication Principle (=Product Rule)
+
+\textbf{Problem}
+Jimmy John's \textit{Slim Roast Beef Sandwich} can be ordered:
+\begin{itemize}
+    \item on French bread, wheat bread, or without bread;
+    \item with regular, extra, or small amount of roast beef;
+    \item with regular, extra, small, or \textbf{no} amount of avocado spread;
+    \item with regular, extra, small, or \textbf{no} amount of provolone cheese;
+    \item with, without, or with extra Dijon mustard;
+    \item with or without tomato.
+\end{itemize}
+How many ways are there to order the \textit{Slim Roast Beef Sandwich}?
+
+\textbf{Solution}
+$3 \cdot 3 \cdot 4 \cdot 4 \cdot 3 \cdot 2 = 864$.
 
 \end{document}
 ```
