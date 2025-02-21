@@ -1,0 +1,43 @@
+```latex
+\documentclass{article}
+\usepackage{amsmath}
+
+\begin{document}
+
+\noindent
+Subsets and binary strings
+
+\noindent
+\hrulefill
+
+\noindent
+\textbf{Theorem}
+
+\noindent
+A $k$-element set has $2^k$ subsets.
+
+\noindent
+\begin{tabular}{cccccccc}
+$\boxed{k=3}$ & $\emptyset$ & \{A\} & \{B\} & \{C\} & \{A,B\} & \{A,C\} & \{B,C\} & \{A,B,C\}
+\end{tabular}
+
+\noindent
+\hrulefill
+
+\noindent
+\textbf{Proof}
+
+\noindent
+The subsets of a $k$-element set are encoded by binary strings of length $k$, i.e., by $k$-letter words in a 2-letter alphabet:
+
+\noindent
+\begin{tabular}{cccccccc}
+$\emptyset$ & \{A\} & \{B\} & \{C\} & \{A,B\} & \{A,C\} & \{B,C\} & \{A,B,C\} \\
+000 & 100 & 010 & 001 & 110 & 101 & 011 & 111
+\end{tabular}
+
+\noindent
+The number of such words is $2^k$.
+
+\end{document}
+```
