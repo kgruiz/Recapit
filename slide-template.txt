@@ -1,0 +1,14 @@
+\documentclass[aspectratio=43]{beamer}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+
+\setbeamertemplate{navigation symbols}{}
+
+\setbeamertemplate{footline}{}
+
+\title{%Title%}
+\author{%Author%}
+\date{%Date%}
+
+\begin{document}
