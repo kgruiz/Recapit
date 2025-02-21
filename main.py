@@ -836,13 +836,4 @@ def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
 
 if __name__ == "__main__":
 
-    # PDFToPNG(
-    #     pdfPath=Path(INPUT_DIR, "465-Lecture-1.pdf"),
-    #     # pagesDir=Path(OUTPUT_DIR, "465-Lecture-1-pages"),
-    # )
-
-    # TranscribeSlideImages(
-    #     imageDir=Path(OUTPUT_DIR, "465-Lecture-1-pages"), limiterMethod="tracking"
-    # )
-
     BulkSlideTranscribe(excludeSlideNums=[])
