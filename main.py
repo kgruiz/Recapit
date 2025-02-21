@@ -156,9 +156,9 @@ def SleepWithProgress(progress, task, sleepTime, defaultDescription):
 def CleanResponse(
     combinedResponse: str,
     preamble: str,
-    title: str = "",
-    author: str = "",
-    date: str = "",
+    title: str | None = "",
+    author: str | None = "",
+    date: str | None = "",
 ) -> str:
 
     preambleLines = preamble.splitlines()
@@ -205,15 +205,65 @@ def CleanResponse(
 
     preamble = "\n".join(preambleLines)
 
-    preamble = re.sub(
-        r"^\\title\{(.*)\}", rf"\\title{{{title}}}", preamble, flags=re.MULTILINE
-    )
-    preamble = re.sub(
-        r"^\\author\{(.*)\}", rf"\\author{{{author}}}", preamble, flags=re.MULTILINE
-    )
-    preamble = re.sub(
-        r"^\\date\{(.*)\}", rf"\\date{{{date}}}", preamble, flags=re.MULTILINE
-    )
+    if re.search(r"^\\title\{.*\}", preamble, flags=re.MULTILINE) is None:
+
+        if title is not None:
+
+            preambleLines = preamble.splitlines()
+
+            preambleLines.insert(1, f"\\title{{{title}}}")
+
+            preamble = "\n".join(preambleLines)
+
+    elif title is not None:
+
+        preamble = re.sub(
+            r"^\\title\{(.*)\}", rf"\\title{{{title}}}", preamble, flags=re.MULTILINE
+        )
+
+    else:
+
+        preamble = re.sub(r"^\\title\{.*\}", "", preamble, flags=re.MULTILINE)
+
+    if re.search(r"^\\author\{.*\}", preamble, flags=re.MULTILINE) is None:
+
+        if author is not None:
+
+            preambleLines = preamble.splitlines()
+
+            preambleLines.insert(2, f"\\author{{{author}}}")
+
+            preamble = "\n".join(preambleLines)
+
+    elif author is not None:
+
+        preamble = re.sub(
+            r"^\\author\{(.*)\}", rf"\\author{{{author}}}", preamble, flags=re.MULTILINE
+        )
+
+    else:
+
+        preamble = re.sub(r"^\\author\{.*\}", "", preamble, flags=re.MULTILINE)
+
+    if re.search(r"^\\date\{.*\}", preamble, flags=re.MULTILINE) is None:
+
+        if date is not None:
+
+            preambleLines = preamble.splitlines()
+
+            preambleLines.insert(3, f"\\date{{{date}}}")
+
+            preamble = "\n".join(preambleLines)
+
+    elif date is not None:
+
+        preamble = re.sub(
+            r"^\\date\{(.*)\}", rf"\\date{{{date}}}", preamble, flags=re.MULTILINE
+        )
+
+    else:
+
+        preamble = re.sub(r"^\\date\{.*\}", "", preamble, flags=re.MULTILINE)
 
     cleanedResponse = f"{preamble}\n{combinedResponse}\n{END_DOCUMENT_LINE}"
 
@@ -641,11 +691,13 @@ def BulkSlideTranscribe():
 
 if __name__ == "__main__":
 
-    PDFToPNG(
-        pdfPath=Path(INPUT_DIR, "465-Lecture-1.pdf"),
-        # pagesDir=Path(OUTPUT_DIR, "465-Lecture-1-pages"),
-    )
+    # PDFToPNG(
+    #     pdfPath=Path(INPUT_DIR, "465-Lecture-1.pdf"),
+    #     # pagesDir=Path(OUTPUT_DIR, "465-Lecture-1-pages"),
+    # )
 
-    TranscribeSlideImages(
-        imageDir=Path(OUTPUT_DIR, "465-Lecture-1-pages"), limiterMethod="tracking"
-    )
+    # TranscribeSlideImages(
+    #     imageDir=Path(OUTPUT_DIR, "465-Lecture-1-pages"), limiterMethod="tracking"
+    # )
+
+    BulkSlideTranscribe()
