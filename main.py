@@ -33,6 +33,9 @@ from rich.text import Text
 
 console = Console()
 
+# Global deque to track request times across instances
+GLOBAL_REQUEST_TIMES = deque()
+
 # Define rate limit constants
 RATE_LIMIT_PER_MINUTE = 15
 RATE_LIMIT_WINDOW = 60
@@ -279,7 +282,7 @@ def TranscribeSlideImages(
 ):
     """
     Processes images and queries an API, optionally rate-limiting the calls if the number
-    of images exceeds the defined rate limit.
+    of images exceeds the defined rate limit. Rate limiting is tracked globally across instances.
 
     Parameters
     ----------
@@ -297,7 +300,11 @@ def TranscribeSlideImages(
     outputName : str, optional
         Base name for the output files.
         Defaults to "response".
+    progress : Progress, optional
+        A rich Progress instance to update the UI.
     """
+
+    global GLOBAL_REQUEST_TIMES
 
     # Use the provided imageDir for image directory.
     IMAGE_DIR = Path(imageDir)
@@ -309,9 +316,9 @@ def TranscribeSlideImages(
 
     responses = []
     defaultDescription = "Querying images"
+
     useRateLimit = len(images) >= RATE_LIMIT_PER_MINUTE
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
-    requestTimes = deque()
 
     if progress is None:
 
@@ -327,7 +334,6 @@ def TranscribeSlideImages(
             TimeRemainingColumn(),
             expand=True,
         )
-
     elif not isinstance(progress, Progress):
 
         raise ValueError("progress must be a rich.progress.Progress instance")
@@ -364,21 +370,25 @@ def TranscribeSlideImages(
                         SleepWithProgress(progress, task, sleepTime, defaultDescription)
 
                 elif limiterMethod == "tracking":
+                    # Remove timestamps that are outside the current window
                     while (
-                        requestTimes
-                        and currentTime - requestTimes[0] >= RATE_LIMIT_WINDOW
+                        GLOBAL_REQUEST_TIMES
+                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
                     ):
-                        requestTimes.popleft()
+                        GLOBAL_REQUEST_TIMES.popleft()
 
-                    if len(requestTimes) >= RATE_LIMIT_PER_MINUTE:
-                        sleepTime = RATE_LIMIT_WINDOW - (currentTime - requestTimes[0])
+                    if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
+                        sleepTime = RATE_LIMIT_WINDOW - (
+                            currentTime - GLOBAL_REQUEST_TIMES[0]
+                        )
                         SleepWithProgress(progress, task, sleepTime, defaultDescription)
                         currentTime = time.time()
                         while (
-                            requestTimes
-                            and currentTime - requestTimes[0] >= RATE_LIMIT_WINDOW
+                            GLOBAL_REQUEST_TIMES
+                            and currentTime - GLOBAL_REQUEST_TIMES[0]
+                            >= RATE_LIMIT_WINDOW
                         ):
-                            requestTimes.popleft()
+                            GLOBAL_REQUEST_TIMES.popleft()
 
                     client = genai.Client(api_key=apiKey)
                     response = client.models.generate_content(
@@ -395,7 +405,7 @@ def TranscribeSlideImages(
                         ],
                     )
                     responses.append(response)
-                    requestTimes.append(time.time())
+                    GLOBAL_REQUEST_TIMES.append(time.time())
                 else:
                     raise ValueError(
                         "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
@@ -464,8 +474,7 @@ def TranscribeLectureImages(
     progress=None,
 ):
     """
-    Processes images and queries an API, optionally rate-limiting the calls if the number
-    of images exceeds the defined rate limit.
+    Processes lecture images and queries an API with global rate limiting.
 
     Parameters
     ----------
@@ -478,14 +487,17 @@ def TranscribeLectureImages(
             - "tracking": Tracks request timestamps and sleeps only if needed.
         Defaults to "tracking".
     outputDir : Path, optional
-        Path to the directory where outputs will be stored.
+        Directory to store outputs.
         Defaults to OUTPUT_DIR.
     outputName : str, optional
-        Base name for the output files.
+        Base name for output files.
         Defaults to "response".
+    progress : Progress, optional
+        A rich Progress instance to update the UI.
     """
 
-    # Use the provided imageDir for image directory.
+    global GLOBAL_REQUEST_TIMES
+
     IMAGE_DIR = Path(imageDir)
     images = [PIL.Image.open(imagePath) for imagePath in IMAGE_DIR.glob("*.png")]
 
@@ -495,9 +507,9 @@ def TranscribeLectureImages(
 
     responses = []
     defaultDescription = "Querying images"
+
     useRateLimit = len(images) >= RATE_LIMIT_PER_MINUTE
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
-    requestTimes = deque()
 
     if progress is None:
 
@@ -527,18 +539,18 @@ def TranscribeLectureImages(
             currentTime = time.time()
 
             if useRateLimit:
+
                 if limiterMethod == "fixedDelay":
+
                     startTime = currentTime
                     client = genai.Client(api_key=apiKey)
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
                         contents=[
                             (
-                                f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
-                                f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
-                                f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
-                                f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
-                                f"describe the contents.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
+                                f"Transcribe the image, including all math, in latex format. Use the given lecture preamble as a base, "
+                                f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
+                                f"Do not include outside files. For graphics, either recreate with tikz or leave a placeholder.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
                             ),
                             image,
                         ],
@@ -547,85 +559,99 @@ def TranscribeLectureImages(
                     elapsed = time.time() - startTime
 
                     if elapsed < delayBetweenCalls:
+
                         sleepTime = delayBetweenCalls - elapsed
                         SleepWithProgress(progress, task, sleepTime, defaultDescription)
 
                 elif limiterMethod == "tracking":
-                    while (
-                        requestTimes
-                        and currentTime - requestTimes[0] >= RATE_LIMIT_WINDOW
-                    ):
-                        requestTimes.popleft()
 
-                    if len(requestTimes) >= RATE_LIMIT_PER_MINUTE:
-                        sleepTime = RATE_LIMIT_WINDOW - (currentTime - requestTimes[0])
+                    while (
+                        GLOBAL_REQUEST_TIMES
+                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                    ):
+                        GLOBAL_REQUEST_TIMES.popleft()
+
+                    if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
+
+                        sleepTime = RATE_LIMIT_WINDOW - (
+                            currentTime - GLOBAL_REQUEST_TIMES[0]
+                        )
+
                         SleepWithProgress(progress, task, sleepTime, defaultDescription)
                         currentTime = time.time()
-                        while (
-                            requestTimes
-                            and currentTime - requestTimes[0] >= RATE_LIMIT_WINDOW
-                        ):
-                            requestTimes.popleft()
 
+                        while (
+                            GLOBAL_REQUEST_TIMES
+                            and currentTime - GLOBAL_REQUEST_TIMES[0]
+                            >= RATE_LIMIT_WINDOW
+                        ):
+                            GLOBAL_REQUEST_TIMES.popleft()
                     client = genai.Client(api_key=apiKey)
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
                         contents=[
                             (
-                                f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
-                                f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
-                                f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
-                                f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
-                                f"describe the contents.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
+                                f"Transcribe the image, including all math, in latex format. Use the given lecture preamble as a base, "
+                                f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
+                                f"Do not include outside files. For graphics, either recreate with tikz or leave a placeholder.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
                             ),
                             image,
                         ],
                     )
                     responses.append(response)
-                    requestTimes.append(time.time())
+                    GLOBAL_REQUEST_TIMES.append(time.time())
+
                 else:
+
                     raise ValueError(
                         "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
                     )
             else:
+
                 client = genai.Client(api_key=apiKey)
                 response = client.models.generate_content(
                     model="gemini-2.0-flash",
                     contents=[
                         (
-                            f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
-                            f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
-                            f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
-                            f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
-                            f"describe the contents.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
+                            f"Transcribe the image, including all math, in latex format. Use the given lecture preamble as a base, "
+                            f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
+                            f"Do not include outside files. For graphics, either recreate with tikz or leave a placeholder.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
                         ),
                         image,
                     ],
                 )
                 responses.append(response)
-
             progress.update(task, advance=1)
 
-    # Save responses as pickle
     localPickleDir = Path(outputDir, f"{outputName}-pickles")
     localPickleDir.mkdir(parents=True, exist_ok=True)
 
     try:
+
         picklePath = Path(localPickleDir, f"{outputName}.pkl")
+
         if picklePath.exists():
+
             uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
             picklePath = picklePath.with_name(uniquePath)
+
             if picklePath.exists():
+
                 raise FileExistsError(
-                    f"File {picklePath} already exists. Attempt to create unique file failed."
+                    f"File {picklePath} already exists. Unique file creation failed."
                 )
+
         with picklePath.open("wb") as file:
             pickle.dump(responses, file)
+
     except Exception as e:
+
         console.print(f"{e}\n\n\n[bold red]Failed to save responses[/bold red]")
 
     combinedResponse = ""
+
     for response in responses:
+
         responseText: str | list[str] = response.text
         if isinstance(responseText, str):
             responseText = responseText.splitlines()
@@ -661,6 +687,7 @@ def BulkSlideTranscribe():
         TextColumn("•"),
         TimeRemainingColumn(),
         expand=True,
+        transient=True,
     ) as progress:
 
         task = progress.add_task(f"Transcribing slide files", total=numSlideFiles)
