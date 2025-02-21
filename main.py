@@ -54,9 +54,21 @@ LATEX_PREAMBLE_PATH = Path("utils", "slide-template.txt")
 
 if not LATEX_PREAMBLE_PATH.exists():
 
-    raise FileNotFoundError(f"Latex preamble file {LATEX_PREAMBLE_PATH} not found")
+    raise FileNotFoundError(
+        f"Slides latex preamble file {LATEX_PREAMBLE_PATH} not found"
+    )
 
 LATEX_PREAMBLE = LATEX_PREAMBLE_PATH.read_text()
+
+LECTURE_LATEX_PREAMBLE_PATH = Path("utils", "lecture-template.txt")
+
+if not LATEX_PREAMBLE_PATH.exists():
+
+    raise FileNotFoundError(
+        f"Lecture latex preamble file {LECTURE_LATEX_PREAMBLE_PATH} not found"
+    )
+
+LECTURE_LATEX_PREAMBLE = LECTURE_LATEX_PREAMBLE_PATH.read_text()
 
 
 def PDFToPNG(
@@ -135,7 +147,7 @@ def SleepWithProgress(progress, task, sleepTime, defaultDescription):
     progress.update(task, description=defaultDescription)
 
 
-def CleanResponseSlides(
+def CleanResponse(
     combinedResponse: str,
     preamble: str,
     title: str = "",
@@ -371,8 +383,183 @@ def TranscribeSlideImages(
         combinedResponse += ("\n".join(responseText) + "\n").strip()
 
     Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
-    cleanedResponse = CleanResponseSlides(
+    cleanedResponse = CleanResponse(
         combinedResponse=combinedResponse, preamble=LATEX_PREAMBLE
+    )
+    Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
+
+
+def TranscribeLectureImages(
+    imageDir: Path,
+    limiterMethod: str = "tracking",
+    outputDir: Path = OUTPUT_DIR,
+    outputName: str = "response",
+):
+    """
+    Processes images and queries an API, optionally rate-limiting the calls if the number
+    of images exceeds the defined rate limit.
+
+    Parameters
+    ----------
+    imageDir : Path
+        Path to the directory containing the input images.
+    limiterMethod : str, optional
+        The rate limiting method to use when len(images) >= RATE_LIMIT_PER_MINUTE.
+        Supported values:
+            - "fixedDelay": Sleeps for a fixed delay between each call.
+            - "tracking": Tracks request timestamps and sleeps only if needed.
+        Defaults to "tracking".
+    outputDir : Path, optional
+        Path to the directory where outputs will be stored.
+        Defaults to OUTPUT_DIR.
+    outputName : str, optional
+        Base name for the output files.
+        Defaults to "response".
+    """
+
+    # Use the provided imageDir for image directory.
+    IMAGE_DIR = Path(imageDir)
+    images = [PIL.Image.open(imagePath) for imagePath in IMAGE_DIR.glob("*.png")]
+
+    apiKey = os.getenv("GEMINI_API_KEY")
+    if apiKey is None:
+        raise ValueError("GEMINI_API_KEY environment variable not set")
+
+    responses = []
+    defaultDescription = "Querying images"
+    useRateLimit = len(images) >= RATE_LIMIT_PER_MINUTE
+    delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
+    requestTimes = deque()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn(f"[bold blue]{defaultDescription}", justify="left"),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        BarColumn(bar_width=None),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        expand=True,
+    ) as progress:
+        task = progress.add_task(defaultDescription, total=len(images))
+
+        for image in images:
+            currentTime = time.time()
+
+            if useRateLimit:
+                if limiterMethod == "fixedDelay":
+                    startTime = currentTime
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            (
+                                f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
+                                f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
+                                f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
+                                f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
+                                f"describe the contents.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
+                            ),
+                            image,
+                        ],
+                    )
+                    responses.append(response)
+                    elapsed = time.time() - startTime
+
+                    if elapsed < delayBetweenCalls:
+                        sleepTime = delayBetweenCalls - elapsed
+                        SleepWithProgress(progress, task, sleepTime, defaultDescription)
+
+                elif limiterMethod == "tracking":
+                    while (
+                        requestTimes
+                        and currentTime - requestTimes[0] >= RATE_LIMIT_WINDOW
+                    ):
+                        requestTimes.popleft()
+
+                    if len(requestTimes) >= RATE_LIMIT_PER_MINUTE:
+                        sleepTime = RATE_LIMIT_WINDOW - (currentTime - requestTimes[0])
+                        SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                        currentTime = time.time()
+                        while (
+                            requestTimes
+                            and currentTime - requestTimes[0] >= RATE_LIMIT_WINDOW
+                        ):
+                            requestTimes.popleft()
+
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            (
+                                f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
+                                f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
+                                f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
+                                f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
+                                f"describe the contents.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
+                            ),
+                            image,
+                        ],
+                    )
+                    responses.append(response)
+                    requestTimes.append(time.time())
+                else:
+                    raise ValueError(
+                        "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
+                    )
+            else:
+                client = genai.Client(api_key=apiKey)
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=[
+                        (
+                            f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
+                            f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
+                            f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
+                            f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
+                            f"describe the contents.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
+                        ),
+                        image,
+                    ],
+                )
+                responses.append(response)
+
+            progress.update(task, advance=1)
+
+    # Save responses as pickle
+    localPickleDir = Path(outputDir, f"{outputName}-pickles")
+    localPickleDir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        picklePath = Path(localPickleDir, f"{outputName}.pkl")
+        if picklePath.exists():
+            uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+            picklePath = picklePath.with_name(uniquePath)
+            if picklePath.exists():
+                raise FileExistsError(
+                    f"File {picklePath} already exists. Attempt to create unique file failed."
+                )
+        with picklePath.open("wb") as file:
+            pickle.dump(responses, file)
+    except Exception as e:
+        console.print(f"{e}\n\n\n[bold red]Failed to save responses[/bold red]")
+
+    combinedResponse = ""
+    for response in responses:
+        responseText: str | list[str] = response.text
+        if isinstance(responseText, str):
+            responseText = responseText.splitlines()
+            if responseText[0].strip().startswith("```"):
+                responseText = responseText[1:]
+            if responseText[-1].strip() == "```":
+                responseText = responseText[:-1]
+        combinedResponse += ("\n".join(responseText) + "\n").strip()
+
+    Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
+    cleanedResponse = CleanResponse(
+        combinedResponse=combinedResponse, preamble=LECTURE_LATEX_PREAMBLE
     )
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
