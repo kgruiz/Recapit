@@ -59,20 +59,36 @@ if not LATEX_PREAMBLE_PATH.exists():
 LATEX_PREAMBLE = LATEX_PREAMBLE_PATH.read_text()
 
 
-def PDFToPNG():
+def PDFToPNG(
+    pdfPath: Path,
+    pagesDir: Path = None,
+):
+    """
+    Converts a PDF file to PNG images, saving them in the specified directory.
 
-    pdfPath = Path(input, "465-Lecture-1.pdf")
+    Parameters
+    ----------
+    pdfPath : Path, optional
+        The path to the PDF file.
+    pagesDir : Path, optional
+        The directory where the PNG images will be saved.
+        Defaults to OUTPUT_DIR / f"{pdfPath.stem}-pages" if not provided.
+    """
+
+    if pagesDir is None:
+
+        pagesDir = Path(OUTPUT_DIR, f"{pdfPath.stem}-pages")
+
     images = convert_from_path(pdfPath)
-    outputDir = Path(OUTPUT_DIR, f"{pdfPath.stem}-pages")
 
-    if outputDir.exists():
-        shutil.rmtree(outputDir)
+    if pagesDir.exists():
+        shutil.rmtree(pagesDir)
 
-    outputDir.mkdir(parents=True, exist_ok=True)
+    pagesDir.mkdir(parents=True, exist_ok=True)
 
     with Progress(
         SpinnerColumn(),
-        TextColumn("[bold blue]{task.description}", justify="left"),
+        TextColumn(f"[bold blue]Converting {pdfPath.name} to png", justify="left"),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         BarColumn(bar_width=None),
         MofNCompleteColumn(),
@@ -83,10 +99,11 @@ def PDFToPNG():
         expand=True,
     ) as progress:
 
-        task = progress.add_task(f"Converting {pdfPath.name} to PNG", total=len(images))
+        task = progress.add_task(f"Converting {pdfPath.name} to png", total=len(images))
 
         for i, image in enumerate(images):
-            image.save(Path(outputDir, f"{pdfPath.stem}-{i}.png"), "PNG")
+
+            image.save(Path(pagesDir, f"{pdfPath.stem}-{i}.png"), "png")
             progress.update(task, advance=1)
 
 
@@ -185,22 +202,36 @@ def CleanResponse(
     return cleanedResponse
 
 
-def ImageQuery(limiterMethod: str = "tracking"):
+def ImageQuery(
+    imageDir: Path,
+    limiterMethod: str = "tracking",
+    outputDir: Path = OUTPUT_DIR,
+    outputName: str = "response",
+):
     """
     Processes images and queries an API, optionally rate-limiting the calls if the number
     of images exceeds the defined rate limit.
 
     Parameters
     ----------
+    imageDir : Path
+        Path to the directory containing the input images.
     limiterMethod : str, optional
         The rate limiting method to use when len(images) >= RATE_LIMIT_PER_MINUTE.
         Supported values:
             - "fixedDelay": Sleeps for a fixed delay between each call.
             - "tracking": Tracks request timestamps and sleeps only if needed.
         Defaults to "tracking".
+    outputDir : Path, optional
+        Path to the directory where outputs will be stored.
+        Defaults to OUTPUT_DIR.
+    outputName : str, optional
+        Base name for the output files.
+        Defaults to "response".
     """
 
-    IMAGE_DIR = Path(OUTPUT_DIR, "465-Lecture-1-pages")
+    # Use the provided imageDir for image directory.
+    IMAGE_DIR = Path(imageDir)
     images = [PIL.Image.open(imagePath) for imagePath in IMAGE_DIR.glob("*.png")]
 
     apiKey = os.getenv("GEMINI_API_KEY")
@@ -225,15 +256,12 @@ def ImageQuery(limiterMethod: str = "tracking"):
         TimeRemainingColumn(),
         expand=True,
     ) as progress:
-
         task = progress.add_task(defaultDescription, total=len(images))
 
         for image in images:
-
             currentTime = time.time()
 
             if useRateLimit:
-
                 if limiterMethod == "fixedDelay":
                     startTime = currentTime
                     client = genai.Client(api_key=apiKey)
@@ -291,12 +319,10 @@ def ImageQuery(limiterMethod: str = "tracking"):
                     responses.append(response)
                     requestTimes.append(time.time())
                 else:
-
                     raise ValueError(
                         "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
                     )
             else:
-
                 client = genai.Client(api_key=apiKey)
                 response = client.models.generate_content(
                     model="gemini-2.0-flash",
@@ -315,57 +341,49 @@ def ImageQuery(limiterMethod: str = "tracking"):
 
             progress.update(task, advance=1)
 
+    # Save responses as pickle
+    localPickleDir = Path(outputDir, f"{outputName}-pickles")
+    localPickleDir.mkdir(parents=True, exist_ok=True)
+
     try:
-
-        picklePath = Path(PICKLE_DIR, "responses.pkl")
-
+        picklePath = Path(localPickleDir, f"{outputName}.pkl")
         if picklePath.exists():
-
             uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
             picklePath = picklePath.with_name(uniquePath)
-
             if picklePath.exists():
-
                 raise FileExistsError(
                     f"File {picklePath} already exists. Attempt to create unique file failed."
                 )
-
         with picklePath.open("wb") as file:
-
             pickle.dump(responses, file)
-
     except Exception as e:
-
         console.print(f"{e}\n\n\n[bold red]Failed to save responses[/bold red]")
 
     combinedResponse = ""
-
     for response in responses:
-
         responseText: str | list[str] = response.text
-
         if isinstance(responseText, str):
-
             responseText = responseText.splitlines()
-
             if responseText[0].strip().startswith("```"):
                 responseText = responseText[1:]
-
             if responseText[-1].strip() == "```":
                 responseText = responseText[:-1]
-
         combinedResponse += ("\n".join(responseText) + "\n").strip()
 
-    # print(combinedResponse)
-    Path(OUTPUT_DIR, "response.txt").write_text(combinedResponse)
-
+    Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
     cleanedResponse = CleanResponse(
         combinedResponse=combinedResponse, preamble=LATEX_PREAMBLE
     )
-
-    Path(OUTPUT_DIR, "response.tex").write_text(cleanedResponse)
+    Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
 
 if __name__ == "__main__":
 
-    ImageQuery(limiterMethod="tracking")
+    PDFToPNG(
+        pdfPath=Path(INPUT_DIR, "465-Lecture-1.pdf"),
+        # pagesDir=Path(OUTPUT_DIR, "465-Lecture-1-pages"),
+    )
+
+    ImageQuery(
+        imageDir=Path(OUTPUT_DIR, "465-Lecture-1-pages"), limiterMethod="tracking"
+    )
