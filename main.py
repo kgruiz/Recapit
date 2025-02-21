@@ -135,7 +135,7 @@ def SleepWithProgress(progress, task, sleepTime, defaultDescription):
     progress.update(task, description=defaultDescription)
 
 
-def CleanResponse(
+def CleanResponseSlides(
     combinedResponse: str,
     preamble: str,
     title: str = "",
@@ -202,7 +202,7 @@ def CleanResponse(
     return cleanedResponse
 
 
-def ImageQuery(
+def TranscribeSlideImages(
     imageDir: Path,
     limiterMethod: str = "tracking",
     outputDir: Path = OUTPUT_DIR,
@@ -371,7 +371,7 @@ def ImageQuery(
         combinedResponse += ("\n".join(responseText) + "\n").strip()
 
     Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
-    cleanedResponse = CleanResponse(
+    cleanedResponse = CleanResponseSlides(
         combinedResponse=combinedResponse, preamble=LATEX_PREAMBLE
     )
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
@@ -384,6 +384,6 @@ if __name__ == "__main__":
         # pagesDir=Path(OUTPUT_DIR, "465-Lecture-1-pages"),
     )
 
-    ImageQuery(
+    TranscribeSlideImages(
         imageDir=Path(OUTPUT_DIR, "465-Lecture-1-pages"), limiterMethod="tracking"
     )
