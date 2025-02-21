@@ -11,6 +11,7 @@ from google import genai
 from google.genai import types
 from natsort import natsorted
 from pdf2image import convert_from_path
+from PyPDF2 import PdfReader
 from rich import box
 from rich.align import Align
 from rich.console import Console, Group
@@ -74,6 +75,21 @@ if not LATEX_PREAMBLE_PATH.exists():
     )
 
 LECTURE_LATEX_PREAMBLE = LECTURE_LATEX_PREAMBLE_PATH.read_text()
+
+
+def GetTotalPageCount(pdfFiles: list[Path]) -> int:
+
+    runningTotal = 0
+
+    for pdfFile in pdfFiles:
+
+        with pdfFile.open("rb") as pdf:
+
+            reader = PdfReader(pdf)
+
+            runningTotal += len(reader.pages)
+
+    return runningTotal
 
 
 def PDFToPNG(pdfPath: Path, pagesDir: Path = None, progress=None):
@@ -280,6 +296,7 @@ def TranscribeSlideImages(
     outputDir: Path = OUTPUT_DIR,
     outputName: str = "response",
     progress=None,
+    bulkPagesTask=None,
 ):
     """
     Processes images and queries an API, optionally rate-limiting the calls if the number
@@ -429,6 +446,10 @@ def TranscribeSlideImages(
                 responses.append(response)
 
             progress.update(task, advance=1)
+
+            if bulkPagesTask is not None:
+
+                progress.update(bulkPagesTask, advance=1)
 
     # Save responses as pickle
     localPickleDir = Path(outputDir, f"{outputName}-pickles")
@@ -717,6 +738,8 @@ def BulkSlideTranscribe(excludeSlideNums: list[int] = []):
 
     numSlideFiles = len(slideFiles)
 
+    totalPages = GetTotalPageCount(slideFiles)
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[bold blue]{task.description}", justify="left"),
@@ -732,11 +755,15 @@ def BulkSlideTranscribe(excludeSlideNums: list[int] = []):
     ) as progress:
 
         task = progress.add_task(f"Transcribing slide files", total=numSlideFiles)
+        allPagesTask = progress.add_task(f"Transcribing slide files", total=totalPages)
 
         for slideFile in slideFiles:
 
             progress.update(
                 task, description=f"Transcribing {slideFile.name}", refresh=True
+            )
+            progress.update(
+                allPagesTask, description=f"Transcribing {slideFile.name}", refresh=True
             )
 
             PDFToPNG(pdfPath=slideFile, progress=progress)
@@ -747,6 +774,7 @@ def BulkSlideTranscribe(excludeSlideNums: list[int] = []):
                 outputDir=Path(OUTPUT_DIR, f"{slideFile.stem}-output"),
                 outputName=f"{slideFile.stem}-response",
                 progress=progress,
+                bulkPagesTask=allPagesTask,
             )
 
             progress.update(
