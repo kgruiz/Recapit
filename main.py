@@ -73,6 +73,20 @@ if not LATEX_PREAMBLE_PATH.exists():
 LECTURE_LATEX_PREAMBLE = LECTURE_LATEX_PREAMBLE_PATH.read_text()
 
 
+MATH_465_SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math465/Slides")
+
+MATH_425_SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math425/Slides")
+
+EECS_476_SLIDES_DIR = Path(
+    "/Users/kadengruizenga/Documents/School/W25/EECS476/Lecture-Notes"
+)
+
+
+MATH_465_PATTERN = r"Math465 Lecture (\d+).pdf"
+MATH_425_PATTERN = r"Lecture(\d+).pdf"
+EECS_476_PATTERN = r"lec(\d+).*"
+
+
 def GetTotalPageCount(pdfFiles: list[Path]) -> int:
 
     runningTotal = 0
@@ -711,31 +725,44 @@ def TranscribeLectureImages(
         progress.remove_task(task)
 
 
-def BulkSlideTranscribe(excludeSlideNums: list[int] = [], outputDir: Path = None):
+def BulkSlideTranscribe(
+    lectureDir: Path,
+    outputDir: Path = None,
+    lectureNumPattern: str = r".*(\d+).*",
+    excludeLectureNums: list[int] = [],
+):
 
-    SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math465/Slides")
-
-    slideFiles = list(SLIDES_DIR.glob("*.pdf"))
+    slideFiles = list(lectureDir.glob("*.pdf"))
 
     cleanedSlideFiles = []
 
     for slideFile in slideFiles:
 
-        parts = slideFile.name.split(" ")
+        lectureNum = re.findall(lectureNumPattern, slideFile.stem)
 
-        numParts = parts[-1].replace(".pdf", "")
+        if not lectureNum:
+
+            console.print(f"Error extracting lecture number from {slideFile.name}")
+
+            raise ValueError(f"Error extracting lecture number from {slideFile.name}")
+
+        elif len(lectureNum) > 1:
+
+            console.print(f"Multiple lecture numbers found in {slideFile.name}")
+
+            raise ValueError(f"Multiple lecture numbers found in {slideFile.name}")
 
         try:
 
-            num = int(numParts)
+            lectureNum = int(lectureNum)
 
         except ValueError:
 
-            console.print(f"Error extracting slide number from {slideFile.name}")
+            console.print(f"Error extracting lecture number from {slideFile.name}")
 
             raise
 
-        if num not in excludeSlideNums:
+        if lectureNum not in excludeLectureNums:
 
             cleanedSlideFiles.append(slideFile)
 
@@ -745,7 +772,6 @@ def BulkSlideTranscribe(excludeSlideNums: list[int] = [], outputDir: Path = None
 
     totalPages = GetTotalPageCount(slideFiles)
 
-    # If no output directory is provided, default to a new directory within OUTPUT_DIR called "bulk-results"
     if outputDir is None:
         bulkOutputDir = Path(OUTPUT_DIR, "bulk-results")
     else:
@@ -804,33 +830,36 @@ def BulkSlideTranscribe(excludeSlideNums: list[int] = [], outputDir: Path = None
             )
 
 
-def BulkLectureTranscribe(excludeLectureNums: list[int] = [], outputDir: Path = None):
+def BulkLectureTranscribe(
+    lecturesDir: Path,
+    outputDir: Path = None,
+    lectureNumPattern: str = r".*(\d+).*",
+    excludeLectureNums: list[int] = [],
+):
 
-    LECTURES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math425/Slides")
-
-    # LECTURES_DIR = Path(
-    #     "/Users/kadengruizenga/Documents/School/W25/EECS476/Lecture-Notes"
-    # )
-
-    lectureFiles = list(LECTURES_DIR.glob("*.pdf"))
+    lectureFiles = list(lecturesDir.glob("*.pdf"))
 
     cleanedLectureFiles = []
 
     for lectureFile in lectureFiles:
 
-        num = lectureFile.stem.replace("Lecture", "")
+        lectureNum = re.findall(lectureNumPattern, lectureFile.stem)
 
-        # lectureName = re.search(r"lec(\d\d).*", string=lectureFile.stem)
+        if not lectureNum:
 
-        # if lectureName is None:
+            console.print(f"Error extracting lecture number from {lectureFile.name}")
 
-        #     raise ValueError(f"Error extracting lecture number from {lectureFile.name}")
+            raise ValueError(f"Error extracting lecture number from {lectureFile.name}")
 
-        # num = lectureName.group(1)
+        elif len(lectureNum) > 1:
+
+            console.print(f"Multiple lecture numbers found in {lectureFile.name}")
+
+            raise ValueError(f"Multiple lecture numbers found in {lectureFile.name}")
 
         try:
 
-            num = int(num)
+            lectureNum = int(lectureNum)
 
         except ValueError:
 
@@ -838,7 +867,7 @@ def BulkLectureTranscribe(excludeLectureNums: list[int] = [], outputDir: Path = 
 
             raise
 
-        if num not in excludeLectureNums:
+        if lectureNum not in excludeLectureNums:
 
             cleanedLectureFiles.append(lectureFile)
 
@@ -978,4 +1007,22 @@ def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
 
 if __name__ == "__main__":
 
-    BulkLectureTranscribe(excludeLectureNums=[1, 2, 3, 4, 5, 6, 7, 8, 9])
+    # BulkSlideTranscribe(
+    #     lectureDir=MATH_465_SLIDES_DIR,
+    #     lectureNumPattern=MATH_465_PATTERN,
+    #     excludeLectureNums=[],
+    # )
+
+    # BulkLectureTranscribe(
+    #     lecturesDir=MATH_425_SLIDES_DIR,
+    #     lectureNumPattern=MATH_425_PATTERN,
+    #     excludeLectureNums=[],
+    # )
+
+    # BulkLectureTranscribe(
+    #     lecturesDir=EECS_476_SLIDES_DIR,
+    #     lectureNumPattern=EECS_476_PATTERN,
+    #     excludeLectureNums=[],
+    # )
+
+    pass
