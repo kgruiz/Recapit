@@ -52,10 +52,6 @@ OUTPUT_DIR = Path("output", "Math-425")
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-PICKLE_DIR = Path(OUTPUT_DIR, "response-pickles")
-
-PICKLE_DIR.mkdir(parents=True, exist_ok=True)
-
 LATEX_PREAMBLE_PATH = Path("utils", "slide-template.txt")
 
 if not LATEX_PREAMBLE_PATH.exists():
