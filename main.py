@@ -48,7 +48,7 @@ if not INPUT_DIR.exists():
 
     raise FileNotFoundError(f"Input Directory {INPUT_DIR} not found")
 
-OUTPUT_DIR = Path("output")
+OUTPUT_DIR = Path("output", "Math-425")
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -323,7 +323,6 @@ def TranscribeSlideImages(
     progress : Progress, optional
         A rich Progress instance to update the UI.
     """
-
     global GLOBAL_REQUEST_TIMES
 
     # Use the provided imageDir for image directory.
@@ -506,6 +505,7 @@ def TranscribeLectureImages(
     outputDir: Path = OUTPUT_DIR,
     outputName: str = "response",
     progress=None,
+    bulkPagesTask=None,
 ):
     """
     Processes lecture images and queries an API with global rate limiting.
@@ -529,7 +529,6 @@ def TranscribeLectureImages(
     progress : Progress, optional
         A rich Progress instance to update the UI.
     """
-
     global GLOBAL_REQUEST_TIMES
 
     IMAGE_DIR = Path(imageDir)
@@ -657,6 +656,10 @@ def TranscribeLectureImages(
                 responses.append(response)
             progress.update(task, advance=1)
 
+            if bulkPagesTask is not None:
+
+                progress.update(bulkPagesTask, advance=1)
+
         localPickleDir = Path(outputDir, f"{outputName}-pickles")
         localPickleDir.mkdir(parents=True, exist_ok=True)
 
@@ -712,7 +715,7 @@ def TranscribeLectureImages(
         progress.remove_task(task)
 
 
-def BulkSlideTranscribe(excludeSlideNums: list[int] = []):
+def BulkSlideTranscribe(excludeSlideNums: list[int] = [], outputDir: Path = None):
 
     SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math465/Slides")
 
@@ -746,6 +749,14 @@ def BulkSlideTranscribe(excludeSlideNums: list[int] = []):
 
     totalPages = GetTotalPageCount(slideFiles)
 
+    # If no output directory is provided, default to a new directory within OUTPUT_DIR called "bulk-results"
+    if outputDir is None:
+        bulkOutputDir = Path(OUTPUT_DIR, "bulk-results")
+    else:
+        bulkOutputDir = outputDir
+
+    bulkOutputDir.mkdir(parents=True, exist_ok=True)
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[bold blue]{task.description}", justify="left"),
@@ -774,12 +785,16 @@ def BulkSlideTranscribe(excludeSlideNums: list[int] = []):
                 refresh=True,
             )
 
-            PDFToPNG(pdfPath=slideFile, progress=progress)
+            # Define the pages directory within bulkOutputDir for each PDF
+            pagesDir = bulkOutputDir / f"{slideFile.stem}-pages"
+            pagesDir.mkdir(parents=True, exist_ok=True)
+
+            PDFToPNG(pdfPath=slideFile, pagesDir=pagesDir, progress=progress)
 
             TranscribeSlideImages(
-                imageDir=Path(OUTPUT_DIR, f"{slideFile.stem}-pages"),
+                imageDir=pagesDir,
                 limiterMethod="tracking",
-                outputDir=Path(OUTPUT_DIR, f"{slideFile.stem}-output"),
+                outputDir=bulkOutputDir,
                 outputName=f"{slideFile.stem}-response",
                 progress=progress,
                 bulkPagesTask=allPagesTask,
@@ -793,6 +808,110 @@ def BulkSlideTranscribe(excludeSlideNums: list[int] = []):
             )
 
 
+def BulkLectureTranscribe(excludeLectureNums: list[int] = [], outputDir: Path = None):
+
+    LECTURES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math425/Slides")
+
+    # LECTURES_DIR = Path(
+    #     "/Users/kadengruizenga/Documents/School/W25/EECS476/Lecture-Notes"
+    # )
+
+    lectureFiles = list(LECTURES_DIR.glob("*.pdf"))
+
+    cleanedLectureFiles = []
+
+    for lectureFile in lectureFiles:
+
+        num = lectureFile.stem.replace("Lecture", "")
+
+        # lectureName = re.search(r"lec(\d\d).*", string=lectureFile.stem)
+
+        # if lectureName is None:
+
+        #     raise ValueError(f"Error extracting lecture number from {lectureFile.name}")
+
+        # num = lectureName.group(1)
+
+        try:
+
+            num = int(num)
+
+        except ValueError:
+
+            console.print(f"Error extracting lecture number from {lectureFile.name}")
+
+            raise
+
+        if num not in excludeLectureNums:
+
+            cleanedLectureFiles.append(lectureFile)
+
+    lectureFiles = natsorted(cleanedLectureFiles)
+
+    numLectureFiles = len(lectureFiles)
+
+    totalPages = GetTotalPageCount(lectureFiles)
+
+    if outputDir is None:
+        bulkOutputDir = Path(OUTPUT_DIR, "bulk-results")
+    else:
+        bulkOutputDir = outputDir
+
+    bulkOutputDir.mkdir(parents=True, exist_ok=True)
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}", justify="left"),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        BarColumn(bar_width=None),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        expand=True,
+        transient=True,
+    ) as progress:
+
+        task = progress.add_task(f"Transcribing lecture files", total=numLectureFiles)
+        allPagesTask = progress.add_task(
+            f"Transcribing lecture pages", total=totalPages
+        )
+
+        for lectureFile in lectureFiles:
+
+            progress.update(
+                task, description=f"Transcribing {lectureFile.name}", refresh=True
+            )
+            progress.update(
+                allPagesTask,
+                description=f"Transcribing pages from {lectureFile.name}",
+                refresh=True,
+            )
+
+            # Define the pages directory within bulkOutputDir for each PDF
+            pagesDir = bulkOutputDir / f"{lectureFile.stem}-pages"
+            pagesDir.mkdir(parents=True, exist_ok=True)
+
+            PDFToPNG(pdfPath=lectureFile, pagesDir=pagesDir, progress=progress)
+
+            TranscribeLectureImages(
+                imageDir=pagesDir,
+                limiterMethod="tracking",
+                outputDir=bulkOutputDir,
+                outputName=f"{lectureFile.stem}-response",
+                progress=progress,
+                bulkPagesTask=allPagesTask,
+            )
+
+            progress.update(
+                task,
+                description=f"Transcribed {lectureFile.name}",
+                advance=1,
+                refresh=True,
+            )
+
+
 def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
 
     with picklePath.open("rb") as file:
@@ -801,26 +920,53 @@ def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
 
     combinedResponse = ""
 
-    i = 0
+    for i, response in enumerate(responses):
 
-    for response in responses:
+        responseText: str | list[str] | None = response.text
 
-        responseText: str | list[str] = response.text
-        # print(responseText)
-        # print(type(responseText))
-        if isinstance(responseText, str):
-            responseText = responseText.splitlines()
         if responseText is None:
 
-            # print(response)
-
-            print(i)
-            i += 1
+            combinedResponse += (
+                f"\n\\section{{Page {i}}}\n\nError: Text content is None"
+            )
             continue
 
-        i += 1
-        # print(responseText)
-        # print(type(responseText))
+        if isinstance(responseText, str):
+            responseText = responseText.splitlines()
+        if responseText[0].strip().startswith("```"):
+            responseText = responseText[1:]
+        if responseText[-1].strip() == "```":
+            responseText = responseText[:-1]
+        combinedResponse += "\n".join(responseText) + "\n"
+
+    Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
+    cleanedResponse = CleanResponse(
+        combinedResponse=combinedResponse, preamble=LECTURE_LATEX_PREAMBLE
+    )
+    Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
+
+
+def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
+
+    with picklePath.open("rb") as file:
+
+        responses = pickle.load(file)
+
+    combinedResponse = ""
+
+    for i, response in enumerate(responses):
+
+        responseText: str | list[str] | None = response.text
+
+        if responseText is None:
+
+            combinedResponse += (
+                f"\n\\section{{Page {i}}}\n\nError: Text content is None"
+            )
+            continue
+
+        if isinstance(responseText, str):
+            responseText = responseText.splitlines()
         if responseText[0].strip().startswith("```"):
             responseText = responseText[1:]
         if responseText[-1].strip() == "```":
@@ -836,4 +982,4 @@ def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
 
 if __name__ == "__main__":
 
-    BulkSlideTranscribe(excludeSlideNums=[])
+    BulkLectureTranscribe(excludeLectureNums=[1, 2, 3, 4, 5, 6, 7, 8, 9])
