@@ -31,7 +31,7 @@ from rich.table import Table
 from rich.text import Text
 
 # TODO: If a rate limit error is raised, keep going after waiting.
-# TODO: Add other slide formats
+# TODO: Add other slide formats (German 322)
 
 console = Console()
 
@@ -42,7 +42,7 @@ GLOBAL_REQUEST_TIMES = deque()
 RATE_LIMIT_PER_MINUTE = 15
 RATE_LIMIT_WINDOW = 60
 
-OUTPUT_DIR = Path("output", "Math-425")
+OUTPUT_DIR = Path("output")
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1047,6 +1047,24 @@ def BulkSlideTranscribe(
     lectureNumPattern: str = r".*(\d+).*",
     excludeLectureNums: list[int] = [],
 ):
+    """
+    Process and transcribe slide PDFs from a directory or a list of PDF file paths.
+
+    Parameters
+    ----------
+    source : Path or list[Path]
+        A directory containing PDF files or a list of PDF file paths.
+    outputDir : Path, optional
+        Directory where transcribed outputs will be stored. If not provided, a default directory is used.
+    lectureNumPattern : str, optional
+        Regular expression pattern used to extract the lecture number from the PDF file name.
+    excludeLectureNums : list[int], optional
+        A list of lecture numbers to exclude from processing.
+
+    Returns
+    -------
+    None
+    """
 
     # Determine the list of PDF files from either a directory or an explicit list.
     if isinstance(source, Path) and source.is_dir():
@@ -1191,6 +1209,25 @@ def BulkLectureTranscribe(
     lectureNumPattern: str = r".*(\d+).*",
     excludeLectureNums: list[int] = [],
 ):
+    """
+    Process and transcribe slide PDFs from a directory or a list of PDF file paths.
+
+    Parameters
+    ----------
+    source : Path or list[Path]
+        A directory containing PDF files or a list of PDF file paths.
+    outputDir : Path, optional
+        Directory where transcribed outputs will be stored. If not provided, defaults to a subdirectory
+        within the input directory.
+    lectureNumPattern : str, optional
+        Regular expression pattern to extract the lecture number from the PDF file name.
+    excludeLectureNums : list[int], optional
+        List of lecture numbers to exclude from processing.
+
+    Returns
+    -------
+    None
+    """
 
     # Determine the list of PDF files from either a directory or an explicit list.
     if isinstance(source, Path) and source.is_dir():
@@ -1497,6 +1534,114 @@ def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
     Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
     cleanedResponse = CleanResponse(
         combinedResponse=combinedResponse, preamble=SLIDE_LATEX_PREAMBLE
+    )
+    Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
+
+
+def FinishLecturePickle(picklePath: Path, outputDir: Path, outputName: str):
+    """
+    Load responses from a pickle file for lecture transcriptions, combine them into a single LaTeX document,
+    and save the combined text and .tex file to the specified output directory.
+
+    Parameters
+    ----------
+    picklePath : Path
+        Path to the pickle file containing responses.
+    outputDir : Path
+        Directory where the output files will be saved.
+    outputName : str
+        Base name for the output files.
+
+    Returns
+    -------
+    None
+    """
+
+    with picklePath.open("rb") as file:
+
+        responses = pickle.load(file)
+
+    combinedResponse = ""
+
+    for i, response in enumerate(responses):
+
+        responseText: str | list[str] | None = response.text
+
+        if responseText is None:
+
+            combinedResponse += (
+                f"\n\\section{{Page {i}}}\n\nError: Text content is None"
+            )
+            continue
+
+        if isinstance(responseText, str):
+
+            responseText = responseText.splitlines()
+
+        if responseText[0].strip().startswith("```"):
+            responseText = responseText[1:]
+        if responseText[-1].strip() == "```":
+            responseText = responseText[:-1]
+
+        combinedResponse += "\n".join(responseText) + "\n"
+
+    Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
+    cleanedResponse = CleanResponse(
+        combinedResponse=combinedResponse, preamble=LECTURE_LATEX_PREAMBLE
+    )
+    Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
+
+
+def FinishDocumentPickle(picklePath: Path, outputDir: Path, outputName: str):
+    """
+    Load responses from a pickle file for document transcriptions, combine them into a single LaTeX document,
+    and save the combined text and .tex file to the specified output directory.
+
+    Parameters
+    ----------
+    picklePath : Path
+        Path to the pickle file containing responses.
+    outputDir : Path
+        Directory where the output files will be saved.
+    outputName : str
+        Base name for the output files.
+
+    Returns
+    -------
+    None
+    """
+
+    with picklePath.open("rb") as file:
+
+        responses = pickle.load(file)
+
+    combinedResponse = ""
+
+    for i, response in enumerate(responses):
+
+        responseText: str | list[str] | None = response.text
+
+        if responseText is None:
+
+            combinedResponse += (
+                f"\n\\section{{Page {i}}}\n\nError: Text content is None"
+            )
+            continue
+
+        if isinstance(responseText, str):
+
+            responseText = responseText.splitlines()
+
+        if responseText[0].strip().startswith("```"):
+            responseText = responseText[1:]
+        if responseText[-1].strip() == "```":
+            responseText = responseText[:-1]
+
+        combinedResponse += "\n".join(responseText) + "\n"
+
+    Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
+    cleanedResponse = CleanResponse(
+        combinedResponse=combinedResponse, preamble=DOCUMENT_LATEX_PREAMBLE
     )
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
