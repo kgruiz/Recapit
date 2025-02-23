@@ -89,7 +89,7 @@ EECS_476_SLIDES_DIR = Path(
 )
 
 
-MATH_465_PATTERN = r"Math465 Lecture (\d+).pdf"
+MATH_465_PATTERN = r"465 Lecture (\d+).pdf"
 MATH_425_PATTERN = r"Lecture(\d+).pdf"
 EECS_476_PATTERN = r"lec(\d+).*"
 
@@ -1066,19 +1066,19 @@ def BulkTranscribeSlides(
 
     for slideFile in slideFiles:
 
-        lectureNum = re.findall(lectureNumPattern, slideFile.stem)
+        lectureNum = re.findall(lectureNumPattern, slideFile.name)
 
         if not lectureNum:
 
-            console.print(f"Error extracting lecture number from {slideFile.name}")
+            console.print(f'Error extracting lecture number from "{slideFile.name}"')
 
-            raise ValueError(f"Error extracting lecture number from {slideFile.name}")
+            raise ValueError(f'Error extracting lecture number from "{slideFile.name}"')
 
         elif len(lectureNum) > 1:
 
-            console.print(f"Multiple lecture numbers found in {slideFile.name}")
+            console.print(f'Multiple lecture numbers found in "{slideFile.name}"')
 
-            raise ValueError(f"Multiple lecture numbers found in {slideFile.name}")
+            raise ValueError(f'Multiple lecture numbers found in "{slideFile.name}"')
 
         try:
 
@@ -1086,7 +1086,9 @@ def BulkTranscribeSlides(
 
         except ValueError:
 
-            console.print(f"Error extracting lecture number from {slideFile.name}")
+            console.print(
+                f'Error extracting lecture number from "{slideFile.name}". Extracted: "{lectureNum}"'
+            )
 
             raise
 
@@ -1233,19 +1235,21 @@ def BulkTranscribeLectures(
 
     for lectureFile in lectureFiles:
 
-        lectureNum = re.findall(lectureNumPattern, lectureFile.stem)
+        lectureNum = re.findall(lectureNumPattern, lectureFile.name)
 
         if not lectureNum:
 
-            console.print(f"Error extracting lecture number from {lectureFile.name}")
+            console.print(f'Error extracting lecture number from "{lectureFile.name}"')
 
-            raise ValueError(f"Error extracting lecture number from {lectureFile.name}")
+            raise ValueError(
+                f'Error extracting lecture number from "{lectureFile.name}"'
+            )
 
         elif len(lectureNum) > 1:
 
-            console.print(f"Multiple lecture numbers found in {lectureFile.name}")
+            console.print(f'Multiple lecture numbers found in "{lectureFile.name}"')
 
-            raise ValueError(f"Multiple lecture numbers found in {lectureFile.name}")
+            raise ValueError(f'Multiple lecture numbers found in "{lectureFile.name}"')
 
         try:
 
@@ -1253,7 +1257,9 @@ def BulkTranscribeLectures(
 
         except ValueError:
 
-            console.print(f"Error extracting lecture number from {lectureFile.name}")
+            console.print(
+                f'Error extracting lecture number from "{lectureFile.name}". Extracted: "{lectureNum}"'
+            )
 
             raise
 
@@ -1613,23 +1619,31 @@ def FinishPickleDocument(picklePath: Path, outputDir: Path, outputName: str):
 
 if __name__ == "__main__":
 
+    BulkTranscribeSlides(
+        source=MATH_465_SLIDES_DIR,
+        lectureNumPattern=MATH_465_PATTERN,
+        excludeLectureNums=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    )
+
     # BulkTranscribeSlides(
-    #     lectureDir=MATH_465_SLIDES_DIR,
+    #     source=MATH_465_SLIDES_DIR,
     #     lectureNumPattern=MATH_465_PATTERN,
     #     excludeLectureNums=[],
     # )
 
     # BulkTranscribeLectures(
-    #     lecturesDir=MATH_425_SLIDES_DIR,
+    #     source=MATH_425_SLIDES_DIR,
     #     lectureNumPattern=MATH_425_PATTERN,
     #     excludeLectureNums=[],
     # )
 
     # BulkTranscribeLectures(
-    #     lecturesDir=EECS_476_SLIDES_DIR,
+    #     source=EECS_476_SLIDES_DIR,
     #     lectureNumPattern=EECS_476_PATTERN,
     #     excludeLectureNums=[],
     # )
+
+    raise SystemExit
 
     BulkTranscribeDocuments(
         Path("/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys")
