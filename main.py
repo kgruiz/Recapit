@@ -1041,7 +1041,7 @@ def TranscribeDocumentImages(
         progress.remove_task(task)
 
 
-def BulkSlideTranscribe(
+def BulkTranscribeSlides(
     source: Path | list[Path],
     outputDir: Path = None,
     lectureNumPattern: str = r".*(\d+).*",
@@ -1203,7 +1203,7 @@ def BulkSlideTranscribe(
             )
 
 
-def BulkLectureTranscribe(
+def BulkTranscribeLectures(
     source: Path | list[Path],
     outputDir: Path = None,
     lectureNumPattern: str = r".*(\d+).*",
@@ -1485,7 +1485,7 @@ def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
             )
 
 
-def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
+def FinishPickleSlides(picklePath: Path, outputDir: Path, outputName: Path):
     """
     Load responses from a pickle file, combine them into a single LaTeX document,
     and save the combined text and .tex file to the specified output directory.
@@ -1538,7 +1538,7 @@ def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
 
-def FinishLecturePickle(picklePath: Path, outputDir: Path, outputName: str):
+def FinishPickleLecture(picklePath: Path, outputDir: Path, outputName: str):
     """
     Load responses from a pickle file for lecture transcriptions, combine them into a single LaTeX document,
     and save the combined text and .tex file to the specified output directory.
@@ -1592,7 +1592,7 @@ def FinishLecturePickle(picklePath: Path, outputDir: Path, outputName: str):
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
 
-def FinishDocumentPickle(picklePath: Path, outputDir: Path, outputName: str):
+def FinishPickleDocument(picklePath: Path, outputDir: Path, outputName: str):
     """
     Load responses from a pickle file for document transcriptions, combine them into a single LaTeX document,
     and save the combined text and .tex file to the specified output directory.
@@ -1648,19 +1648,19 @@ def FinishDocumentPickle(picklePath: Path, outputDir: Path, outputName: str):
 
 if __name__ == "__main__":
 
-    # BulkSlideTranscribe(
+    # BulkTranscribeSlides(
     #     lectureDir=MATH_465_SLIDES_DIR,
     #     lectureNumPattern=MATH_465_PATTERN,
     #     excludeLectureNums=[],
     # )
 
-    # BulkLectureTranscribe(
+    # BulkTranscribeLectures(
     #     lecturesDir=MATH_425_SLIDES_DIR,
     #     lectureNumPattern=MATH_425_PATTERN,
     #     excludeLectureNums=[],
     # )
 
-    # BulkLectureTranscribe(
+    # BulkTranscribeLectures(
     #     lecturesDir=EECS_476_SLIDES_DIR,
     #     lectureNumPattern=EECS_476_PATTERN,
     #     excludeLectureNums=[],
