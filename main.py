@@ -184,7 +184,7 @@ def PDFToPNG(pdfPath: Path, pagesDir: Path = None, progress=None):
 
 def SleepWithProgress(progress, task, sleepTime, defaultDescription):
     """
-    Sleep for a given time while updating the progress bar.
+    Sleep for a specified duration while updating the progress bar.
 
     Parameters
     ----------
@@ -223,7 +223,7 @@ def CleanResponse(
     date: str | None = "",
 ) -> str:
     """
-    Clean the combined LaTeX response by removing duplicate preamble lines and formatting issues.
+    Clean the combined LaTeX response by removing duplicate preamble lines and fixing formatting issues.
 
     Parameters
     ----------
@@ -362,22 +362,22 @@ def TranscribeSlideImages(
     bulkPagesTask=None,
 ):
     """
-    Process slide images and query the API to transcribe them in LaTeX format.
+    Transcribe slide images to LaTeX format using the API.
 
     Parameters
     ----------
     imageDir : Path
-        Path to the directory containing the input images.
+        Path to the directory containing the slide images.
     limiterMethod : str, optional
-        Rate limiting method ("fixedDelay" or "tracking"). Defaults to "tracking".
+        Rate limiting method, either "fixedDelay" or "tracking". Defaults to "tracking".
     outputDir : Path, optional
-        Directory where outputs will be stored. Defaults to OUTPUT_DIR.
+        Directory where output files will be stored. Defaults to OUTPUT_DIR.
     outputName : str, optional
-        Base name for output files. Defaults to "response".
+        Base name for the output files. Defaults to "response".
     progress : Progress, optional
-        A rich Progress instance for UI updates.
+        A rich Progress instance for displaying progress.
     bulkPagesTask : TaskID, optional
-        An additional task for bulk page progress updates.
+        Additional task for tracking bulk page progress.
 
     Returns
     -------
@@ -593,22 +593,22 @@ def TranscribeLectureImages(
     bulkPagesTask=None,
 ):
     """
-    Process lecture images and query the API to transcribe them in LaTeX format.
+    Transcribe lecture images to LaTeX format using the API.
 
     Parameters
     ----------
     imageDir : Path
-        Path to the directory containing the input images.
+        Path to the directory containing the lecture images.
     limiterMethod : str, optional
-        Rate limiting method ("fixedDelay" or "tracking"). Defaults to "tracking".
+        Rate limiting method, either "fixedDelay" or "tracking". Defaults to "tracking".
     outputDir : Path, optional
-        Directory where outputs will be stored. Defaults to OUTPUT_DIR.
+        Directory where output files will be stored. Defaults to OUTPUT_DIR.
     outputName : str, optional
-        Base name for output files. Defaults to "response".
+        Base name for the output files. Defaults to "response".
     progress : Progress, optional
-        A rich Progress instance for UI updates.
+        A rich Progress instance for displaying progress.
     bulkPagesTask : TaskID, optional
-        Additional task for bulk page progress.
+        Additional task for tracking bulk page progress.
 
     Returns
     -------
@@ -821,22 +821,22 @@ def TranscribeDocumentImages(
     bulkPagesTask=None,
 ):
     """
-    Process document images and query the API to transcribe them in LaTeX format using a document-oriented prompt.
+    Transcribe document images to LaTeX format using the API.
 
     Parameters
     ----------
     imageDir : Path
         Path to the directory containing the document images.
     limiterMethod : str, optional
-        Rate limiting method ("fixedDelay" or "tracking"). Defaults to "tracking".
+        Rate limiting method, either "fixedDelay" or "tracking". Defaults to "tracking".
     outputDir : Path, optional
-        Directory where outputs will be stored. Defaults to OUTPUT_DIR.
+        Directory where output files will be stored. Defaults to OUTPUT_DIR.
     outputName : str, optional
-        Base name for output files. Defaults to "response".
+        Base name for the output files. Defaults to "response".
     progress : Progress, optional
-        A rich Progress instance for UI updates.
+        A rich Progress instance for displaying progress.
     bulkPagesTask : TaskID, optional
-        Additional task for bulk page progress.
+        Additional task for tracking bulk page progress.
 
     Returns
     -------
@@ -1210,19 +1210,18 @@ def BulkTranscribeLectures(
     excludeLectureNums: list[int] = [],
 ):
     """
-    Process and transcribe slide PDFs from a directory or a list of PDF file paths.
+    Process and transcribe lecture PDFs from a directory or a list of PDF file paths.
 
     Parameters
     ----------
     source : Path or list[Path]
         A directory containing PDF files or a list of PDF file paths.
     outputDir : Path, optional
-        Directory where transcribed outputs will be stored. If not provided, defaults to a subdirectory
-        within the input directory.
+        Directory where transcribed outputs will be stored. If not provided, defaults to a subdirectory within the input directory.
     lectureNumPattern : str, optional
-        Regular expression pattern to extract the lecture number from the PDF file name.
+        Regular expression pattern used to extract the lecture number from the PDF file name.
     excludeLectureNums : list[int], optional
-        List of lecture numbers to exclude from processing.
+        A list of lecture numbers to exclude from processing.
 
     Returns
     -------
@@ -1369,17 +1368,17 @@ def BulkTranscribeLectures(
 
 def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
     """
-    Process a set of document PDFs from either a directory or a provided list of PDF files.
-    For each PDF, create an output directory (named after the PDF with spaces replaced by "-")
-    as a subdirectory of the provided outputDir. If no outputDir is provided, defaults to a new directory
-    within OUTPUT_DIR called "bulk-document-results".
+    Process and transcribe document PDFs from a directory or a list of PDF file paths.
+    For each PDF, create an output directory named after the PDF (with spaces replaced by hyphens)
+    as a subdirectory of the specified output directory. If no outputDir is provided, defaults to a directory
+    named "transcribed-documents" within the input directory.
 
     Parameters
     ----------
     source : Path or list[Path]
         A directory containing PDF files or a list of PDF file paths.
     outputDir : Path, optional
-        Parent output directory.
+        Parent directory where transcribed outputs will be stored.
 
     Returns
     -------
@@ -1485,18 +1484,18 @@ def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
             )
 
 
-def FinishPickleSlides(picklePath: Path, outputDir: Path, outputName: Path):
+def FinishPickleSlides(picklePath: Path, outputDir: Path, outputName: str):
     """
-    Load responses from a pickle file, combine them into a single LaTeX document,
-    and save the combined text and .tex file to the specified output directory.
+    Load responses from a pickle file for slide transcriptions, combine them into a single LaTeX document,
+    and save both a text file and a .tex file to the specified output directory.
 
     Parameters
     ----------
     picklePath : Path
         Path to the pickle file containing responses.
     outputDir : Path
-        Directory where the output files will be saved.
-    outputName : Path
+        Directory where output files will be saved.
+    outputName : str
         Base name for the output files.
 
     Returns
@@ -1541,14 +1540,14 @@ def FinishPickleSlides(picklePath: Path, outputDir: Path, outputName: Path):
 def FinishPickleLecture(picklePath: Path, outputDir: Path, outputName: str):
     """
     Load responses from a pickle file for lecture transcriptions, combine them into a single LaTeX document,
-    and save the combined text and .tex file to the specified output directory.
+    and save both a text file and a .tex file to the specified output directory.
 
     Parameters
     ----------
     picklePath : Path
         Path to the pickle file containing responses.
     outputDir : Path
-        Directory where the output files will be saved.
+        Directory where output files will be saved.
     outputName : str
         Base name for the output files.
 
@@ -1595,14 +1594,14 @@ def FinishPickleLecture(picklePath: Path, outputDir: Path, outputName: str):
 def FinishPickleDocument(picklePath: Path, outputDir: Path, outputName: str):
     """
     Load responses from a pickle file for document transcriptions, combine them into a single LaTeX document,
-    and save the combined text and .tex file to the specified output directory.
+    and save both a text file and a .tex file to the specified output directory.
 
     Parameters
     ----------
     picklePath : Path
         Path to the pickle file containing responses.
     outputDir : Path
-        Directory where the output files will be saved.
+        Directory where output files will be saved.
     outputName : str
         Base name for the output files.
 
@@ -1665,5 +1664,9 @@ if __name__ == "__main__":
     #     lectureNumPattern=EECS_476_PATTERN,
     #     excludeLectureNums=[],
     # )
+
+    BulkTranscribeDocuments(
+        Path("/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys")
+    )
 
     pass
