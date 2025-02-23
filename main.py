@@ -85,6 +85,21 @@ if not DOCUMENT_LATEX_PREAMBLE_PATH.exists():
 DOCUMENT_LATEX_PREAMBLE = DOCUMENT_LATEX_PREAMBLE_PATH.read_text()
 
 
+# Common slide dirs and patterns
+MATH_465_SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math465/Slides")
+
+MATH_425_SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math425/Slides")
+
+EECS_476_SLIDES_DIR = Path(
+    "/Users/kadengruizenga/Documents/School/W25/EECS476/Lecture-Notes"
+)
+
+
+MATH_465_PATTERN = r"Math465 Lecture (\d+).pdf"
+MATH_425_PATTERN = r"Lecture(\d+).pdf"
+EECS_476_PATTERN = r"lec(\d+).*"
+
+
 def GetTotalPageCount(pdfFiles: list[Path]) -> int:
     """
     Compute the total number of pages across multiple PDF files.
@@ -804,11 +819,6 @@ def TranscribeLectureImages(
         progress.remove_task(task)
 
 
-#
-# New functions for Document Transcription
-#
-
-
 def TranscribeDocumentImages(
     imageDir: Path,
     limiterMethod: str = "tracking",
@@ -1038,6 +1048,218 @@ def TranscribeDocumentImages(
         progress.remove_task(task)
 
 
+def BulkSlideTranscribe(
+    lectureDir: Path,
+    outputDir: Path = None,
+    lectureNumPattern: str = r".*(\d+).*",
+    excludeLectureNums: list[int] = [],
+):
+
+    slideFiles = list(lectureDir.glob("*.pdf"))
+
+    cleanedSlideFiles = []
+
+    for slideFile in slideFiles:
+
+        lectureNum = re.findall(lectureNumPattern, slideFile.stem)
+
+        if not lectureNum:
+
+            console.print(f"Error extracting lecture number from {slideFile.name}")
+
+            raise ValueError(f"Error extracting lecture number from {slideFile.name}")
+
+        elif len(lectureNum) > 1:
+
+            console.print(f"Multiple lecture numbers found in {slideFile.name}")
+
+            raise ValueError(f"Multiple lecture numbers found in {slideFile.name}")
+
+        try:
+
+            lectureNum = int(lectureNum)
+
+        except ValueError:
+
+            console.print(f"Error extracting lecture number from {slideFile.name}")
+
+            raise
+
+        if lectureNum not in excludeLectureNums:
+
+            cleanedSlideFiles.append(slideFile)
+
+    slideFiles = natsorted(cleanedSlideFiles)
+
+    numSlideFiles = len(slideFiles)
+
+    totalPages = GetTotalPageCount(slideFiles)
+
+    if outputDir is None:
+        bulkOutputDir = Path(OUTPUT_DIR, "bulk-results")
+    else:
+        bulkOutputDir = outputDir
+
+    bulkOutputDir.mkdir(parents=True, exist_ok=True)
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}", justify="left"),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        BarColumn(bar_width=None),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        expand=True,
+        transient=True,
+    ) as progress:
+
+        task = progress.add_task(f"Transcribing slide files", total=numSlideFiles)
+        allPagesTask = progress.add_task(f"Transcribing slide pages", total=totalPages)
+
+        for slideFile in slideFiles:
+
+            progress.update(
+                task, description=f"Transcribing {slideFile.name}", refresh=True
+            )
+            progress.update(
+                allPagesTask,
+                description=f"Transcribing slides from {slideFile.name}",
+                refresh=True,
+            )
+
+            # Define the pages directory within bulkOutputDir for each PDF
+            pagesDir = bulkOutputDir / f"{slideFile.stem}-pages"
+            pagesDir.mkdir(parents=True, exist_ok=True)
+
+            PDFToPNG(pdfPath=slideFile, pagesDir=pagesDir, progress=progress)
+
+            TranscribeSlideImages(
+                imageDir=pagesDir,
+                limiterMethod="tracking",
+                outputDir=bulkOutputDir,
+                outputName=f"{slideFile.stem}-response",
+                progress=progress,
+                bulkPagesTask=allPagesTask,
+            )
+
+            progress.update(
+                task,
+                description=f"Transcribed {slideFile.name}",
+                advance=1,
+                refresh=True,
+            )
+
+
+def BulkLectureTranscribe(
+    lecturesDir: Path,
+    outputDir: Path = None,
+    lectureNumPattern: str = r".*(\d+).*",
+    excludeLectureNums: list[int] = [],
+):
+
+    lectureFiles = list(lecturesDir.glob("*.pdf"))
+
+    cleanedLectureFiles = []
+
+    for lectureFile in lectureFiles:
+
+        lectureNum = re.findall(lectureNumPattern, lectureFile.stem)
+
+        if not lectureNum:
+
+            console.print(f"Error extracting lecture number from {lectureFile.name}")
+
+            raise ValueError(f"Error extracting lecture number from {lectureFile.name}")
+
+        elif len(lectureNum) > 1:
+
+            console.print(f"Multiple lecture numbers found in {lectureFile.name}")
+
+            raise ValueError(f"Multiple lecture numbers found in {lectureFile.name}")
+
+        try:
+
+            lectureNum = int(lectureNum)
+
+        except ValueError:
+
+            console.print(f"Error extracting lecture number from {lectureFile.name}")
+
+            raise
+
+        if lectureNum not in excludeLectureNums:
+
+            cleanedLectureFiles.append(lectureFile)
+
+    lectureFiles = natsorted(cleanedLectureFiles)
+
+    numLectureFiles = len(lectureFiles)
+
+    totalPages = GetTotalPageCount(lectureFiles)
+
+    if outputDir is None:
+        bulkOutputDir = Path(OUTPUT_DIR, "bulk-results")
+    else:
+        bulkOutputDir = outputDir
+
+    bulkOutputDir.mkdir(parents=True, exist_ok=True)
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}", justify="left"),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        BarColumn(bar_width=None),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        expand=True,
+        transient=True,
+    ) as progress:
+
+        task = progress.add_task(f"Transcribing lecture files", total=numLectureFiles)
+        allPagesTask = progress.add_task(
+            f"Transcribing lecture pages", total=totalPages
+        )
+
+        for lectureFile in lectureFiles:
+
+            progress.update(
+                task, description=f"Transcribing {lectureFile.name}", refresh=True
+            )
+            progress.update(
+                allPagesTask,
+                description=f"Transcribing pages from {lectureFile.name}",
+                refresh=True,
+            )
+
+            # Define the pages directory within bulkOutputDir for each PDF
+            pagesDir = bulkOutputDir / f"{lectureFile.stem}-pages"
+            pagesDir.mkdir(parents=True, exist_ok=True)
+
+            PDFToPNG(pdfPath=lectureFile, pagesDir=pagesDir, progress=progress)
+
+            TranscribeLectureImages(
+                imageDir=pagesDir,
+                limiterMethod="tracking",
+                outputDir=bulkOutputDir,
+                outputName=f"{lectureFile.stem}-response",
+                progress=progress,
+                bulkPagesTask=allPagesTask,
+            )
+
+            progress.update(
+                task,
+                description=f"Transcribed {lectureFile.name}",
+                advance=1,
+                refresh=True,
+            )
+
+
 def BulkTranscribeDocuments(source, outputDir: Path = None):
     """
     Process a set of document PDFs from either a directory or a provided list of PDF files.
@@ -1058,14 +1280,32 @@ def BulkTranscribeDocuments(source, outputDir: Path = None):
     """
 
     if isinstance(source, Path) and source.is_dir():
+
         pdfFiles = list(source.glob("*.pdf"))
+        inputDir = source
+
     elif isinstance(source, list):
+
         pdfFiles = source
+        inputDirs = []
+
+        for pdfFile in pdfFiles:
+
+            inputDirs.append(pdfFile.parent)
+
+        if len(set(inputDirs)) > 1:
+
+            inputDir = set(inputDirs)[0]
+
+            console.print(
+                f"Multiple input directories found: {inputDirs}. Using the first one, {inputDir}"
+            )
+
     else:
         raise ValueError("source must be a directory Path or a list of PDF files.")
 
     if outputDir is None:
-        parentOutputDir = Path(OUTPUT_DIR, "bulk-document-results")
+        parentOutputDir = Path(inputDir, "transcribed-documents")
     else:
         parentOutputDir = outputDir
 
