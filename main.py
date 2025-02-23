@@ -38,7 +38,7 @@ console = Console()
 # Global deque to track request times across instances
 GLOBAL_REQUEST_TIMES = deque()
 
-# Define rate limit constants
+# Define rate limit
 RATE_LIMIT_PER_MINUTE = 15
 RATE_LIMIT_WINDOW = 60
 
@@ -52,6 +52,8 @@ OUTPUT_DIR = Path("output", "Math-425")
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+
+# Load latex preambles
 SLIDE_LATEX_PREAMBLE_PATH = Path("utils", "slide-template.txt")
 
 if not SLIDE_LATEX_PREAMBLE_PATH.exists():
@@ -84,6 +86,19 @@ DOCUMENT_LATEX_PREAMBLE = DOCUMENT_LATEX_PREAMBLE_PATH.read_text()
 
 
 def GetTotalPageCount(pdfFiles: list[Path]) -> int:
+    """
+    Compute the total number of pages across multiple PDF files.
+
+    Parameters
+    ----------
+    pdfFiles : list[Path]
+        A list of PDF file paths.
+
+    Returns
+    -------
+    int
+        The sum of all pages in the provided PDF files.
+    """
 
     runningTotal = 0
 
@@ -100,15 +115,21 @@ def GetTotalPageCount(pdfFiles: list[Path]) -> int:
 
 def PDFToPNG(pdfPath: Path, pagesDir: Path = None, progress=None):
     """
-    Converts a PDF file to PNG images, saving them in the specified directory.
+    Convert a PDF file to PNG images and save them to the specified directory.
 
     Parameters
     ----------
-    pdfPath : Path, optional
+    pdfPath : Path
         The path to the PDF file.
     pagesDir : Path, optional
         The directory where the PNG images will be saved.
         Defaults to OUTPUT_DIR / f"{pdfPath.stem}-pages" if not provided.
+    progress : Progress, optional
+        A rich Progress instance for displaying progress.
+
+    Returns
+    -------
+    None
     """
 
     if pagesDir is None:
@@ -155,19 +176,24 @@ def PDFToPNG(pdfPath: Path, pagesDir: Path = None, progress=None):
 
 def SleepWithProgress(progress, task, sleepTime, defaultDescription):
     """
-    Sleeps for sleepTime seconds while updating the progress bar description.
+    Sleep for a given time while updating the progress bar.
 
     Parameters
     ----------
     progress : Progress
         The progress object.
     task : TaskID
-        The task to update.
+        The task identifier to update.
     sleepTime : float
-        The total sleep time in seconds.
+        The total time in seconds to sleep.
     defaultDescription : str
         The description to revert to after sleeping.
+
+    Returns
+    -------
+    None
     """
+
     targetTime = time.time() + sleepTime
 
     while True:
@@ -188,6 +214,27 @@ def CleanResponse(
     author: str | None = "",
     date: str | None = "",
 ) -> str:
+    """
+    Clean the combined LaTeX response by removing duplicate preamble lines and formatting issues.
+
+    Parameters
+    ----------
+    combinedResponse : str
+        The raw combined LaTeX content.
+    preamble : str
+        The LaTeX preamble to use.
+    title : str, optional
+        Title to insert into the preamble.
+    author : str, optional
+        Author to insert into the preamble.
+    date : str, optional
+        Date to insert into the preamble.
+
+    Returns
+    -------
+    str
+        The cleaned LaTeX content.
+    """
 
     preambleLines = preamble.splitlines()
 
@@ -307,32 +354,30 @@ def TranscribeSlideImages(
     bulkPagesTask=None,
 ):
     """
-    Processes images and queries an API, optionally rate-limiting the calls if the number
-    of images exceeds the defined rate limit. Rate limiting is tracked globally across instances.
+    Process slide images and query the API to transcribe them in LaTeX format.
 
     Parameters
     ----------
     imageDir : Path
         Path to the directory containing the input images.
     limiterMethod : str, optional
-        The rate limiting method to use when len(images) >= RATE_LIMIT_PER_MINUTE.
-        Supported values:
-            - "fixedDelay": Sleeps for a fixed delay between each call.
-            - "tracking": Tracks request timestamps and sleeps only if needed.
-        Defaults to "tracking".
+        Rate limiting method ("fixedDelay" or "tracking"). Defaults to "tracking".
     outputDir : Path, optional
-        Path to the directory where outputs will be stored.
-        Defaults to OUTPUT_DIR.
+        Directory where outputs will be stored. Defaults to OUTPUT_DIR.
     outputName : str, optional
-        Base name for the output files.
-        Defaults to "response".
+        Base name for output files. Defaults to "response".
     progress : Progress, optional
-        A rich Progress instance to update the UI.
+        A rich Progress instance for UI updates.
+    bulkPagesTask : TaskID, optional
+        An additional task for bulk page progress updates.
+
+    Returns
+    -------
+    None
     """
 
     global GLOBAL_REQUEST_TIMES
 
-    # Use the provided imageDir for image directory.
     IMAGE_DIR = Path(imageDir)
     images = [PIL.Image.open(imagePath) for imagePath in IMAGE_DIR.glob("*.png")]
 
@@ -360,6 +405,7 @@ def TranscribeSlideImages(
             TimeRemainingColumn(),
             expand=True,
         )
+
     elif not isinstance(progress, Progress):
 
         raise ValueError("progress must be a rich.progress.Progress instance")
@@ -379,7 +425,6 @@ def TranscribeSlideImages(
                     startTime = currentTime
 
                     client = genai.Client(api_key=apiKey)
-
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
                         contents=[
@@ -413,6 +458,7 @@ def TranscribeSlideImages(
                         GLOBAL_REQUEST_TIMES.popleft()
 
                     if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
+
                         sleepTime = RATE_LIMIT_WINDOW - (
                             currentTime - GLOBAL_REQUEST_TIMES[0]
                         )
@@ -425,11 +471,9 @@ def TranscribeSlideImages(
                             and currentTime - GLOBAL_REQUEST_TIMES[0]
                             >= RATE_LIMIT_WINDOW
                         ):
-
                             GLOBAL_REQUEST_TIMES.popleft()
 
                     client = genai.Client(api_key=apiKey)
-
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
                         contents=[
@@ -449,7 +493,6 @@ def TranscribeSlideImages(
                     GLOBAL_REQUEST_TIMES.append(time.time())
 
                 else:
-
                     raise ValueError(
                         "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
                     )
@@ -457,7 +500,6 @@ def TranscribeSlideImages(
             else:
 
                 client = genai.Client(api_key=apiKey)
-
                 response = client.models.generate_content(
                     model="gemini-2.0-flash",
                     contents=[
@@ -480,26 +522,32 @@ def TranscribeSlideImages(
 
                 progress.update(bulkPagesTask, advance=1)
 
-        # Save responses as pickle
+        # Save responses as pickle in case of error
         localPickleDir = Path(outputDir, f"{outputName}-pickles")
         localPickleDir.mkdir(parents=True, exist_ok=True)
 
         try:
 
             picklePath = Path(localPickleDir, f"{outputName}.pkl")
+
             if picklePath.exists():
+
                 uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
                 picklePath = picklePath.with_name(uniquePath)
+
                 if picklePath.exists():
                     raise FileExistsError(
                         f"File {picklePath} already exists. Attempt to create unique file failed."
                     )
+
             with picklePath.open("wb") as file:
                 pickle.dump(responses, file)
+
         except Exception as e:
             console.print(f"{e}\n\n\n[bold red]Failed to save responses[/bold red]")
 
         combinedResponse = ""
+
         for i, response in enumerate(responses):
 
             responseText: str | list[str] | None = response.text
@@ -516,6 +564,7 @@ def TranscribeSlideImages(
                 responseText = responseText[1:]
             if responseText[-1].strip() == "```":
                 responseText = responseText[:-1]
+
             combinedResponse += "\n".join(responseText) + "\n"
 
         Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
@@ -536,27 +585,28 @@ def TranscribeLectureImages(
     bulkPagesTask=None,
 ):
     """
-    Processes lecture images and queries an API with global rate limiting.
+    Process lecture images and query the API to transcribe them in LaTeX format.
 
     Parameters
     ----------
     imageDir : Path
         Path to the directory containing the input images.
     limiterMethod : str, optional
-        The rate limiting method to use when len(images) >= RATE_LIMIT_PER_MINUTE.
-        Supported values:
-            - "fixedDelay": Sleeps for a fixed delay between each call.
-            - "tracking": Tracks request timestamps and sleeps only if needed.
-        Defaults to "tracking".
+        Rate limiting method ("fixedDelay" or "tracking"). Defaults to "tracking".
     outputDir : Path, optional
-        Directory to store outputs.
-        Defaults to OUTPUT_DIR.
+        Directory where outputs will be stored. Defaults to OUTPUT_DIR.
     outputName : str, optional
-        Base name for output files.
-        Defaults to "response".
+        Base name for output files. Defaults to "response".
     progress : Progress, optional
-        A rich Progress instance to update the UI.
+        A rich Progress instance for UI updates.
+    bulkPagesTask : TaskID, optional
+        Additional task for bulk page progress.
+
+    Returns
+    -------
+    None
     """
+
     global GLOBAL_REQUEST_TIMES
 
     IMAGE_DIR = Path(imageDir)
@@ -604,6 +654,7 @@ def TranscribeLectureImages(
                 if limiterMethod == "fixedDelay":
 
                     startTime = currentTime
+
                     client = genai.Client(api_key=apiKey)
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
@@ -616,7 +667,9 @@ def TranscribeLectureImages(
                             image,
                         ],
                     )
+
                     responses.append(response)
+
                     elapsed = time.time() - startTime
 
                     if elapsed < delayBetweenCalls:
@@ -647,6 +700,7 @@ def TranscribeLectureImages(
                             >= RATE_LIMIT_WINDOW
                         ):
                             GLOBAL_REQUEST_TIMES.popleft()
+
                     client = genai.Client(api_key=apiKey)
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
@@ -659,7 +713,9 @@ def TranscribeLectureImages(
                             image,
                         ],
                     )
+
                     responses.append(response)
+
                     GLOBAL_REQUEST_TIMES.append(time.time())
 
                 else:
@@ -682,12 +738,14 @@ def TranscribeLectureImages(
                     ],
                 )
                 responses.append(response)
+
             progress.update(task, advance=1)
 
             if bulkPagesTask is not None:
 
                 progress.update(bulkPagesTask, advance=1)
 
+        # Save responses as pickle in case of error
         localPickleDir = Path(outputDir, f"{outputName}-pickles")
         localPickleDir.mkdir(parents=True, exist_ok=True)
 
@@ -728,7 +786,6 @@ def TranscribeLectureImages(
 
             if isinstance(responseText, str):
                 responseText = responseText.splitlines()
-
             if responseText[0].strip().startswith("```"):
                 responseText = responseText[1:]
             if responseText[-1].strip() == "```":
@@ -747,6 +804,11 @@ def TranscribeLectureImages(
         progress.remove_task(task)
 
 
+#
+# New functions for Document Transcription
+#
+
+
 def TranscribeDocumentImages(
     imageDir: Path,
     limiterMethod: str = "tracking",
@@ -756,27 +818,26 @@ def TranscribeDocumentImages(
     bulkPagesTask=None,
 ):
     """
-    Processes document images and queries an API to transcribe them in LaTeX format.
-    Uses a document-oriented prompt.
+    Process document images and query the API to transcribe them in LaTeX format using a document-oriented prompt.
 
     Parameters
     ----------
     imageDir : Path
         Path to the directory containing the document images.
     limiterMethod : str, optional
-        The rate limiting method to use when len(images) >= RATE_LIMIT_PER_MINUTE.
-        Supported values:
-            - "fixedDelay": Fixed delay between calls.
-            - "tracking": Tracks request timestamps.
-        Defaults to "tracking".
+        Rate limiting method ("fixedDelay" or "tracking"). Defaults to "tracking".
     outputDir : Path, optional
-        Directory to store outputs.
-        Defaults to OUTPUT_DIR.
+        Directory where outputs will be stored. Defaults to OUTPUT_DIR.
     outputName : str, optional
-        Base name for output files.
-        Defaults to "response".
+        Base name for output files. Defaults to "response".
     progress : Progress, optional
-        A rich Progress instance.
+        A rich Progress instance for UI updates.
+    bulkPagesTask : TaskID, optional
+        Additional task for bulk page progress.
+
+    Returns
+    -------
+    None
     """
 
     global GLOBAL_REQUEST_TIMES
@@ -809,6 +870,7 @@ def TranscribeDocumentImages(
             TimeRemainingColumn(),
             expand=True,
         )
+
     elif not isinstance(progress, Progress):
 
         raise ValueError("progress must be a rich.progress.Progress instance")
@@ -828,7 +890,6 @@ def TranscribeDocumentImages(
                     startTime = currentTime
 
                     client = genai.Client(api_key=apiKey)
-
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
                         contents=[
@@ -856,7 +917,6 @@ def TranscribeDocumentImages(
                         GLOBAL_REQUEST_TIMES
                         and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
                     ):
-
                         GLOBAL_REQUEST_TIMES.popleft()
 
                     if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
@@ -864,6 +924,7 @@ def TranscribeDocumentImages(
                         sleepTime = RATE_LIMIT_WINDOW - (
                             currentTime - GLOBAL_REQUEST_TIMES[0]
                         )
+
                         SleepWithProgress(progress, task, sleepTime, defaultDescription)
                         currentTime = time.time()
 
@@ -875,7 +936,6 @@ def TranscribeDocumentImages(
                             GLOBAL_REQUEST_TIMES.popleft()
 
                     client = genai.Client(api_key=apiKey)
-
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
                         contents=[
@@ -888,13 +948,16 @@ def TranscribeDocumentImages(
                             image,
                         ],
                     )
-                    responses.append(response)
-                    GLOBAL_REQUEST_TIMES.append(time.time())
-                else:
 
+                    responses.append(response)
+
+                    GLOBAL_REQUEST_TIMES.append(time.time())
+
+                else:
                     raise ValueError(
                         "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
                     )
+
             else:
 
                 client = genai.Client(api_key=apiKey)
@@ -910,12 +973,16 @@ def TranscribeDocumentImages(
                         image,
                     ],
                 )
+
                 responses.append(response)
+
             progress.update(task, advance=1)
 
             if bulkPagesTask is not None:
+
                 progress.update(bulkPagesTask, advance=1)
 
+        # Save responses as pickle in case of error
         localPickleDir = Path(outputDir, f"{outputName}-pickles")
         localPickleDir.mkdir(parents=True, exist_ok=True)
 
@@ -929,15 +996,15 @@ def TranscribeDocumentImages(
                 picklePath = picklePath.with_name(uniquePath)
 
                 if picklePath.exists():
-
                     raise FileExistsError(
                         f"File {picklePath} already exists. Unique file creation failed."
                     )
 
             with picklePath.open("wb") as file:
-                pickle.dump(responses, file)
 
+                pickle.dump(responses, file)
         except Exception as e:
+
             console.print(f"{e}\n\n\n[bold red]Failed to save responses[/bold red]")
 
         combinedResponse = ""
@@ -963,29 +1030,46 @@ def TranscribeDocumentImages(
             combinedResponse += "\n".join(responseText) + "\n"
 
         Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
-
         cleanedResponse = CleanResponse(
             combinedResponse=combinedResponse, preamble=DOCUMENT_LATEX_PREAMBLE
         )
-
         Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
         progress.remove_task(task)
 
 
-def BulkTranscribeDocuments(pdfFiles: list[Path], outputDir: Path = None):
+def BulkTranscribeDocuments(source, outputDir: Path = None):
     """
-    Takes a list of PDF files and transcribes each document.
-    For each PDF, creates an output directory (named after the PDF with spaces replaced by "-")
-    as a subdirectory of the provided outputDir. If no outputDir is provided, defaults to a new directory within OUTPUT_DIR called "bulk-results".
+    Process a set of document PDFs from either a directory or a provided list of PDF files.
+    For each PDF, create an output directory (named after the PDF with spaces replaced by "-")
+    as a subdirectory of the provided outputDir. If no outputDir is provided, defaults to a new directory
+    within OUTPUT_DIR called "bulk-document-results".
+
+    Parameters
+    ----------
+    source : Path or list[Path]
+        A directory containing PDF files or a list of PDF file paths.
+    outputDir : Path, optional
+        Parent output directory.
+
+    Returns
+    -------
+    None
     """
+
+    if isinstance(source, Path) and source.is_dir():
+        pdfFiles = list(source.glob("*.pdf"))
+    elif isinstance(source, list):
+        pdfFiles = source
+    else:
+        raise ValueError("source must be a directory Path or a list of PDF files.")
 
     if outputDir is None:
         parentOutputDir = Path(OUTPUT_DIR, "bulk-document-results")
     else:
         parentOutputDir = outputDir
-    parentOutputDir.mkdir(parents=True, exist_ok=True)
 
+    parentOutputDir.mkdir(parents=True, exist_ok=True)
     totalPages = GetTotalPageCount(pdfFiles)
 
     with Progress(
@@ -1043,6 +1127,23 @@ def BulkTranscribeDocuments(pdfFiles: list[Path], outputDir: Path = None):
 
 
 def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
+    """
+    Load responses from a pickle file, combine them into a single LaTeX document,
+    and save the combined text and .tex file to the specified output directory.
+
+    Parameters
+    ----------
+    picklePath : Path
+        Path to the pickle file containing responses.
+    outputDir : Path
+        Directory where the output files will be saved.
+    outputName : Path
+        Base name for the output files.
+
+    Returns
+    -------
+    None
+    """
 
     with picklePath.open("rb") as file:
 
@@ -1063,10 +1164,12 @@ def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
 
         if isinstance(responseText, str):
             responseText = responseText.splitlines()
+
         if responseText[0].strip().startswith("```"):
             responseText = responseText[1:]
         if responseText[-1].strip() == "```":
             responseText = responseText[:-1]
+
         combinedResponse += "\n".join(responseText) + "\n"
 
     Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
@@ -1078,22 +1181,18 @@ def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
 
 if __name__ == "__main__":
 
-    # BulkSlideTranscribe(
-    #     lectureDir=MATH_465_SLIDES_DIR,
-    #     lectureNumPattern=MATH_465_PATTERN,
-    #     excludeLectureNums=[],
-    # )
-
-    # BulkLectureTranscribe(
-    #     lecturesDir=MATH_425_SLIDES_DIR,
-    #     lectureNumPattern=MATH_425_PATTERN,
-    #     excludeLectureNums=[],
-    # )
-
-    # BulkLectureTranscribe(
-    #     lecturesDir=EECS_476_SLIDES_DIR,
-    #     lectureNumPattern=EECS_476_PATTERN,
-    #     excludeLectureNums=[],
-    # )
+    # Example usage:
+    # For BulkSlideTranscribe and BulkLectureTranscribe, source can be a directory or a list of PDF paths.
+    # For BulkTranscribeDocuments, source can be a directory or list.
+    #
+    # Example:
+    # slides_dir = Path("/path/to/slides")
+    # BulkSlideTranscribe(slides_dir, excludeSlideNums=[1, 2, 3])
+    #
+    # lectures_dir = Path("/path/to/lectures")
+    # BulkLectureTranscribe(lectures_dir, excludeLectureNums=[1, 2, 3])
+    #
+    # documents_dir = Path("/path/to/documents")
+    # BulkTranscribeDocuments(documents_dir)
 
     pass
