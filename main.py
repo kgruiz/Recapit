@@ -42,16 +42,9 @@ GLOBAL_REQUEST_TIMES = deque()
 RATE_LIMIT_PER_MINUTE = 15
 RATE_LIMIT_WINDOW = 60
 
-INPUT_DIR = Path("input")
-
-if not INPUT_DIR.exists():
-
-    raise FileNotFoundError(f"Input Directory {INPUT_DIR} not found")
-
 OUTPUT_DIR = Path("output", "Math-425")
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
 
 # Load latex preambles
 SLIDE_LATEX_PREAMBLE_PATH = Path("utils", "slide-template.txt")
@@ -1049,13 +1042,49 @@ def TranscribeDocumentImages(
 
 
 def BulkSlideTranscribe(
-    lectureDir: Path,
+    source: Path | list[Path],
     outputDir: Path = None,
     lectureNumPattern: str = r".*(\d+).*",
     excludeLectureNums: list[int] = [],
 ):
 
-    slideFiles = list(lectureDir.glob("*.pdf"))
+    # Determine the list of PDF files from either a directory or an explicit list.
+    if isinstance(source, Path) and source.is_dir():
+
+        slideFiles = list(source.glob("*.pdf"))
+
+        if outputDir is None:
+
+            inputDir = source
+
+    elif isinstance(source, list):
+
+        slideFiles = source
+
+        if outputDir is None:
+
+            inputDirs = []
+
+            for slideFile in slideFiles:
+
+                inputDirs.append(slideFile.parent)
+
+            if len(set(inputDirs)) > 1:
+
+                inputDir = inputDirs[0]
+
+                console.print(
+                    f"Multiple input directories found: {set(inputDirs)}.\nUsing the first, {inputDir}, for the location of the ouput directory."
+                )
+
+            else:
+
+                inputDir = inputDirs[0]
+
+    else:
+        raise ValueError(
+            "Parameter 'source' must be a directory path or a list of PDF file paths."
+        )
 
     cleanedSlideFiles = []
 
@@ -1077,7 +1106,7 @@ def BulkSlideTranscribe(
 
         try:
 
-            lectureNum = int(lectureNum)
+            lectureNum = int(lectureNum[0])
 
         except ValueError:
 
@@ -1096,8 +1125,11 @@ def BulkSlideTranscribe(
     totalPages = GetTotalPageCount(slideFiles)
 
     if outputDir is None:
-        bulkOutputDir = Path(OUTPUT_DIR, "bulk-results")
+
+        bulkOutputDir = Path(inputDir, "transcribed-slides")
+
     else:
+
         bulkOutputDir = outputDir
 
     bulkOutputDir.mkdir(parents=True, exist_ok=True)
@@ -1154,13 +1186,50 @@ def BulkSlideTranscribe(
 
 
 def BulkLectureTranscribe(
-    lecturesDir: Path,
+    source: Path | list[Path],
     outputDir: Path = None,
     lectureNumPattern: str = r".*(\d+).*",
     excludeLectureNums: list[int] = [],
 ):
 
-    lectureFiles = list(lecturesDir.glob("*.pdf"))
+    # Determine the list of PDF files from either a directory or an explicit list.
+    if isinstance(source, Path) and source.is_dir():
+
+        lectureFiles = list(source.glob("*.pdf"))
+
+        if outputDir is None:
+
+            inputDir = source
+
+    elif isinstance(source, list):
+
+        lectureFiles = source
+
+        if outputDir is None:
+
+            inputDirs = []
+
+            for lectureFile in lectureFiles:
+
+                inputDirs.append(lectureFile.parent)
+
+            if len(set(inputDirs)) > 1:
+
+                inputDir = inputDirs[0]
+
+                console.print(
+                    f"Multiple input directories found: {set(inputDirs)}.\nUsing the first, {inputDir}, for the location of the ouput directory."
+                )
+
+            else:
+
+                inputDir = inputDirs[0]
+
+    else:
+
+        raise ValueError(
+            "Parameter 'source' must be a directory path or a list of PDF file paths."
+        )
 
     cleanedLectureFiles = []
 
@@ -1182,7 +1251,7 @@ def BulkLectureTranscribe(
 
         try:
 
-            lectureNum = int(lectureNum)
+            lectureNum = int(lectureNum[0])
 
         except ValueError:
 
@@ -1201,8 +1270,11 @@ def BulkLectureTranscribe(
     totalPages = GetTotalPageCount(lectureFiles)
 
     if outputDir is None:
-        bulkOutputDir = Path(OUTPUT_DIR, "bulk-results")
+
+        bulkOutputDir = Path(inputDir, "transcribed-lectures")
+
     else:
+
         bulkOutputDir = outputDir
 
     bulkOutputDir.mkdir(parents=True, exist_ok=True)
@@ -1221,10 +1293,8 @@ def BulkLectureTranscribe(
         transient=True,
     ) as progress:
 
-        task = progress.add_task(f"Transcribing lecture files", total=numLectureFiles)
-        allPagesTask = progress.add_task(
-            f"Transcribing lecture pages", total=totalPages
-        )
+        task = progress.add_task("Transcribing lecture files", total=numLectureFiles)
+        allPagesTask = progress.add_task("Transcribing lecture pages", total=totalPages)
 
         for lectureFile in lectureFiles:
 
@@ -1260,7 +1330,7 @@ def BulkLectureTranscribe(
             )
 
 
-def BulkTranscribeDocuments(source, outputDir: Path = None):
+def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
     """
     Process a set of document PDFs from either a directory or a provided list of PDF files.
     For each PDF, create an output directory (named after the PDF with spaces replaced by "-")
@@ -1282,27 +1352,39 @@ def BulkTranscribeDocuments(source, outputDir: Path = None):
     if isinstance(source, Path) and source.is_dir():
 
         pdfFiles = list(source.glob("*.pdf"))
-        inputDir = source
+
+        if outputDir is None:
+
+            inputDir = source
 
     elif isinstance(source, list):
 
         pdfFiles = source
-        inputDirs = []
 
-        for pdfFile in pdfFiles:
+        if outputDir is None:
 
-            inputDirs.append(pdfFile.parent)
+            inputDirs = []
 
-        if len(set(inputDirs)) > 1:
+            for pdfFile in pdfFiles:
 
-            inputDir = set(inputDirs)[0]
+                inputDirs.append(pdfFile.parent)
 
-            console.print(
-                f"Multiple input directories found: {inputDirs}. Using the first one, {inputDir}"
-            )
+            if len(set(inputDirs)) > 1:
+
+                inputDir = set(inputDirs)[0]
+
+                console.print(
+                    f"Multiple input directories found: {inputDirs}.\nUsing the first one, {inputDir}, for the location of the output directory."
+                )
+
+            else:
+
+                inputDir = set(inputDirs)[0]
 
     else:
-        raise ValueError("source must be a directory Path or a list of PDF files.")
+        raise ValueError(
+            "Parameter 'source' must be a directory path or a list of PDF file paths."
+        )
 
     if outputDir is None:
         parentOutputDir = Path(inputDir, "transcribed-documents")
@@ -1421,18 +1503,22 @@ def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
 
 if __name__ == "__main__":
 
-    # Example usage:
-    # For BulkSlideTranscribe and BulkLectureTranscribe, source can be a directory or a list of PDF paths.
-    # For BulkTranscribeDocuments, source can be a directory or list.
-    #
-    # Example:
-    # slides_dir = Path("/path/to/slides")
-    # BulkSlideTranscribe(slides_dir, excludeSlideNums=[1, 2, 3])
-    #
-    # lectures_dir = Path("/path/to/lectures")
-    # BulkLectureTranscribe(lectures_dir, excludeLectureNums=[1, 2, 3])
-    #
-    # documents_dir = Path("/path/to/documents")
-    # BulkTranscribeDocuments(documents_dir)
+    # BulkSlideTranscribe(
+    #     lectureDir=MATH_465_SLIDES_DIR,
+    #     lectureNumPattern=MATH_465_PATTERN,
+    #     excludeLectureNums=[],
+    # )
+
+    # BulkLectureTranscribe(
+    #     lecturesDir=MATH_425_SLIDES_DIR,
+    #     lectureNumPattern=MATH_425_PATTERN,
+    #     excludeLectureNums=[],
+    # )
+
+    # BulkLectureTranscribe(
+    #     lecturesDir=EECS_476_SLIDES_DIR,
+    #     lectureNumPattern=EECS_476_PATTERN,
+    #     excludeLectureNums=[],
+    # )
 
     pass
