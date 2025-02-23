@@ -358,7 +358,8 @@ def TranscribeSlideImages(
     imageDir: Path,
     limiterMethod: str = "tracking",
     outputDir: Path = OUTPUT_DIR,
-    outputName: str = "response",
+    outputName: str = "transcribed",
+    fullResponseDir: Path = None,
     progress=None,
     bulkPagesTask=None,
 ):
@@ -372,9 +373,12 @@ def TranscribeSlideImages(
     limiterMethod : str, optional
         Rate limiting method, either "fixedDelay" or "tracking". Defaults to "tracking".
     outputDir : Path, optional
-        Directory where output files will be stored. Defaults to OUTPUT_DIR.
+        Directory where cleaned output (.tex) will be stored.
     outputName : str, optional
-        Base name for the output files. Defaults to "response".
+        Base name for the output files. Defaults to "transcribed".
+    fullResponseDir : Path, optional
+        Directory where full responses (.txt) and pickles will be stored.
+        If not provided, defaults to outputDir.
     progress : Progress, optional
         A rich Progress instance for displaying progress.
     bulkPagesTask : TaskID, optional
@@ -511,7 +515,9 @@ def TranscribeSlideImages(
                 progress.update(bulkPagesTask, advance=1)
 
         # Save responses as pickle in case of error
-        localPickleDir = Path(outputDir, f"{outputName}-pickles")
+        if fullResponseDir is None:
+            fullResponseDir = outputDir
+        localPickleDir = Path(fullResponseDir, "pickles")
         localPickleDir.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -555,7 +561,7 @@ def TranscribeSlideImages(
 
             combinedResponse += "\n".join(responseText) + "\n"
 
-        Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
+        Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
         cleanedResponse = CleanResponse(
             combinedResponse=combinedResponse, preamble=SLIDE_LATEX_PREAMBLE
         )
@@ -568,7 +574,8 @@ def TranscribeLectureImages(
     imageDir: Path,
     limiterMethod: str = "tracking",
     outputDir: Path = OUTPUT_DIR,
-    outputName: str = "response",
+    outputName: str = "transcribed",
+    fullResponseDir: Path = None,
     progress=None,
     bulkPagesTask=None,
 ):
@@ -582,9 +589,12 @@ def TranscribeLectureImages(
     limiterMethod : str, optional
         Rate limiting method, either "fixedDelay" or "tracking". Defaults to "tracking".
     outputDir : Path, optional
-        Directory where output files will be stored. Defaults to OUTPUT_DIR.
+        Directory where cleaned output (.tex) will be stored.
     outputName : str, optional
-        Base name for the output files. Defaults to "response".
+        Base name for the output files. Defaults to "transcribed".
+    fullResponseDir : Path, optional
+        Directory where full responses (.txt) and pickles will be stored.
+        If not provided, defaults to outputDir.
     progress : Progress, optional
         A rich Progress instance for displaying progress.
     bulkPagesTask : TaskID, optional
@@ -717,7 +727,9 @@ def TranscribeLectureImages(
                 progress.update(bulkPagesTask, advance=1)
 
         # Save responses as pickle in case of error
-        localPickleDir = Path(outputDir, f"{outputName}-pickles")
+        if fullResponseDir is None:
+            fullResponseDir = outputDir
+        localPickleDir = Path(fullResponseDir, "pickles")
         localPickleDir.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -762,7 +774,7 @@ def TranscribeLectureImages(
 
             combinedResponse += "\n".join(responseText) + "\n"
 
-        Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
+        Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
         cleanedResponse = CleanResponse(
             combinedResponse=combinedResponse, preamble=LECTURE_LATEX_PREAMBLE
         )
@@ -775,7 +787,8 @@ def TranscribeDocumentImages(
     imageDir: Path,
     limiterMethod: str = "tracking",
     outputDir: Path = OUTPUT_DIR,
-    outputName: str = "response",
+    outputName: str = "transcribed",
+    fullResponseDir: Path = None,
     progress=None,
     bulkPagesTask=None,
 ):
@@ -789,9 +802,12 @@ def TranscribeDocumentImages(
     limiterMethod : str, optional
         Rate limiting method, either "fixedDelay" or "tracking". Defaults to "tracking".
     outputDir : Path, optional
-        Directory where output files will be stored. Defaults to OUTPUT_DIR.
+        Directory where cleaned output (.tex) will be stored.
     outputName : str, optional
-        Base name for the output files. Defaults to "response".
+        Base name for the output files. Defaults to "transcribed".
+    fullResponseDir : Path, optional
+        Directory where full responses (.txt) and pickles will be stored.
+        If not provided, defaults to outputDir.
     progress : Progress, optional
         A rich Progress instance for displaying progress.
     bulkPagesTask : TaskID, optional
@@ -926,7 +942,9 @@ def TranscribeDocumentImages(
                 progress.update(bulkPagesTask, advance=1)
 
         # Save responses as pickle in case of error
-        localPickleDir = Path(outputDir, f"{outputName}-pickles")
+        if fullResponseDir is None:
+            fullResponseDir = outputDir
+        localPickleDir = Path(fullResponseDir, "pickles")
         localPickleDir.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -972,7 +990,7 @@ def TranscribeDocumentImages(
 
             combinedResponse += "\n".join(responseText) + "\n"
 
-        Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
+        Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
         cleanedResponse = CleanResponse(
             combinedResponse=combinedResponse, preamble=DOCUMENT_LATEX_PREAMBLE
         )
@@ -1120,8 +1138,11 @@ def BulkTranscribeSlides(
                 refresh=True,
             )
 
-            # Define the pages directory within bulkOutputDir for each PDF
-            pagesDir = bulkOutputDir / f"{slideFile.stem}-pages"
+            baseOutputDir = bulkOutputDir / slideFile.stem.replace(" ", "-")
+            pagesDir = baseOutputDir / "page-images"
+            fullResponseDir = baseOutputDir / "full-response"
+            fullResponseDir.mkdir(parents=True, exist_ok=True)
+            fullResponseDir.joinpath("pickles").mkdir(parents=True, exist_ok=True)
             pagesDir.mkdir(parents=True, exist_ok=True)
 
             PDFToPNG(pdfPath=slideFile, pagesDir=pagesDir, progress=progress)
@@ -1129,8 +1150,9 @@ def BulkTranscribeSlides(
             TranscribeSlideImages(
                 imageDir=pagesDir,
                 limiterMethod="tracking",
-                outputDir=bulkOutputDir,
-                outputName=f"{slideFile.stem}-response",
+                outputDir=baseOutputDir,
+                outputName=f"{slideFile.stem}-transcribed",
+                fullResponseDir=fullResponseDir,
                 progress=progress,
                 bulkPagesTask=allPagesTask,
             )
@@ -1283,8 +1305,11 @@ def BulkTranscribeLectures(
                 refresh=True,
             )
 
-            # Define the pages directory within bulkOutputDir for each PDF
-            pagesDir = bulkOutputDir / f"{lectureFile.stem}-pages"
+            baseOutputDir = bulkOutputDir / lectureFile.stem.replace(" ", "-")
+            pagesDir = baseOutputDir / "page-images"
+            fullResponseDir = baseOutputDir / "full-response"
+            fullResponseDir.mkdir(parents=True, exist_ok=True)
+            fullResponseDir.joinpath("pickles").mkdir(parents=True, exist_ok=True)
             pagesDir.mkdir(parents=True, exist_ok=True)
 
             PDFToPNG(pdfPath=lectureFile, pagesDir=pagesDir, progress=progress)
@@ -1292,8 +1317,9 @@ def BulkTranscribeLectures(
             TranscribeLectureImages(
                 imageDir=pagesDir,
                 limiterMethod="tracking",
-                outputDir=bulkOutputDir,
-                outputName=f"{lectureFile.stem}-response",
+                outputDir=baseOutputDir,
+                outputName=f"{lectureFile.stem}-transcribed",
+                fullResponseDir=fullResponseDir,
                 progress=progress,
                 bulkPagesTask=allPagesTask,
             )
@@ -1402,10 +1428,9 @@ def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
 
             baseOutputDir = parentOutputDir / pdfFile.stem.replace(" ", "-")
             pagesDir = baseOutputDir / "page-images"
-            baseOutputDir.joinpath("full-response", "pickles").mkdir(
-                parents=True, exist_ok=True
-            )
-
+            fullResponseDir = baseOutputDir / "full-response"
+            fullResponseDir.mkdir(parents=True, exist_ok=True)
+            fullResponseDir.joinpath("pickles").mkdir(parents=True, exist_ok=True)
             pagesDir.mkdir(parents=True, exist_ok=True)
 
             PDFToPNG(pdfPath=pdfFile, pagesDir=pagesDir, progress=progress)
@@ -1414,7 +1439,8 @@ def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
                 imageDir=pagesDir,
                 limiterMethod="tracking",
                 outputDir=baseOutputDir,
-                outputName=f"{pdfFile.stem}-response",
+                outputName=f"{pdfFile.stem}-transcribed",
+                fullResponseDir=fullResponseDir,
                 progress=progress,
                 bulkPagesTask=allPagesTask,
             )
