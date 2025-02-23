@@ -397,7 +397,9 @@ def TranscribeSlideImages(
     responses = []
     defaultDescription = "Transcribing Slides"
 
-    useRateLimit = len(images) >= RATE_LIMIT_PER_MINUTE
+    currentLimiterMethod = limiterMethod
+    if len(images) < RATE_LIMIT_PER_MINUTE:
+        currentLimiterMethod = "fixedDelay"
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
 
     if progress is None:
@@ -427,86 +429,9 @@ def TranscribeSlideImages(
 
             currentTime = time.time()
 
-            if useRateLimit:
+            if currentLimiterMethod == "fixedDelay":
 
-                if limiterMethod == "fixedDelay":
-
-                    startTime = currentTime
-
-                    client = genai.Client(api_key=apiKey)
-                    response = client.models.generate_content(
-                        model="gemini-2.0-flash",
-                        contents=[
-                            (
-                                f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
-                                f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
-                                f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
-                                f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
-                                f"describe the contents.\n\nLatex Preamble:{SLIDE_LATEX_PREAMBLE}"
-                            ),
-                            image,
-                        ],
-                    )
-
-                    responses.append(response)
-
-                    elapsed = time.time() - startTime
-
-                    if elapsed < delayBetweenCalls:
-
-                        sleepTime = delayBetweenCalls - elapsed
-                        SleepWithProgress(progress, task, sleepTime, defaultDescription)
-
-                elif limiterMethod == "tracking":
-
-                    # Remove timestamps that are outside the current window
-                    while (
-                        GLOBAL_REQUEST_TIMES
-                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
-                    ):
-                        GLOBAL_REQUEST_TIMES.popleft()
-
-                    if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
-
-                        sleepTime = RATE_LIMIT_WINDOW - (
-                            currentTime - GLOBAL_REQUEST_TIMES[0]
-                        )
-
-                        SleepWithProgress(progress, task, sleepTime, defaultDescription)
-                        currentTime = time.time()
-
-                        while (
-                            GLOBAL_REQUEST_TIMES
-                            and currentTime - GLOBAL_REQUEST_TIMES[0]
-                            >= RATE_LIMIT_WINDOW
-                        ):
-                            GLOBAL_REQUEST_TIMES.popleft()
-
-                    client = genai.Client(api_key=apiKey)
-                    response = client.models.generate_content(
-                        model="gemini-2.0-flash",
-                        contents=[
-                            (
-                                f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
-                                f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
-                                f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
-                                f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
-                                f"describe the contents.\n\nLatex Preamble:{SLIDE_LATEX_PREAMBLE}"
-                            ),
-                            image,
-                        ],
-                    )
-
-                    responses.append(response)
-
-                    GLOBAL_REQUEST_TIMES.append(time.time())
-
-                else:
-                    raise ValueError(
-                        "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
-                    )
-
-            else:
+                startTime = currentTime
 
                 client = genai.Client(api_key=apiKey)
                 response = client.models.generate_content(
@@ -524,6 +449,60 @@ def TranscribeSlideImages(
                 )
 
                 responses.append(response)
+
+                elapsed = time.time() - startTime
+
+                if elapsed < delayBetweenCalls:
+
+                    sleepTime = delayBetweenCalls - elapsed
+                    SleepWithProgress(progress, task, sleepTime, defaultDescription)
+
+            elif currentLimiterMethod == "tracking":
+
+                while (
+                    GLOBAL_REQUEST_TIMES
+                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                ):
+                    GLOBAL_REQUEST_TIMES.popleft()
+
+                if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
+
+                    sleepTime = RATE_LIMIT_WINDOW - (
+                        currentTime - GLOBAL_REQUEST_TIMES[0]
+                    )
+
+                    SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                    currentTime = time.time()
+
+                    while (
+                        GLOBAL_REQUEST_TIMES
+                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                    ):
+                        GLOBAL_REQUEST_TIMES.popleft()
+
+                client = genai.Client(api_key=apiKey)
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=[
+                        (
+                            f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
+                            f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
+                            f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
+                            f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
+                            f"describe the contents.\n\nLatex Preamble:{SLIDE_LATEX_PREAMBLE}"
+                        ),
+                        image,
+                    ],
+                )
+
+                responses.append(response)
+
+                GLOBAL_REQUEST_TIMES.append(time.time())
+
+            else:
+                raise ValueError(
+                    "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
+                )
 
             progress.update(task, advance=1)
 
@@ -628,7 +607,9 @@ def TranscribeLectureImages(
     responses = []
     defaultDescription = "Transcribing Lecture"
 
-    useRateLimit = len(images) >= RATE_LIMIT_PER_MINUTE
+    currentLimiterMethod = limiterMethod
+    if len(images) < RATE_LIMIT_PER_MINUTE:
+        currentLimiterMethod = "fixedDelay"
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
 
     if progress is None:
@@ -658,81 +639,9 @@ def TranscribeLectureImages(
 
             currentTime = time.time()
 
-            if useRateLimit:
+            if currentLimiterMethod == "fixedDelay":
 
-                if limiterMethod == "fixedDelay":
-
-                    startTime = currentTime
-
-                    client = genai.Client(api_key=apiKey)
-                    response = client.models.generate_content(
-                        model="gemini-2.0-flash",
-                        contents=[
-                            (
-                                f"Transcribe the image, including all math, in latex format. Use the given lecture preamble as a base, "
-                                f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
-                                f"Do not include outside files. For graphics, either recreate with tikz or leave a placeholder.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
-                            ),
-                            image,
-                        ],
-                    )
-
-                    responses.append(response)
-
-                    elapsed = time.time() - startTime
-
-                    if elapsed < delayBetweenCalls:
-
-                        sleepTime = delayBetweenCalls - elapsed
-                        SleepWithProgress(progress, task, sleepTime, defaultDescription)
-
-                elif limiterMethod == "tracking":
-
-                    while (
-                        GLOBAL_REQUEST_TIMES
-                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
-                    ):
-                        GLOBAL_REQUEST_TIMES.popleft()
-
-                    if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
-
-                        sleepTime = RATE_LIMIT_WINDOW - (
-                            currentTime - GLOBAL_REQUEST_TIMES[0]
-                        )
-
-                        SleepWithProgress(progress, task, sleepTime, defaultDescription)
-                        currentTime = time.time()
-
-                        while (
-                            GLOBAL_REQUEST_TIMES
-                            and currentTime - GLOBAL_REQUEST_TIMES[0]
-                            >= RATE_LIMIT_WINDOW
-                        ):
-                            GLOBAL_REQUEST_TIMES.popleft()
-
-                    client = genai.Client(api_key=apiKey)
-                    response = client.models.generate_content(
-                        model="gemini-2.0-flash",
-                        contents=[
-                            (
-                                f"Transcribe the image, including all math, in latex format. Use the given lecture preamble as a base, "
-                                f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
-                                f"Do not include outside files. For graphics, either recreate with tikz or leave a placeholder.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
-                            ),
-                            image,
-                        ],
-                    )
-
-                    responses.append(response)
-
-                    GLOBAL_REQUEST_TIMES.append(time.time())
-
-                else:
-
-                    raise ValueError(
-                        "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
-                    )
-            else:
+                startTime = currentTime
 
                 client = genai.Client(api_key=apiKey)
                 response = client.models.generate_content(
@@ -746,7 +655,60 @@ def TranscribeLectureImages(
                         image,
                     ],
                 )
+
                 responses.append(response)
+
+                elapsed = time.time() - startTime
+
+                if elapsed < delayBetweenCalls:
+
+                    sleepTime = delayBetweenCalls - elapsed
+                    SleepWithProgress(progress, task, sleepTime, defaultDescription)
+
+            elif currentLimiterMethod == "tracking":
+
+                while (
+                    GLOBAL_REQUEST_TIMES
+                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                ):
+                    GLOBAL_REQUEST_TIMES.popleft()
+
+                if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
+
+                    sleepTime = RATE_LIMIT_WINDOW - (
+                        currentTime - GLOBAL_REQUEST_TIMES[0]
+                    )
+
+                    SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                    currentTime = time.time()
+
+                    while (
+                        GLOBAL_REQUEST_TIMES
+                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                    ):
+                        GLOBAL_REQUEST_TIMES.popleft()
+
+                client = genai.Client(api_key=apiKey)
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=[
+                        (
+                            f"Transcribe the image, including all math, in latex format. Use the given lecture preamble as a base, "
+                            f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
+                            f"Do not include outside files. For graphics, either recreate with tikz or leave a placeholder.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
+                        ),
+                        image,
+                    ],
+                )
+
+                responses.append(response)
+
+                GLOBAL_REQUEST_TIMES.append(time.time())
+
+            else:
+                raise ValueError(
+                    "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
+                )
 
             progress.update(task, advance=1)
 
@@ -768,7 +730,6 @@ def TranscribeLectureImages(
                 picklePath = picklePath.with_name(uniquePath)
 
                 if picklePath.exists():
-
                     raise FileExistsError(
                         f"File {picklePath} already exists. Unique file creation failed."
                     )
@@ -777,7 +738,6 @@ def TranscribeLectureImages(
                 pickle.dump(responses, file)
 
         except Exception as e:
-
             console.print(f"{e}\n\n\n[bold red]Failed to save responses[/bold red]")
 
         combinedResponse = ""
@@ -803,11 +763,9 @@ def TranscribeLectureImages(
             combinedResponse += "\n".join(responseText) + "\n"
 
         Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
-
         cleanedResponse = CleanResponse(
             combinedResponse=combinedResponse, preamble=LECTURE_LATEX_PREAMBLE
         )
-
         Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
         progress.remove_task(task)
@@ -857,7 +815,9 @@ def TranscribeDocumentImages(
     responses = []
     defaultDescription = "Transcribing Document"
 
-    useRateLimit = len(images) >= RATE_LIMIT_PER_MINUTE
+    currentLimiterMethod = limiterMethod
+    if len(images) < RATE_LIMIT_PER_MINUTE:
+        currentLimiterMethod = "fixedDelay"
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
 
     if progress is None:
@@ -887,82 +847,9 @@ def TranscribeDocumentImages(
 
             currentTime = time.time()
 
-            if useRateLimit:
+            if currentLimiterMethod == "fixedDelay":
 
-                if limiterMethod == "fixedDelay":
-
-                    startTime = currentTime
-
-                    client = genai.Client(api_key=apiKey)
-                    response = client.models.generate_content(
-                        model="gemini-2.0-flash",
-                        contents=[
-                            (
-                                f"Transcribe the document image, including all math, in LaTeX format. "
-                                f"Use the document preamble as a base and add any necessary packages. "
-                                f"Escape special characters appropriately. "
-                                f"If there is a graphic, recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{DOCUMENT_LATEX_PREAMBLE}"
-                            ),
-                            image,
-                        ],
-                    )
-
-                    responses.append(response)
-                    elapsed = time.time() - startTime
-
-                    if elapsed < delayBetweenCalls:
-
-                        sleepTime = delayBetweenCalls - elapsed
-                        SleepWithProgress(progress, task, sleepTime, defaultDescription)
-
-                elif limiterMethod == "tracking":
-
-                    while (
-                        GLOBAL_REQUEST_TIMES
-                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
-                    ):
-                        GLOBAL_REQUEST_TIMES.popleft()
-
-                    if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
-
-                        sleepTime = RATE_LIMIT_WINDOW - (
-                            currentTime - GLOBAL_REQUEST_TIMES[0]
-                        )
-
-                        SleepWithProgress(progress, task, sleepTime, defaultDescription)
-                        currentTime = time.time()
-
-                        while (
-                            GLOBAL_REQUEST_TIMES
-                            and currentTime - GLOBAL_REQUEST_TIMES[0]
-                            >= RATE_LIMIT_WINDOW
-                        ):
-                            GLOBAL_REQUEST_TIMES.popleft()
-
-                    client = genai.Client(api_key=apiKey)
-                    response = client.models.generate_content(
-                        model="gemini-2.0-flash",
-                        contents=[
-                            (
-                                f"Transcribe the document image, including all math, in LaTeX format. "
-                                f"Use the document preamble as a base and add any necessary packages. "
-                                f"Escape special characters appropriately. "
-                                f"If there is a graphic, recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{DOCUMENT_LATEX_PREAMBLE}"
-                            ),
-                            image,
-                        ],
-                    )
-
-                    responses.append(response)
-
-                    GLOBAL_REQUEST_TIMES.append(time.time())
-
-                else:
-                    raise ValueError(
-                        "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
-                    )
-
-            else:
+                startTime = currentTime
 
                 client = genai.Client(api_key=apiKey)
                 response = client.models.generate_content(
@@ -979,6 +866,58 @@ def TranscribeDocumentImages(
                 )
 
                 responses.append(response)
+                elapsed = time.time() - startTime
+
+                if elapsed < delayBetweenCalls:
+
+                    sleepTime = delayBetweenCalls - elapsed
+                    SleepWithProgress(progress, task, sleepTime, defaultDescription)
+
+            elif currentLimiterMethod == "tracking":
+
+                while (
+                    GLOBAL_REQUEST_TIMES
+                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                ):
+                    GLOBAL_REQUEST_TIMES.popleft()
+
+                if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
+
+                    sleepTime = RATE_LIMIT_WINDOW - (
+                        currentTime - GLOBAL_REQUEST_TIMES[0]
+                    )
+
+                    SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                    currentTime = time.time()
+
+                    while (
+                        GLOBAL_REQUEST_TIMES
+                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                    ):
+                        GLOBAL_REQUEST_TIMES.popleft()
+
+                client = genai.Client(api_key=apiKey)
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=[
+                        (
+                            f"Transcribe the document image, including all math, in LaTeX format. "
+                            f"Use the document preamble as a base and add any necessary packages. "
+                            f"Escape special characters appropriately. "
+                            f"If there is a graphic, recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{DOCUMENT_LATEX_PREAMBLE}"
+                        ),
+                        image,
+                    ],
+                )
+
+                responses.append(response)
+
+                GLOBAL_REQUEST_TIMES.append(time.time())
+
+            else:
+                raise ValueError(
+                    "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
+                )
 
             progress.update(task, advance=1)
 
