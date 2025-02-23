@@ -52,19 +52,19 @@ OUTPUT_DIR = Path("output", "Math-425")
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-LATEX_PREAMBLE_PATH = Path("utils", "slide-template.txt")
+SLIDE_LATEX_PREAMBLE_PATH = Path("utils", "slide-template.txt")
 
-if not LATEX_PREAMBLE_PATH.exists():
+if not SLIDE_LATEX_PREAMBLE_PATH.exists():
 
     raise FileNotFoundError(
-        f"Slides latex preamble file {LATEX_PREAMBLE_PATH} not found"
+        f"Slides latex preamble file {SLIDE_LATEX_PREAMBLE_PATH} not found"
     )
 
-LATEX_PREAMBLE = LATEX_PREAMBLE_PATH.read_text()
+SLIDE_LATEX_PREAMBLE = SLIDE_LATEX_PREAMBLE_PATH.read_text()
 
 LECTURE_LATEX_PREAMBLE_PATH = Path("utils", "lecture-template.txt")
 
-if not LATEX_PREAMBLE_PATH.exists():
+if not LECTURE_LATEX_PREAMBLE_PATH.exists():
 
     raise FileNotFoundError(
         f"Lecture latex preamble file {LECTURE_LATEX_PREAMBLE_PATH} not found"
@@ -72,19 +72,15 @@ if not LATEX_PREAMBLE_PATH.exists():
 
 LECTURE_LATEX_PREAMBLE = LECTURE_LATEX_PREAMBLE_PATH.read_text()
 
+DOCUMENT_LATEX_PREAMBLE_PATH = Path("utils", "document-template.txt")
 
-MATH_465_SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math465/Slides")
+if not DOCUMENT_LATEX_PREAMBLE_PATH.exists():
 
-MATH_425_SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math425/Slides")
+    raise FileNotFoundError(
+        f"Document latex preamble file {DOCUMENT_LATEX_PREAMBLE_PATH} not found"
+    )
 
-EECS_476_SLIDES_DIR = Path(
-    "/Users/kadengruizenga/Documents/School/W25/EECS476/Lecture-Notes"
-)
-
-
-MATH_465_PATTERN = r"Math465 Lecture (\d+).pdf"
-MATH_425_PATTERN = r"Lecture(\d+).pdf"
-EECS_476_PATTERN = r"lec(\d+).*"
+DOCUMENT_LATEX_PREAMBLE = DOCUMENT_LATEX_PREAMBLE_PATH.read_text()
 
 
 def GetTotalPageCount(pdfFiles: list[Path]) -> int:
@@ -333,6 +329,7 @@ def TranscribeSlideImages(
     progress : Progress, optional
         A rich Progress instance to update the UI.
     """
+
     global GLOBAL_REQUEST_TIMES
 
     # Use the provided imageDir for image directory.
@@ -372,12 +369,17 @@ def TranscribeSlideImages(
         task = progress.add_task(defaultDescription, total=len(images))
 
         for image in images:
+
             currentTime = time.time()
 
             if useRateLimit:
+
                 if limiterMethod == "fixedDelay":
+
                     startTime = currentTime
+
                     client = genai.Client(api_key=apiKey)
+
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
                         contents=[
@@ -386,19 +388,23 @@ def TranscribeSlideImages(
                                 f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
                                 f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
                                 f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
-                                f"describe the contents.\n\nLatex Preamble:{LATEX_PREAMBLE}"
+                                f"describe the contents.\n\nLatex Preamble:{SLIDE_LATEX_PREAMBLE}"
                             ),
                             image,
                         ],
                     )
+
                     responses.append(response)
+
                     elapsed = time.time() - startTime
 
                     if elapsed < delayBetweenCalls:
+
                         sleepTime = delayBetweenCalls - elapsed
                         SleepWithProgress(progress, task, sleepTime, defaultDescription)
 
                 elif limiterMethod == "tracking":
+
                     # Remove timestamps that are outside the current window
                     while (
                         GLOBAL_REQUEST_TIMES
@@ -410,16 +416,20 @@ def TranscribeSlideImages(
                         sleepTime = RATE_LIMIT_WINDOW - (
                             currentTime - GLOBAL_REQUEST_TIMES[0]
                         )
+
                         SleepWithProgress(progress, task, sleepTime, defaultDescription)
                         currentTime = time.time()
+
                         while (
                             GLOBAL_REQUEST_TIMES
                             and currentTime - GLOBAL_REQUEST_TIMES[0]
                             >= RATE_LIMIT_WINDOW
                         ):
+
                             GLOBAL_REQUEST_TIMES.popleft()
 
                     client = genai.Client(api_key=apiKey)
+
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
                         contents=[
@@ -428,19 +438,26 @@ def TranscribeSlideImages(
                                 f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
                                 f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
                                 f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
-                                f"describe the contents.\n\nLatex Preamble:{LATEX_PREAMBLE}"
+                                f"describe the contents.\n\nLatex Preamble:{SLIDE_LATEX_PREAMBLE}"
                             ),
                             image,
                         ],
                     )
+
                     responses.append(response)
+
                     GLOBAL_REQUEST_TIMES.append(time.time())
+
                 else:
+
                     raise ValueError(
                         "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
                     )
+
             else:
+
                 client = genai.Client(api_key=apiKey)
+
                 response = client.models.generate_content(
                     model="gemini-2.0-flash",
                     contents=[
@@ -449,11 +466,12 @@ def TranscribeSlideImages(
                             f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
                             f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
                             f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
-                            f"describe the contents.\n\nLatex Preamble:{LATEX_PREAMBLE}"
+                            f"describe the contents.\n\nLatex Preamble:{SLIDE_LATEX_PREAMBLE}"
                         ),
                         image,
                     ],
                 )
+
                 responses.append(response)
 
             progress.update(task, advance=1)
@@ -502,7 +520,7 @@ def TranscribeSlideImages(
 
         Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
         cleanedResponse = CleanResponse(
-            combinedResponse=combinedResponse, preamble=LATEX_PREAMBLE
+            combinedResponse=combinedResponse, preamble=SLIDE_LATEX_PREAMBLE
         )
         Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
@@ -710,230 +728,317 @@ def TranscribeLectureImages(
 
             if isinstance(responseText, str):
                 responseText = responseText.splitlines()
+
             if responseText[0].strip().startswith("```"):
                 responseText = responseText[1:]
             if responseText[-1].strip() == "```":
                 responseText = responseText[:-1]
+
             combinedResponse += "\n".join(responseText) + "\n"
 
         Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
+
         cleanedResponse = CleanResponse(
             combinedResponse=combinedResponse, preamble=LECTURE_LATEX_PREAMBLE
         )
+
         Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
         progress.remove_task(task)
 
 
-def BulkSlideTranscribe(
-    lectureDir: Path,
-    outputDir: Path = None,
-    lectureNumPattern: str = r".*(\d+).*",
-    excludeLectureNums: list[int] = [],
+def TranscribeDocumentImages(
+    imageDir: Path,
+    limiterMethod: str = "tracking",
+    outputDir: Path = OUTPUT_DIR,
+    outputName: str = "response",
+    progress=None,
+    bulkPagesTask=None,
 ):
+    """
+    Processes document images and queries an API to transcribe them in LaTeX format.
+    Uses a document-oriented prompt.
 
-    slideFiles = list(lectureDir.glob("*.pdf"))
+    Parameters
+    ----------
+    imageDir : Path
+        Path to the directory containing the document images.
+    limiterMethod : str, optional
+        The rate limiting method to use when len(images) >= RATE_LIMIT_PER_MINUTE.
+        Supported values:
+            - "fixedDelay": Fixed delay between calls.
+            - "tracking": Tracks request timestamps.
+        Defaults to "tracking".
+    outputDir : Path, optional
+        Directory to store outputs.
+        Defaults to OUTPUT_DIR.
+    outputName : str, optional
+        Base name for output files.
+        Defaults to "response".
+    progress : Progress, optional
+        A rich Progress instance.
+    """
 
-    cleanedSlideFiles = []
+    global GLOBAL_REQUEST_TIMES
 
-    for slideFile in slideFiles:
+    IMAGE_DIR = Path(imageDir)
+    images = [PIL.Image.open(imagePath) for imagePath in IMAGE_DIR.glob("*.png")]
 
-        lectureNum = re.findall(lectureNumPattern, slideFile.stem)
+    apiKey = os.getenv("GEMINI_API_KEY")
 
-        if not lectureNum:
+    if apiKey is None:
+        raise ValueError("GEMINI_API_KEY environment variable not set")
 
-            console.print(f"Error extracting lecture number from {slideFile.name}")
+    responses = []
+    defaultDescription = "Transcribing Document"
 
-            raise ValueError(f"Error extracting lecture number from {slideFile.name}")
+    useRateLimit = len(images) >= RATE_LIMIT_PER_MINUTE
+    delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
 
-        elif len(lectureNum) > 1:
+    if progress is None:
 
-            console.print(f"Multiple lecture numbers found in {slideFile.name}")
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}", justify="left"),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            BarColumn(bar_width=None),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            TextColumn("•"),
+            TimeRemainingColumn(),
+            expand=True,
+        )
+    elif not isinstance(progress, Progress):
 
-            raise ValueError(f"Multiple lecture numbers found in {slideFile.name}")
+        raise ValueError("progress must be a rich.progress.Progress instance")
+
+    with progress:
+
+        task = progress.add_task(defaultDescription, total=len(images))
+
+        for image in images:
+
+            currentTime = time.time()
+
+            if useRateLimit:
+
+                if limiterMethod == "fixedDelay":
+
+                    startTime = currentTime
+
+                    client = genai.Client(api_key=apiKey)
+
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            (
+                                f"Transcribe the document image, including all math, in LaTeX format. "
+                                f"Use the document preamble as a base and add any necessary packages. "
+                                f"Escape special characters appropriately. "
+                                f"If there is a graphic, recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{DOCUMENT_LATEX_PREAMBLE}"
+                            ),
+                            image,
+                        ],
+                    )
+
+                    responses.append(response)
+                    elapsed = time.time() - startTime
+
+                    if elapsed < delayBetweenCalls:
+
+                        sleepTime = delayBetweenCalls - elapsed
+                        SleepWithProgress(progress, task, sleepTime, defaultDescription)
+
+                elif limiterMethod == "tracking":
+
+                    while (
+                        GLOBAL_REQUEST_TIMES
+                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                    ):
+
+                        GLOBAL_REQUEST_TIMES.popleft()
+
+                    if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
+
+                        sleepTime = RATE_LIMIT_WINDOW - (
+                            currentTime - GLOBAL_REQUEST_TIMES[0]
+                        )
+                        SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                        currentTime = time.time()
+
+                        while (
+                            GLOBAL_REQUEST_TIMES
+                            and currentTime - GLOBAL_REQUEST_TIMES[0]
+                            >= RATE_LIMIT_WINDOW
+                        ):
+                            GLOBAL_REQUEST_TIMES.popleft()
+
+                    client = genai.Client(api_key=apiKey)
+
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            (
+                                f"Transcribe the document image, including all math, in LaTeX format. "
+                                f"Use the document preamble as a base and add any necessary packages. "
+                                f"Escape special characters appropriately. "
+                                f"If there is a graphic, recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{DOCUMENT_LATEX_PREAMBLE}"
+                            ),
+                            image,
+                        ],
+                    )
+                    responses.append(response)
+                    GLOBAL_REQUEST_TIMES.append(time.time())
+                else:
+
+                    raise ValueError(
+                        "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
+                    )
+            else:
+
+                client = genai.Client(api_key=apiKey)
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=[
+                        (
+                            f"Transcribe the document image, including all math, in LaTeX format. "
+                            f"Use the document preamble as a base and add any necessary packages. "
+                            f"Escape special characters appropriately. "
+                            f"If there is a graphic, recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{DOCUMENT_LATEX_PREAMBLE}"
+                        ),
+                        image,
+                    ],
+                )
+                responses.append(response)
+            progress.update(task, advance=1)
+
+            if bulkPagesTask is not None:
+                progress.update(bulkPagesTask, advance=1)
+
+        localPickleDir = Path(outputDir, f"{outputName}-pickles")
+        localPickleDir.mkdir(parents=True, exist_ok=True)
 
         try:
 
-            lectureNum = int(lectureNum)
+            picklePath = Path(localPickleDir, f"{outputName}.pkl")
 
-        except ValueError:
+            if picklePath.exists():
 
-            console.print(f"Error extracting lecture number from {slideFile.name}")
+                uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+                picklePath = picklePath.with_name(uniquePath)
 
-            raise
+                if picklePath.exists():
 
-        if lectureNum not in excludeLectureNums:
+                    raise FileExistsError(
+                        f"File {picklePath} already exists. Unique file creation failed."
+                    )
 
-            cleanedSlideFiles.append(slideFile)
+            with picklePath.open("wb") as file:
+                pickle.dump(responses, file)
 
-    slideFiles = natsorted(cleanedSlideFiles)
+        except Exception as e:
+            console.print(f"{e}\n\n\n[bold red]Failed to save responses[/bold red]")
 
-    numSlideFiles = len(slideFiles)
+        combinedResponse = ""
 
-    totalPages = GetTotalPageCount(slideFiles)
+        for i, response in enumerate(responses):
 
-    if outputDir is None:
-        bulkOutputDir = Path(OUTPUT_DIR, "bulk-results")
-    else:
-        bulkOutputDir = outputDir
+            responseText: str | list[str] | None = response.text
 
-    bulkOutputDir.mkdir(parents=True, exist_ok=True)
+            if responseText is None:
+                combinedResponse += (
+                    f"\n\\section{{Page {i}}}\n\nError: Text content is None"
+                )
+                continue
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]{task.description}", justify="left"),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        BarColumn(bar_width=None),
-        MofNCompleteColumn(),
-        TextColumn("•"),
-        TimeElapsedColumn(),
-        TextColumn("•"),
-        TimeRemainingColumn(),
-        expand=True,
-        transient=True,
-    ) as progress:
+            if isinstance(responseText, str):
+                responseText = responseText.splitlines()
 
-        task = progress.add_task(f"Transcribing slide files", total=numSlideFiles)
-        allPagesTask = progress.add_task(f"Transcribing slide pages", total=totalPages)
+            if responseText[0].strip().startswith("```"):
+                responseText = responseText[1:]
+            if responseText[-1].strip() == "```":
+                responseText = responseText[:-1]
 
-        for slideFile in slideFiles:
+            combinedResponse += "\n".join(responseText) + "\n"
 
-            progress.update(
-                task, description=f"Transcribing {slideFile.name}", refresh=True
-            )
-            progress.update(
-                allPagesTask,
-                description=f"Transcribing slides from {slideFile.name}",
-                refresh=True,
-            )
+        Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
 
-            # Define the pages directory within bulkOutputDir for each PDF
-            pagesDir = bulkOutputDir / f"{slideFile.stem}-pages"
-            pagesDir.mkdir(parents=True, exist_ok=True)
-
-            PDFToPNG(pdfPath=slideFile, pagesDir=pagesDir, progress=progress)
-
-            TranscribeSlideImages(
-                imageDir=pagesDir,
-                limiterMethod="tracking",
-                outputDir=bulkOutputDir,
-                outputName=f"{slideFile.stem}-response",
-                progress=progress,
-                bulkPagesTask=allPagesTask,
-            )
-
-            progress.update(
-                task,
-                description=f"Transcribed {slideFile.name}",
-                advance=1,
-                refresh=True,
-            )
-
-
-def BulkLectureTranscribe(
-    lecturesDir: Path,
-    outputDir: Path = None,
-    lectureNumPattern: str = r".*(\d+).*",
-    excludeLectureNums: list[int] = [],
-):
-
-    lectureFiles = list(lecturesDir.glob("*.pdf"))
-
-    cleanedLectureFiles = []
-
-    for lectureFile in lectureFiles:
-
-        lectureNum = re.findall(lectureNumPattern, lectureFile.stem)
-
-        if not lectureNum:
-
-            console.print(f"Error extracting lecture number from {lectureFile.name}")
-
-            raise ValueError(f"Error extracting lecture number from {lectureFile.name}")
-
-        elif len(lectureNum) > 1:
-
-            console.print(f"Multiple lecture numbers found in {lectureFile.name}")
-
-            raise ValueError(f"Multiple lecture numbers found in {lectureFile.name}")
-
-        try:
-
-            lectureNum = int(lectureNum)
-
-        except ValueError:
-
-            console.print(f"Error extracting lecture number from {lectureFile.name}")
-
-            raise
-
-        if lectureNum not in excludeLectureNums:
-
-            cleanedLectureFiles.append(lectureFile)
-
-    lectureFiles = natsorted(cleanedLectureFiles)
-
-    numLectureFiles = len(lectureFiles)
-
-    totalPages = GetTotalPageCount(lectureFiles)
-
-    if outputDir is None:
-        bulkOutputDir = Path(OUTPUT_DIR, "bulk-results")
-    else:
-        bulkOutputDir = outputDir
-
-    bulkOutputDir.mkdir(parents=True, exist_ok=True)
-
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]{task.description}", justify="left"),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        BarColumn(bar_width=None),
-        MofNCompleteColumn(),
-        TextColumn("•"),
-        TimeElapsedColumn(),
-        TextColumn("•"),
-        TimeRemainingColumn(),
-        expand=True,
-        transient=True,
-    ) as progress:
-
-        task = progress.add_task(f"Transcribing lecture files", total=numLectureFiles)
-        allPagesTask = progress.add_task(
-            f"Transcribing lecture pages", total=totalPages
+        cleanedResponse = CleanResponse(
+            combinedResponse=combinedResponse, preamble=DOCUMENT_LATEX_PREAMBLE
         )
 
-        for lectureFile in lectureFiles:
+        Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
+
+        progress.remove_task(task)
+
+
+def BulkTranscribeDocuments(pdfFiles: list[Path], outputDir: Path = None):
+    """
+    Takes a list of PDF files and transcribes each document.
+    For each PDF, creates an output directory (named after the PDF with spaces replaced by "-")
+    as a subdirectory of the provided outputDir. If no outputDir is provided, defaults to a new directory within OUTPUT_DIR called "bulk-results".
+    """
+
+    if outputDir is None:
+        parentOutputDir = Path(OUTPUT_DIR, "bulk-document-results")
+    else:
+        parentOutputDir = outputDir
+    parentOutputDir.mkdir(parents=True, exist_ok=True)
+
+    totalPages = GetTotalPageCount(pdfFiles)
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}", justify="left"),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        BarColumn(bar_width=None),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        expand=True,
+        transient=True,
+    ) as progress:
+
+        task = progress.add_task("Transcribing document files", total=len(pdfFiles))
+        allPagesTask = progress.add_task(
+            "Transcribing document pages", total=totalPages
+        )
+
+        for pdfFile in pdfFiles:
 
             progress.update(
-                task, description=f"Transcribing {lectureFile.name}", refresh=True
+                task, description=f"Transcribing {pdfFile.name}", refresh=True
             )
             progress.update(
                 allPagesTask,
-                description=f"Transcribing pages from {lectureFile.name}",
+                description=f"Transcribing pages from {pdfFile.name}",
                 refresh=True,
             )
 
-            # Define the pages directory within bulkOutputDir for each PDF
-            pagesDir = bulkOutputDir / f"{lectureFile.stem}-pages"
+            baseOutputDir = parentOutputDir / pdfFile.stem.replace(" ", "-")
+            pagesDir = baseOutputDir / "page-images"
+            baseOutputDir.joinpath("full-response", "pickles").mkdir(
+                parents=True, exist_ok=True
+            )
+
             pagesDir.mkdir(parents=True, exist_ok=True)
 
-            PDFToPNG(pdfPath=lectureFile, pagesDir=pagesDir, progress=progress)
+            PDFToPNG(pdfPath=pdfFile, pagesDir=pagesDir, progress=progress)
 
-            TranscribeLectureImages(
+            TranscribeDocumentImages(
                 imageDir=pagesDir,
                 limiterMethod="tracking",
-                outputDir=bulkOutputDir,
-                outputName=f"{lectureFile.stem}-response",
+                outputDir=baseOutputDir,
+                outputName=f"{pdfFile.stem}-response",
                 progress=progress,
                 bulkPagesTask=allPagesTask,
             )
 
             progress.update(
-                task,
-                description=f"Transcribed {lectureFile.name}",
-                advance=1,
-                refresh=True,
+                task, description=f"Transcribed {pdfFile.name}", advance=1, refresh=True
             )
 
 
@@ -966,41 +1071,7 @@ def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
 
     Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
     cleanedResponse = CleanResponse(
-        combinedResponse=combinedResponse, preamble=LECTURE_LATEX_PREAMBLE
-    )
-    Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
-
-
-def FinishSlidePickle(picklePath: Path, outputDir: Path, outputName: Path):
-
-    with picklePath.open("rb") as file:
-
-        responses = pickle.load(file)
-
-    combinedResponse = ""
-
-    for i, response in enumerate(responses):
-
-        responseText: str | list[str] | None = response.text
-
-        if responseText is None:
-
-            combinedResponse += (
-                f"\n\\section{{Page {i}}}\n\nError: Text content is None"
-            )
-            continue
-
-        if isinstance(responseText, str):
-            responseText = responseText.splitlines()
-        if responseText[0].strip().startswith("```"):
-            responseText = responseText[1:]
-        if responseText[-1].strip() == "```":
-            responseText = responseText[:-1]
-        combinedResponse += "\n".join(responseText) + "\n"
-
-    Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
-    cleanedResponse = CleanResponse(
-        combinedResponse=combinedResponse, preamble=LECTURE_LATEX_PREAMBLE
+        combinedResponse=combinedResponse, preamble=SLIDE_LATEX_PREAMBLE
     )
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 

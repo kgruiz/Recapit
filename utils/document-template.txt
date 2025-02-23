@@ -1,0 +1,17 @@
+\documentclass{article}
+
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{tikz}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{tabularx}
+
+\title{%Title%}
+\author{%Author%}
+\date{%Date%}
+
+\begin{document}
