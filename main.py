@@ -392,7 +392,9 @@ def TranscribeSlideImages(
     global GLOBAL_REQUEST_TIMES
 
     IMAGE_DIR = Path(imageDir)
-    images = [PIL.Image.open(imagePath) for imagePath in IMAGE_DIR.glob("*.png")]
+    imagePaths = natsorted(list(IMAGE_DIR.glob("*.png")))
+
+    images = [PIL.Image.open(imagePath) for imagePath in imagePaths]
 
     apiKey = os.getenv("GEMINI_API_KEY")
     if apiKey is None:
@@ -608,7 +610,10 @@ def TranscribeLectureImages(
     global GLOBAL_REQUEST_TIMES
 
     IMAGE_DIR = Path(imageDir)
-    images = [PIL.Image.open(imagePath) for imagePath in IMAGE_DIR.glob("*.png")]
+
+    imagePaths = natsorted(list(IMAGE_DIR.glob("*.png")))
+
+    images = [PIL.Image.open(imagePath) for imagePath in imagePaths]
 
     apiKey = os.getenv("GEMINI_API_KEY")
     if apiKey is None:
@@ -821,7 +826,10 @@ def TranscribeDocumentImages(
     global GLOBAL_REQUEST_TIMES
 
     IMAGE_DIR = Path(imageDir)
-    images = [PIL.Image.open(imagePath) for imagePath in IMAGE_DIR.glob("*.png")]
+
+    imagePaths = natsorted(list(IMAGE_DIR.glob("*.png")))
+
+    images = [PIL.Image.open(imagePath) for imagePath in imagePaths]
 
     apiKey = os.getenv("GEMINI_API_KEY")
 
@@ -1619,11 +1627,11 @@ def FinishPickleDocument(picklePath: Path, outputDir: Path, outputName: str):
 
 if __name__ == "__main__":
 
-    BulkTranscribeSlides(
-        source=MATH_465_SLIDES_DIR,
-        lectureNumPattern=MATH_465_PATTERN,
-        excludeLectureNums=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-    )
+    # BulkTranscribeSlides(
+    #     source=MATH_465_SLIDES_DIR,
+    #     lectureNumPattern=MATH_465_PATTERN,
+    #     excludeLectureNums=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    # )
 
     # BulkTranscribeSlides(
     #     source=MATH_465_SLIDES_DIR,
@@ -1642,8 +1650,6 @@ if __name__ == "__main__":
     #     lectureNumPattern=EECS_476_PATTERN,
     #     excludeLectureNums=[],
     # )
-
-    raise SystemExit
 
     BulkTranscribeDocuments(
         Path("/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys")
