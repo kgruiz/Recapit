@@ -1070,7 +1070,7 @@ def BulkTranscribeSlides(
     # Determine the list of PDF files from either a directory or an explicit list.
     if isinstance(source, Path) and source.is_dir():
 
-        slideFiles = list(source.glob("*.pdf"))
+        slideFiles = natsorted(list(source.glob("*.pdf")))
 
         if outputDir is None:
 
@@ -1232,7 +1232,7 @@ def BulkTranscribeLectures(
     # Determine the list of PDF files from either a directory or an explicit list.
     if isinstance(source, Path) and source.is_dir():
 
-        lectureFiles = list(source.glob("*.pdf"))
+        lectureFiles = natsorted(list(source.glob("*.pdf")))
 
         if outputDir is None:
 
@@ -1388,7 +1388,7 @@ def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
 
     if isinstance(source, Path) and source.is_dir():
 
-        pdfFiles = list(source.glob("*.pdf"))
+        pdfFiles = natsorted(list(source.glob("*.pdf")))
 
         if outputDir is None:
 
