@@ -32,6 +32,7 @@ from rich.text import Text
 
 # TODO: If a rate limit error is raised, keep going after waiting.
 # TODO: Add other slide formats (German 322)
+# TODO: Change default output dir for transribe image functions to be a new directory in same parent dir as input images
 
 console = Console()
 
