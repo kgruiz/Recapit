@@ -439,20 +439,30 @@ def TranscribeSlideImages(
 
                 startTime = currentTime
 
-                client = genai.Client(api_key=apiKey)
-                response = client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=[
-                        (
-                            f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
-                            f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
-                            f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
-                            f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
-                            f"describe the contents.\n\nLatex Preamble:{SLIDE_LATEX_PREAMBLE}"
-                        ),
-                        image,
-                    ],
-                )
+                try:
+
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            (
+                                f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
+                                f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
+                                f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
+                                f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
+                                f"describe the contents.\n\nLatex Preamble:{SLIDE_LATEX_PREAMBLE}"
+                            ),
+                            image,
+                        ],
+                    )
+
+                except:
+
+                    console.print(
+                        f"n[bold red]Error during transcription of {imageDir}[/bold red]"
+                    )
+
+                    raise
 
                 responses.append(response)
 
@@ -486,20 +496,30 @@ def TranscribeSlideImages(
                     ):
                         GLOBAL_REQUEST_TIMES.popleft()
 
-                client = genai.Client(api_key=apiKey)
-                response = client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=[
-                        (
-                            f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
-                            f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
-                            f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
-                            f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
-                            f"describe the contents.\n\nLatex Preamble:{SLIDE_LATEX_PREAMBLE}"
-                        ),
-                        image,
-                    ],
-                )
+                try:
+
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            (
+                                f"Transcribe the image, including all math, in latex format. Use the given preamble as a base, "
+                                f"ensuring any other needed packages or other things are added if needed. Ensure characters like '&', '%', "
+                                f"etc, are escaped properly in the latex document. Don't attempt to include any outside files, images, etc. "
+                                f"If there's a graphic or illustration, either attempt to recreate it with tikz or just leave a placeholder and "
+                                f"describe the contents.\n\nLatex Preamble:{SLIDE_LATEX_PREAMBLE}"
+                            ),
+                            image,
+                        ],
+                    )
+
+                except:
+
+                    console.print(
+                        f"n[bold red]Error during transcription of {imageDir}[/bold red]"
+                    )
+
+                    raise
 
                 responses.append(response)
 
@@ -658,18 +678,28 @@ def TranscribeLectureImages(
 
                 startTime = currentTime
 
-                client = genai.Client(api_key=apiKey)
-                response = client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=[
-                        (
-                            f"Transcribe the image, including all math, in latex format. Use the given lecture preamble as a base, "
-                            f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
-                            f"Do not include outside files. For graphics, either recreate with tikz or leave a placeholder.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
-                        ),
-                        image,
-                    ],
-                )
+                try:
+
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            (
+                                f"Transcribe the image, including all math, in latex format. Use the given lecture preamble as a base, "
+                                f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
+                                f"Do not include outside files. For graphics, either recreate with tikz or leave a placeholder.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
+                            ),
+                            image,
+                        ],
+                    )
+
+                except:
+
+                    console.print(
+                        f"n[bold red]Error during transcription of {imageDir}[/bold red]"
+                    )
+
+                    raise
 
                 responses.append(response)
 
@@ -703,18 +733,28 @@ def TranscribeLectureImages(
                     ):
                         GLOBAL_REQUEST_TIMES.popleft()
 
-                client = genai.Client(api_key=apiKey)
-                response = client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=[
-                        (
-                            f"Transcribe the image, including all math, in latex format. Use the given lecture preamble as a base, "
-                            f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
-                            f"Do not include outside files. For graphics, either recreate with tikz or leave a placeholder.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
-                        ),
-                        image,
-                    ],
-                )
+                try:
+
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            (
+                                f"Transcribe the image, including all math, in latex format. Use the given lecture preamble as a base, "
+                                f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
+                                f"Do not include outside files. For graphics, either recreate with tikz or leave a placeholder.\n\nLatex Preamble:{LECTURE_LATEX_PREAMBLE}"
+                            ),
+                            image,
+                        ],
+                    )
+
+                except:
+
+                    console.print(
+                        f"n[bold red]Error during transcription of {imageDir}[/bold red]"
+                    )
+
+                    raise
 
                 responses.append(response)
 
@@ -875,19 +915,29 @@ def TranscribeDocumentImages(
 
                 startTime = currentTime
 
-                client = genai.Client(api_key=apiKey)
-                response = client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=[
-                        (
-                            f"Transcribe the document image, including all math, in LaTeX format. "
-                            f"Use the document preamble as a base and add any necessary packages. "
-                            f"Escape special characters appropriately. "
-                            f"If there is a graphic, recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{DOCUMENT_LATEX_PREAMBLE}"
-                        ),
-                        image,
-                    ],
-                )
+                try:
+
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            (
+                                f"Transcribe the document image, including all math, in LaTeX format. "
+                                f"Use the document preamble as a base and add any necessary packages. "
+                                f"Escape special characters appropriately. "
+                                f"If there is a graphic, recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{DOCUMENT_LATEX_PREAMBLE}"
+                            ),
+                            image,
+                        ],
+                    )
+
+                except:
+
+                    console.print(
+                        f"n[bold red]Error during transcription of {imageDir}[/bold red]"
+                    )
+
+                    raise
 
                 responses.append(response)
                 elapsed = time.time() - startTime
@@ -920,21 +970,31 @@ def TranscribeDocumentImages(
                     ):
                         GLOBAL_REQUEST_TIMES.popleft()
 
-                client = genai.Client(api_key=apiKey)
-                response = client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=[
-                        (
-                            f"Transcribe the document image, including all math, in LaTeX format. "
-                            f"Use the document preamble as a base and add any necessary packages. "
-                            f"Escape special characters appropriately. "
-                            f"If there is a graphic, recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{DOCUMENT_LATEX_PREAMBLE}"
-                        ),
-                        image,
-                    ],
-                )
+                try:
 
-                responses.append(response)
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            (
+                                f"Transcribe the document image, including all math, in LaTeX format. "
+                                f"Use the document preamble as a base and add any necessary packages. "
+                                f"Escape special characters appropriately. "
+                                f"If there is a graphic, recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{DOCUMENT_LATEX_PREAMBLE}"
+                            ),
+                            image,
+                        ],
+                    )
+
+                    responses.append(response)
+
+                except:
+
+                    console.print(
+                        f"n[bold red]Error during transcription of {imageDir}[/bold red]"
+                    )
+
+                    raise
 
                 GLOBAL_REQUEST_TIMES.append(time.time())
 
@@ -1627,11 +1687,14 @@ def FinishPickleDocument(picklePath: Path, outputDir: Path, outputName: str):
 
 if __name__ == "__main__":
 
-    # BulkTranscribeSlides(
-    #     source=MATH_465_SLIDES_DIR,
-    #     lectureNumPattern=MATH_465_PATTERN,
-    #     excludeLectureNums=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-    # )
+    BulkTranscribeSlides(
+        source=MATH_465_SLIDES_DIR,
+        outputDir=Path(
+            "/Users/kadengruizenga/Documents/School/W25/Math465/Summaries/Lectures/Transcribed"
+        ),
+        lectureNumPattern=MATH_465_PATTERN,
+        excludeLectureNums=[],
+    )
 
     # BulkTranscribeSlides(
     #     source=MATH_465_SLIDES_DIR,
@@ -1651,8 +1714,8 @@ if __name__ == "__main__":
     #     excludeLectureNums=[],
     # )
 
-    BulkTranscribeDocuments(
-        Path("/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys")
-    )
+    # BulkTranscribeDocuments(
+    #     Path("/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys")
+    # )
 
     pass
