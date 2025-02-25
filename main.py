@@ -409,6 +409,8 @@ def TranscribeSlideImages(
         currentLimiterMethod = "fixedDelay"
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
 
+    runID = time.time()
+
     if progress is None:
 
         progress = Progress(
@@ -475,17 +477,17 @@ def TranscribeSlideImages(
 
                 try:
 
-                    picklePath = Path(localPickleDir, f"{outputName}.pkl")
+                    picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
 
-                    if picklePath.exists():
+                    # if picklePath.exists():
 
-                        uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
-                        picklePath = picklePath.with_name(uniquePath)
+                    #     uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+                    #     picklePath = picklePath.with_name(uniquePath)
 
-                        if picklePath.exists():
-                            raise FileExistsError(
-                                f"File {picklePath} already exists. Attempt to create unique file failed."
-                            )
+                    #     if picklePath.exists():
+                    #         raise FileExistsError(
+                    #             f"File {picklePath} already exists. Attempt to create unique file failed."
+                    #         )
 
                     with picklePath.open("wb") as file:
                         pickle.dump(responses, file)
@@ -562,17 +564,17 @@ def TranscribeSlideImages(
 
                 try:
 
-                    picklePath = Path(localPickleDir, f"{outputName}.pkl")
+                    picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
 
-                    if picklePath.exists():
+                    # if picklePath.exists():
 
-                        uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
-                        picklePath = picklePath.with_name(uniquePath)
+                    #     uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+                    #     picklePath = picklePath.with_name(uniquePath)
 
-                        if picklePath.exists():
-                            raise FileExistsError(
-                                f"File {picklePath} already exists. Attempt to create unique file failed."
-                            )
+                    #     if picklePath.exists():
+                    #         raise FileExistsError(
+                    #             f"File {picklePath} already exists. Attempt to create unique file failed."
+                    #         )
 
                     with picklePath.open("wb") as file:
                         pickle.dump(responses, file)
@@ -601,17 +603,17 @@ def TranscribeSlideImages(
 
         try:
 
-            picklePath = Path(localPickleDir, f"{outputName}.pkl")
+            picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
 
-            if picklePath.exists():
+            # if picklePath.exists():
 
-                uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
-                picklePath = picklePath.with_name(uniquePath)
+            #     uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+            #     picklePath = picklePath.with_name(uniquePath)
 
-                if picklePath.exists():
-                    raise FileExistsError(
-                        f"File {picklePath} already exists. Attempt to create unique file failed."
-                    )
+            #     if picklePath.exists():
+            #         raise FileExistsError(
+            #             f"File {picklePath} already exists. Attempt to create unique file failed."
+            #         )
 
             with picklePath.open("wb") as file:
                 pickle.dump(responses, file)
@@ -703,6 +705,8 @@ def TranscribeLectureImages(
         currentLimiterMethod = "fixedDelay"
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
 
+    runID = time.time()
+
     if progress is None:
 
         progress = Progress(
@@ -767,17 +771,17 @@ def TranscribeLectureImages(
 
                 try:
 
-                    picklePath = Path(localPickleDir, f"{outputName}.pkl")
+                    picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
 
-                    if picklePath.exists():
+                    # if picklePath.exists():
 
-                        uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
-                        picklePath = picklePath.with_name(uniquePath)
+                    #     uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+                    #     picklePath = picklePath.with_name(uniquePath)
 
-                        if picklePath.exists():
-                            raise FileExistsError(
-                                f"File {picklePath} already exists. Attempt to create unique file failed."
-                            )
+                    #     if picklePath.exists():
+                    #         raise FileExistsError(
+                    #             f"File {picklePath} already exists. Attempt to create unique file failed."
+                    #         )
 
                     with picklePath.open("wb") as file:
                         pickle.dump(responses, file)
@@ -852,17 +856,17 @@ def TranscribeLectureImages(
 
                 try:
 
-                    picklePath = Path(localPickleDir, f"{outputName}.pkl")
+                    picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
 
-                    if picklePath.exists():
+                    # if picklePath.exists():
 
-                        uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
-                        picklePath = picklePath.with_name(uniquePath)
+                    #     uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+                    #     picklePath = picklePath.with_name(uniquePath)
 
-                        if picklePath.exists():
-                            raise FileExistsError(
-                                f"File {picklePath} already exists. Attempt to create unique file failed."
-                            )
+                    #     if picklePath.exists():
+                    #         raise FileExistsError(
+                    #             f"File {picklePath} already exists. Attempt to create unique file failed."
+                    #         )
 
                     with picklePath.open("wb") as file:
                         pickle.dump(responses, file)
@@ -891,17 +895,17 @@ def TranscribeLectureImages(
 
         try:
 
-            picklePath = Path(localPickleDir, f"{outputName}.pkl")
+            picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
 
-            if picklePath.exists():
+            # if picklePath.exists():
 
-                uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
-                picklePath = picklePath.with_name(uniquePath)
+            #     uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+            #     picklePath = picklePath.with_name(uniquePath)
 
-                if picklePath.exists():
-                    raise FileExistsError(
-                        f"File {picklePath} already exists. Unique file creation failed."
-                    )
+            #     if picklePath.exists():
+            #         raise FileExistsError(
+            #             f"File {picklePath} already exists. Unique file creation failed."
+            #         )
 
             with picklePath.open("wb") as file:
                 pickle.dump(responses, file)
@@ -993,6 +997,8 @@ def TranscribeDocumentImages(
         currentLimiterMethod = "fixedDelay"
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
 
+    runID = time.time()
+
     if progress is None:
 
         progress = Progress(
@@ -1058,17 +1064,17 @@ def TranscribeDocumentImages(
 
                 try:
 
-                    picklePath = Path(localPickleDir, f"{outputName}.pkl")
+                    picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
 
-                    if picklePath.exists():
+                    # if picklePath.exists():
 
-                        uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
-                        picklePath = picklePath.with_name(uniquePath)
+                    #     uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+                    #     picklePath = picklePath.with_name(uniquePath)
 
-                        if picklePath.exists():
-                            raise FileExistsError(
-                                f"File {picklePath} already exists. Attempt to create unique file failed."
-                            )
+                    #     if picklePath.exists():
+                    #         raise FileExistsError(
+                    #             f"File {picklePath} already exists. Attempt to create unique file failed."
+                    #         )
 
                     with picklePath.open("wb") as file:
                         pickle.dump(responses, file)
@@ -1146,17 +1152,17 @@ def TranscribeDocumentImages(
 
                 try:
 
-                    picklePath = Path(localPickleDir, f"{outputName}.pkl")
+                    picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
 
-                    if picklePath.exists():
+                    # if picklePath.exists():
 
-                        uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
-                        picklePath = picklePath.with_name(uniquePath)
+                    #     uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+                    #     picklePath = picklePath.with_name(uniquePath)
 
-                        if picklePath.exists():
-                            raise FileExistsError(
-                                f"File {picklePath} already exists. Attempt to create unique file failed."
-                            )
+                    #     if picklePath.exists():
+                    #         raise FileExistsError(
+                    #             f"File {picklePath} already exists. Attempt to create unique file failed."
+                    #         )
 
                     with picklePath.open("wb") as file:
                         pickle.dump(responses, file)
@@ -1186,17 +1192,17 @@ def TranscribeDocumentImages(
 
         try:
 
-            picklePath = Path(localPickleDir, f"{outputName}.pkl")
+            picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
 
-            if picklePath.exists():
+            # if picklePath.exists():
 
-                uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
-                picklePath = picklePath.with_name(uniquePath)
+            #     uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+            #     picklePath = picklePath.with_name(uniquePath)
 
-                if picklePath.exists():
-                    raise FileExistsError(
-                        f"File {picklePath} already exists. Unique file creation failed."
-                    )
+            #     if picklePath.exists():
+            #         raise FileExistsError(
+            #             f"File {picklePath} already exists. Unique file creation failed."
+            #         )
 
             with picklePath.open("wb") as file:
 
@@ -1614,7 +1620,7 @@ def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
 
             if len(set(inputDirs)) > 1:
 
-                inputDir = set(inputDirs)[0]
+                inputDir = inputDirs[0]
 
                 console.print(
                     f"Multiple input directories found: {inputDirs}.\nUsing the first one, {inputDir}, for the location of the output directory."
@@ -1622,7 +1628,7 @@ def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
 
             else:
 
-                inputDir = set(inputDirs)[0]
+                inputDir = inputDirs[0]
 
     else:
         raise ValueError(
@@ -1827,7 +1833,14 @@ if __name__ == "__main__":
     # )
 
     BulkTranscribeDocuments(
-        Path("/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys")
+        [
+            Path(
+                "/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys/Homework 4 Solutions.pdf"
+            ),
+            Path(
+                "/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys/Homework 5 Solutions.pdf"
+            ),
+        ]
     )
 
     pass
