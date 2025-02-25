@@ -1,9 +1,10 @@
+import enum
 import os
 import pickle
 import re
 import shutil
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from pathlib import Path
 
 import PIL.Image
@@ -391,20 +392,20 @@ def TranscribeSlideImages(
 
     global GLOBAL_REQUEST_TIMES
 
-    IMAGE_DIR = Path(imageDir)
-    imagePaths = natsorted(list(IMAGE_DIR.glob("*.png")))
-
-    images = [PIL.Image.open(imagePath) for imagePath in imagePaths]
+    imageTuples = [
+        (imagePath, PIL.Image.open(imagePath))
+        for imagePath in natsorted(list(Path(imageDir).glob("*.png")))
+    ]
 
     apiKey = os.getenv("GEMINI_API_KEY")
     if apiKey is None:
         raise ValueError("GEMINI_API_KEY environment variable not set")
 
-    responses = []
+    responses = OrderedDict()
     defaultDescription = "Transcribing Slides"
 
     currentLimiterMethod = limiterMethod
-    if len(images) < RATE_LIMIT_PER_MINUTE:
+    if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
         currentLimiterMethod = "fixedDelay"
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
 
@@ -429,9 +430,9 @@ def TranscribeSlideImages(
 
     with progress:
 
-        task = progress.add_task(defaultDescription, total=len(images))
+        task = progress.add_task(defaultDescription, total=len(imageTuples))
 
-        for image in images:
+        for imagePath, image in imageTuples:
 
             currentTime = time.time()
 
@@ -464,7 +465,35 @@ def TranscribeSlideImages(
 
                     raise
 
-                responses.append(response)
+                responses[imagePath.name] = response
+
+                # Save responses as pickle in case of error
+                if fullResponseDir is None:
+                    fullResponseDir = outputDir
+                localPickleDir = Path(fullResponseDir, "pickles")
+                localPickleDir.mkdir(parents=True, exist_ok=True)
+
+                try:
+
+                    picklePath = Path(localPickleDir, f"{outputName}.pkl")
+
+                    if picklePath.exists():
+
+                        uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+                        picklePath = picklePath.with_name(uniquePath)
+
+                        if picklePath.exists():
+                            raise FileExistsError(
+                                f"File {picklePath} already exists. Attempt to create unique file failed."
+                            )
+
+                    with picklePath.open("wb") as file:
+                        pickle.dump(responses, file)
+
+                except Exception as e:
+                    console.print(
+                        f"{e}\n\n\n[bold red]Failed to save responses[/bold red]"
+                    )
 
                 elapsed = time.time() - startTime
 
@@ -521,9 +550,37 @@ def TranscribeSlideImages(
 
                     raise
 
-                responses.append(response)
+                responses[imagePath.name] = response
 
                 GLOBAL_REQUEST_TIMES.append(time.time())
+
+                # Save responses as pickle in case of error
+                if fullResponseDir is None:
+                    fullResponseDir = outputDir
+                localPickleDir = Path(fullResponseDir, "pickles")
+                localPickleDir.mkdir(parents=True, exist_ok=True)
+
+                try:
+
+                    picklePath = Path(localPickleDir, f"{outputName}.pkl")
+
+                    if picklePath.exists():
+
+                        uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+                        picklePath = picklePath.with_name(uniquePath)
+
+                        if picklePath.exists():
+                            raise FileExistsError(
+                                f"File {picklePath} already exists. Attempt to create unique file failed."
+                            )
+
+                    with picklePath.open("wb") as file:
+                        pickle.dump(responses, file)
+
+                except Exception as e:
+                    console.print(
+                        f"{e}\n\n\n[bold red]Failed to save responses[/bold red]"
+                    )
 
             else:
                 raise ValueError(
@@ -564,13 +621,13 @@ def TranscribeSlideImages(
 
         combinedResponse = ""
 
-        for i, response in enumerate(responses):
+        for slideNum, (imageName, response) in enumerate(responses.items()):
 
             responseText: str | list[str] | None = response.text
 
             if responseText is None:
 
-                combinedResponse += f"\n\\begin{{frame}}\n\\frametitle{{Slide {i}}}\n\nError: Slide text content is None\n\n\\end{{frame}}"
+                combinedResponse += f"\n\\begin{{frame}}\n\\frametitle{{Slide {slideNum}: {imageName}}}\n\nError: Slide text content is None\n\n\\end{{frame}}"
                 continue
 
             if isinstance(responseText, str):
@@ -629,21 +686,20 @@ def TranscribeLectureImages(
 
     global GLOBAL_REQUEST_TIMES
 
-    IMAGE_DIR = Path(imageDir)
-
-    imagePaths = natsorted(list(IMAGE_DIR.glob("*.png")))
-
-    images = [PIL.Image.open(imagePath) for imagePath in imagePaths]
+    imageTuples = [
+        (imagePath, PIL.Image.open(imagePath))
+        for imagePath in natsorted(list(Path(imageDir).glob("*.png")))
+    ]
 
     apiKey = os.getenv("GEMINI_API_KEY")
     if apiKey is None:
         raise ValueError("GEMINI_API_KEY environment variable not set")
 
-    responses = []
+    responses = OrderedDict()
     defaultDescription = "Transcribing Lecture"
 
     currentLimiterMethod = limiterMethod
-    if len(images) < RATE_LIMIT_PER_MINUTE:
+    if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
         currentLimiterMethod = "fixedDelay"
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
 
@@ -668,9 +724,9 @@ def TranscribeLectureImages(
 
     with progress:
 
-        task = progress.add_task(defaultDescription, total=len(images))
+        task = progress.add_task(defaultDescription, total=len(imageTuples))
 
-        for image in images:
+        for imagePath, image in imageTuples:
 
             currentTime = time.time()
 
@@ -701,7 +757,35 @@ def TranscribeLectureImages(
 
                     raise
 
-                responses.append(response)
+                responses[imagePath.name] = response
+
+                # Save responses as pickle in case of error
+                if fullResponseDir is None:
+                    fullResponseDir = outputDir
+                localPickleDir = Path(fullResponseDir, "pickles")
+                localPickleDir.mkdir(parents=True, exist_ok=True)
+
+                try:
+
+                    picklePath = Path(localPickleDir, f"{outputName}.pkl")
+
+                    if picklePath.exists():
+
+                        uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+                        picklePath = picklePath.with_name(uniquePath)
+
+                        if picklePath.exists():
+                            raise FileExistsError(
+                                f"File {picklePath} already exists. Attempt to create unique file failed."
+                            )
+
+                    with picklePath.open("wb") as file:
+                        pickle.dump(responses, file)
+
+                except Exception as e:
+                    console.print(
+                        f"{e}\n\n\n[bold red]Failed to save responses[/bold red]"
+                    )
 
                 elapsed = time.time() - startTime
 
@@ -756,9 +840,37 @@ def TranscribeLectureImages(
 
                     raise
 
-                responses.append(response)
+                responses[imagePath.name] = response
 
                 GLOBAL_REQUEST_TIMES.append(time.time())
+
+                # Save responses as pickle in case of error
+                if fullResponseDir is None:
+                    fullResponseDir = outputDir
+                localPickleDir = Path(fullResponseDir, "pickles")
+                localPickleDir.mkdir(parents=True, exist_ok=True)
+
+                try:
+
+                    picklePath = Path(localPickleDir, f"{outputName}.pkl")
+
+                    if picklePath.exists():
+
+                        uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+                        picklePath = picklePath.with_name(uniquePath)
+
+                        if picklePath.exists():
+                            raise FileExistsError(
+                                f"File {picklePath} already exists. Attempt to create unique file failed."
+                            )
+
+                    with picklePath.open("wb") as file:
+                        pickle.dump(responses, file)
+
+                except Exception as e:
+                    console.print(
+                        f"{e}\n\n\n[bold red]Failed to save responses[/bold red]"
+                    )
 
             else:
                 raise ValueError(
@@ -799,15 +911,13 @@ def TranscribeLectureImages(
 
         combinedResponse = ""
 
-        for i, response in enumerate(responses):
+        for pageNum, (imageName, response) in enumerate(responses.items()):
 
             responseText: str | list[str] | None = response.text
 
             if responseText is None:
 
-                combinedResponse += (
-                    f"\n\\section{{Page {i}}}\n\nError: Text content is None"
-                )
+                combinedResponse += f"\n\\section{{Page {pageNum}: {imageName}}}\n\nError: Text content is None"
                 continue
 
             if isinstance(responseText, str):
@@ -865,22 +975,21 @@ def TranscribeDocumentImages(
 
     global GLOBAL_REQUEST_TIMES
 
-    IMAGE_DIR = Path(imageDir)
-
-    imagePaths = natsorted(list(IMAGE_DIR.glob("*.png")))
-
-    images = [PIL.Image.open(imagePath) for imagePath in imagePaths]
+    imageTuples = [
+        (imagePath, PIL.Image.open(imagePath))
+        for imagePath in natsorted(list(Path(imageDir).glob("*.png")))
+    ]
 
     apiKey = os.getenv("GEMINI_API_KEY")
 
     if apiKey is None:
         raise ValueError("GEMINI_API_KEY environment variable not set")
 
-    responses = []
+    responses = OrderedDict()
     defaultDescription = "Transcribing Document"
 
     currentLimiterMethod = limiterMethod
-    if len(images) < RATE_LIMIT_PER_MINUTE:
+    if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
         currentLimiterMethod = "fixedDelay"
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
 
@@ -905,9 +1014,9 @@ def TranscribeDocumentImages(
 
     with progress:
 
-        task = progress.add_task(defaultDescription, total=len(images))
+        task = progress.add_task(defaultDescription, total=len(imageTuples))
 
-        for image in images:
+        for imagePath, image in imageTuples:
 
             currentTime = time.time()
 
@@ -939,7 +1048,36 @@ def TranscribeDocumentImages(
 
                     raise
 
-                responses.append(response)
+                responses[imagePath.name] = response
+
+                # Save responses as pickle in case of error
+                if fullResponseDir is None:
+                    fullResponseDir = outputDir
+                localPickleDir = Path(fullResponseDir, "pickles")
+                localPickleDir.mkdir(parents=True, exist_ok=True)
+
+                try:
+
+                    picklePath = Path(localPickleDir, f"{outputName}.pkl")
+
+                    if picklePath.exists():
+
+                        uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+                        picklePath = picklePath.with_name(uniquePath)
+
+                        if picklePath.exists():
+                            raise FileExistsError(
+                                f"File {picklePath} already exists. Attempt to create unique file failed."
+                            )
+
+                    with picklePath.open("wb") as file:
+                        pickle.dump(responses, file)
+
+                except Exception as e:
+                    console.print(
+                        f"{e}\n\n\n[bold red]Failed to save responses[/bold red]"
+                    )
+
                 elapsed = time.time() - startTime
 
                 if elapsed < delayBetweenCalls:
@@ -996,7 +1134,37 @@ def TranscribeDocumentImages(
 
                     raise
 
+                responses[imagePath.name] = response
+
                 GLOBAL_REQUEST_TIMES.append(time.time())
+
+                # Save responses as pickle in case of error
+                if fullResponseDir is None:
+                    fullResponseDir = outputDir
+                localPickleDir = Path(fullResponseDir, "pickles")
+                localPickleDir.mkdir(parents=True, exist_ok=True)
+
+                try:
+
+                    picklePath = Path(localPickleDir, f"{outputName}.pkl")
+
+                    if picklePath.exists():
+
+                        uniquePath = picklePath.stem + f"-{int(time.time())}.pkl"
+                        picklePath = picklePath.with_name(uniquePath)
+
+                        if picklePath.exists():
+                            raise FileExistsError(
+                                f"File {picklePath} already exists. Attempt to create unique file failed."
+                            )
+
+                    with picklePath.open("wb") as file:
+                        pickle.dump(responses, file)
+
+                except Exception as e:
+                    console.print(
+                        f"{e}\n\n\n[bold red]Failed to save responses[/bold red]"
+                    )
 
             else:
                 raise ValueError(
@@ -1012,6 +1180,7 @@ def TranscribeDocumentImages(
         # Save responses as pickle in case of error
         if fullResponseDir is None:
             fullResponseDir = outputDir
+
         localPickleDir = Path(fullResponseDir, "pickles")
         localPickleDir.mkdir(parents=True, exist_ok=True)
 
@@ -1038,14 +1207,12 @@ def TranscribeDocumentImages(
 
         combinedResponse = ""
 
-        for i, response in enumerate(responses):
+        for pageNum, (imageName, response) in enumerate(responses.items()):
 
             responseText: str | list[str] | None = response.text
 
             if responseText is None:
-                combinedResponse += (
-                    f"\n\\section{{Page {i}}}\n\nError: Text content is None"
-                )
+                combinedResponse += f"\n\\section{{Page {pageNum}: {imageName}}}\n\nError: Text content is None"
                 continue
 
             if isinstance(responseText, str):
@@ -1524,24 +1691,9 @@ def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
             )
 
 
-def FinishPickleSlides(picklePath: Path, outputDir: Path, outputName: str):
-    """
-    Load responses from a pickle file for slide transcriptions, combine them into a single LaTeX document,
-    and save both a text file and a .tex file to the specified output directory.
-
-    Parameters
-    ----------
-    picklePath : Path
-        Path to the pickle file containing responses.
-    outputDir : Path
-        Directory where output files will be saved.
-    outputName : str
-        Base name for the output files.
-
-    Returns
-    -------
-    None
-    """
+def FinishPickleSlides(
+    picklePath: Path, fullResponseDir: Path, outputDir: Path, outputName: str
+):
 
     with picklePath.open("rb") as file:
 
@@ -1549,15 +1701,13 @@ def FinishPickleSlides(picklePath: Path, outputDir: Path, outputName: str):
 
     combinedResponse = ""
 
-    for i, response in enumerate(responses):
+    for slideNum, (imageName, response) in enumerate(responses.items()):
 
         responseText: str | list[str] | None = response.text
 
         if responseText is None:
 
-            combinedResponse += (
-                f"\n\\section{{Page {i}}}\n\nError: Text content is None"
-            )
+            combinedResponse += f"\n\\begin{{frame}}\n\\frametitle{{Slide {slideNum}: {imageName}}}\n\nError: Slide text content is None\n\n\\end{{frame}}"
             continue
 
         if isinstance(responseText, str):
@@ -1570,31 +1720,16 @@ def FinishPickleSlides(picklePath: Path, outputDir: Path, outputName: str):
 
         combinedResponse += "\n".join(responseText) + "\n"
 
-    Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
+    Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
     cleanedResponse = CleanResponse(
         combinedResponse=combinedResponse, preamble=SLIDE_LATEX_PREAMBLE
     )
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
 
-def FinishPickleLecture(picklePath: Path, outputDir: Path, outputName: str):
-    """
-    Load responses from a pickle file for lecture transcriptions, combine them into a single LaTeX document,
-    and save both a text file and a .tex file to the specified output directory.
-
-    Parameters
-    ----------
-    picklePath : Path
-        Path to the pickle file containing responses.
-    outputDir : Path
-        Directory where output files will be saved.
-    outputName : str
-        Base name for the output files.
-
-    Returns
-    -------
-    None
-    """
+def FinishPickleLecture(
+    picklePath: Path, fullResponseDir: Path, outputDir: Path, outputName: str
+):
 
     with picklePath.open("rb") as file:
 
@@ -1602,21 +1737,17 @@ def FinishPickleLecture(picklePath: Path, outputDir: Path, outputName: str):
 
     combinedResponse = ""
 
-    for i, response in enumerate(responses):
+    for pageNum, (imageName, response) in enumerate(responses.items()):
 
         responseText: str | list[str] | None = response.text
 
         if responseText is None:
 
-            combinedResponse += (
-                f"\n\\section{{Page {i}}}\n\nError: Text content is None"
-            )
+            combinedResponse += f"\n\\section{{Page {pageNum}: {imageName}}}\n\nError: Text content is None"
             continue
 
         if isinstance(responseText, str):
-
             responseText = responseText.splitlines()
-
         if responseText[0].strip().startswith("```"):
             responseText = responseText[1:]
         if responseText[-1].strip() == "```":
@@ -1624,31 +1755,16 @@ def FinishPickleLecture(picklePath: Path, outputDir: Path, outputName: str):
 
         combinedResponse += "\n".join(responseText) + "\n"
 
-    Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
+    Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
     cleanedResponse = CleanResponse(
         combinedResponse=combinedResponse, preamble=LECTURE_LATEX_PREAMBLE
     )
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
 
-def FinishPickleDocument(picklePath: Path, outputDir: Path, outputName: str):
-    """
-    Load responses from a pickle file for document transcriptions, combine them into a single LaTeX document,
-    and save both a text file and a .tex file to the specified output directory.
-
-    Parameters
-    ----------
-    picklePath : Path
-        Path to the pickle file containing responses.
-    outputDir : Path
-        Directory where output files will be saved.
-    outputName : str
-        Base name for the output files.
-
-    Returns
-    -------
-    None
-    """
+def FinishPickleDocument(
+    picklePath: Path, fullResponseDir: Path, outputDir: Path, outputName: str
+):
 
     with picklePath.open("rb") as file:
 
@@ -1656,19 +1772,15 @@ def FinishPickleDocument(picklePath: Path, outputDir: Path, outputName: str):
 
     combinedResponse = ""
 
-    for i, response in enumerate(responses):
+    for pageNum, (imageName, response) in enumerate(responses.items()):
 
         responseText: str | list[str] | None = response.text
 
         if responseText is None:
-
-            combinedResponse += (
-                f"\n\\section{{Page {i}}}\n\nError: Text content is None"
-            )
+            combinedResponse += f"\n\\section{{Page {pageNum}: {imageName}}}\n\nError: Text content is None"
             continue
 
         if isinstance(responseText, str):
-
             responseText = responseText.splitlines()
 
         if responseText[0].strip().startswith("```"):
@@ -1678,7 +1790,7 @@ def FinishPickleDocument(picklePath: Path, outputDir: Path, outputName: str):
 
         combinedResponse += "\n".join(responseText) + "\n"
 
-    Path(outputDir, f"{outputName}.txt").write_text(combinedResponse)
+    Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
     cleanedResponse = CleanResponse(
         combinedResponse=combinedResponse, preamble=DOCUMENT_LATEX_PREAMBLE
     )
@@ -1687,14 +1799,14 @@ def FinishPickleDocument(picklePath: Path, outputDir: Path, outputName: str):
 
 if __name__ == "__main__":
 
-    BulkTranscribeSlides(
-        source=MATH_465_SLIDES_DIR,
-        outputDir=Path(
-            "/Users/kadengruizenga/Documents/School/W25/Math465/Summaries/Lectures/Transcribed"
-        ),
-        lectureNumPattern=MATH_465_PATTERN,
-        excludeLectureNums=[],
-    )
+    # BulkTranscribeSlides(
+    #     source=MATH_465_SLIDES_DIR,
+    #     outputDir=Path(
+    #         "/Users/kadengruizenga/Documents/School/W25/Math465/Summaries/Lectures/Transcribed"
+    #     ),
+    #     lectureNumPattern=MATH_465_PATTERN,
+    #     excludeLectureNums=[],
+    # )
 
     # BulkTranscribeSlides(
     #     source=MATH_465_SLIDES_DIR,
@@ -1714,8 +1826,8 @@ if __name__ == "__main__":
     #     excludeLectureNums=[],
     # )
 
-    # BulkTranscribeDocuments(
-    #     Path("/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys")
-    # )
+    BulkTranscribeDocuments(
+        Path("/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys")
+    )
 
     pass
