@@ -257,7 +257,10 @@ def CleanResponse(
     END_DOCUMENT_LINE = r"\end{document}"
 
     combinedResponse = re.sub(
-        rf"^{re.escape(END_DOCUMENT_LINE)}$", "", combinedResponse, flags=re.MULTILINE
+        rf"^{re.escape(END_DOCUMENT_LINE)}$",
+        r"\\newpage",
+        combinedResponse,
+        flags=re.MULTILINE,
     )
 
     TITLE_LINE = r"\\title\{.*\}"
@@ -1130,8 +1133,6 @@ def TranscribeDocumentImages(
                         ],
                     )
 
-                    responses.append(response)
-
                 except:
 
                     console.print(
@@ -1832,15 +1833,21 @@ if __name__ == "__main__":
     #     excludeLectureNums=[],
     # )
 
-    BulkTranscribeDocuments(
-        [
-            Path(
-                "/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys/Homework 4 Solutions.pdf"
-            ),
-            Path(
-                "/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys/Homework 5 Solutions.pdf"
-            ),
-        ]
+    # BulkTranscribeDocuments(
+    #     [
+    #         Path(
+    #             "/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys/Homework 4 Solutions.pdf"
+    #         ),
+    #         Path(
+    #             "/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys/Homework 5 Solutions.pdf"
+    #         ),
+    #     ]
+    # )
+
+    a = Path(
+        "/Users/kadengruizenga/Developer/Projects/quantio/questions/.green-book.pdf"
     )
+
+    BulkTranscribeDocuments([a])
 
     pass
