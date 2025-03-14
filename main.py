@@ -95,7 +95,7 @@ MATH_425_PATTERN = r"Lecture(\d+).pdf"
 EECS_476_PATTERN = r"lec(\d+).*"
 
 
-def GetTotalPageCount(pdfFiles: list[Path]) -> int:
+def _GetTotalPageCount(pdfFiles: list[Path]) -> int:
     """
     Compute the total number of pages across multiple PDF files.
 
@@ -184,7 +184,7 @@ def PDFToPNG(pdfPath: Path, pagesDir: Path = None, progress=None):
         progress.remove_task(task)
 
 
-def SleepWithProgress(progress, task, sleepTime, defaultDescription):
+def _SleepWithProgress(progress, task, sleepTime, defaultDescription):
     """
     Sleep for a specified duration while updating the progress bar.
 
@@ -217,7 +217,7 @@ def SleepWithProgress(progress, task, sleepTime, defaultDescription):
     progress.update(task, description=defaultDescription)
 
 
-def CleanResponse(
+def _CleanResponse(
     combinedResponse: str,
     preamble: str,
     title: str | None = "",
@@ -358,7 +358,7 @@ def CleanResponse(
     return cleanedResponse
 
 
-def TranscribeSlideImages(
+def _TranscribeSlideImages(
     imageDir: Path,
     limiterMethod: str = "tracking",
     outputDir: Path = OUTPUT_DIR,
@@ -505,7 +505,7 @@ def TranscribeSlideImages(
                 if elapsed < delayBetweenCalls:
 
                     sleepTime = delayBetweenCalls - elapsed
-                    SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                    _SleepWithProgress(progress, task, sleepTime, defaultDescription)
 
             elif currentLimiterMethod == "tracking":
 
@@ -521,7 +521,7 @@ def TranscribeSlideImages(
                         currentTime - GLOBAL_REQUEST_TIMES[0]
                     )
 
-                    SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                    _SleepWithProgress(progress, task, sleepTime, defaultDescription)
                     currentTime = time.time()
 
                     while (
@@ -646,7 +646,7 @@ def TranscribeSlideImages(
             combinedResponse += "\n".join(responseText) + "\n"
 
         Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
-        cleanedResponse = CleanResponse(
+        cleanedResponse = _CleanResponse(
             combinedResponse=combinedResponse, preamble=SLIDE_LATEX_PREAMBLE
         )
         Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
@@ -654,7 +654,7 @@ def TranscribeSlideImages(
         progress.remove_task(task)
 
 
-def TranscribeLectureImages(
+def _TranscribeSlideImages(
     imageDir: Path,
     limiterMethod: str = "tracking",
     outputDir: Path = OUTPUT_DIR,
@@ -799,7 +799,7 @@ def TranscribeLectureImages(
                 if elapsed < delayBetweenCalls:
 
                     sleepTime = delayBetweenCalls - elapsed
-                    SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                    _SleepWithProgress(progress, task, sleepTime, defaultDescription)
 
             elif currentLimiterMethod == "tracking":
 
@@ -815,7 +815,7 @@ def TranscribeLectureImages(
                         currentTime - GLOBAL_REQUEST_TIMES[0]
                     )
 
-                    SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                    _SleepWithProgress(progress, task, sleepTime, defaultDescription)
                     currentTime = time.time()
 
                     while (
@@ -937,7 +937,7 @@ def TranscribeLectureImages(
             combinedResponse += "\n".join(responseText) + "\n"
 
         Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
-        cleanedResponse = CleanResponse(
+        cleanedResponse = _CleanResponse(
             combinedResponse=combinedResponse, preamble=LECTURE_LATEX_PREAMBLE
         )
         Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
@@ -945,7 +945,7 @@ def TranscribeLectureImages(
         progress.remove_task(task)
 
 
-def TranscribeDocumentImages(
+def _TranscribeDocumentImages(
     imageDir: Path,
     limiterMethod: str = "tracking",
     outputDir: Path = OUTPUT_DIR,
@@ -1092,7 +1092,7 @@ def TranscribeDocumentImages(
                 if elapsed < delayBetweenCalls:
 
                     sleepTime = delayBetweenCalls - elapsed
-                    SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                    _SleepWithProgress(progress, task, sleepTime, defaultDescription)
 
             elif currentLimiterMethod == "tracking":
 
@@ -1108,7 +1108,7 @@ def TranscribeDocumentImages(
                         currentTime - GLOBAL_REQUEST_TIMES[0]
                     )
 
-                    SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                    _SleepWithProgress(progress, task, sleepTime, defaultDescription)
                     currentTime = time.time()
 
                     while (
@@ -1233,7 +1233,7 @@ def TranscribeDocumentImages(
             combinedResponse += "\n".join(responseText) + "\n"
 
         Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
-        cleanedResponse = CleanResponse(
+        cleanedResponse = _CleanResponse(
             combinedResponse=combinedResponse, preamble=DOCUMENT_LATEX_PREAMBLE
         )
         Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
@@ -1241,7 +1241,202 @@ def TranscribeDocumentImages(
         progress.remove_task(task)
 
 
-def BulkTranscribeSlides(
+def _TranscribeImages(
+    imageSource: Path | list[Path],
+    preamble: str,
+    limiterMethod: str = "tracking",
+    outputDir: Path = OUTPUT_DIR,
+    outputName: str = "transcribed",
+    fullResponseDir: Path = None,
+    progress=None,
+    bulkPagesTask=None,
+):
+    """
+    Transcribe image files (assumed to be already in image format) to LaTeX using the API.
+
+    Parameters
+    ----------
+    imageSource : Path or list[Path]
+        A directory containing image files or a list of image file paths.
+    preamble : str
+        The LaTeX preamble to use for transcription.
+    limiterMethod : str, optional
+        Rate limiting method ("fixedDelay" or "tracking"). Defaults to "tracking".
+    outputDir : Path, optional
+        Directory where cleaned output (.tex) will be stored.
+    outputName : str, optional
+        Base name for the output files.
+    fullResponseDir : Path, optional
+        Directory where full responses (.txt) and pickles will be stored.
+    progress : Progress, optional
+        A rich Progress instance for displaying progress.
+    bulkPagesTask : TaskID, optional
+        Additional task for tracking bulk page progress.
+
+    Returns
+    -------
+    None
+    """
+    # Determine list of image files.
+    if isinstance(imageSource, Path) and imageSource.is_dir():
+        imagePaths = natsorted(list(imageSource.glob("*.png")))
+    elif isinstance(imageSource, list):
+        imagePaths = imageSource
+    else:
+        raise ValueError(
+            "Parameter 'imageSource' must be a directory path or a list of image file paths."
+        )
+
+    imageTuples = [(imgPath, PIL.Image.open(imgPath)) for imgPath in imagePaths]
+
+    apiKey = os.getenv("GEMINI_API_KEY")
+    if apiKey is None:
+        raise ValueError("GEMINI_API_KEY environment variable not set")
+
+    responses = OrderedDict()
+    defaultDescription = "Transcribing Images"
+
+    currentLimiterMethod = limiterMethod
+    if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
+        currentLimiterMethod = "fixedDelay"
+    delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
+    runID = time.time()
+
+    if progress is None:
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}", justify="left"),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            BarColumn(bar_width=None),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            TextColumn("•"),
+            TimeRemainingColumn(),
+            expand=True,
+        )
+    elif not isinstance(progress, Progress):
+        raise ValueError("progress must be a rich.progress.Progress instance")
+
+    with progress:
+        task = progress.add_task(defaultDescription, total=len(imageTuples))
+        for imagePath, image in imageTuples:
+            currentTime = time.time()
+            if currentLimiterMethod == "fixedDelay":
+                startTime = currentTime
+                try:
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            (
+                                f"Transcribe the image, including all math, in LaTeX format. Use the given preamble as a base, "
+                                f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
+                                f"If there's a graphic, either recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{preamble}",
+                                image,
+                            ),
+                        ],
+                    )
+                except Exception as e:
+                    console.print(
+                        f"[bold red]Error during transcription of {imagePath.name}: {e}[/bold red]"
+                    )
+                    raise
+                responses[imagePath.name] = response
+                # Save responses as pickle in case of error.
+                if fullResponseDir is None:
+                    fullResponseDir = outputDir
+                localPickleDir = Path(fullResponseDir, "pickles")
+                localPickleDir.mkdir(parents=True, exist_ok=True)
+                try:
+                    picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
+                    with picklePath.open("wb") as file:
+                        pickle.dump(responses, file)
+                except Exception as e:
+                    console.print(f"[bold red]Failed to save responses: {e}[/bold red]")
+                elapsed = time.time() - startTime
+                if elapsed < delayBetweenCalls:
+                    sleepTime = delayBetweenCalls - elapsed
+                    _SleepWithProgress(progress, task, sleepTime, defaultDescription)
+            elif currentLimiterMethod == "tracking":
+                while (
+                    GLOBAL_REQUEST_TIMES
+                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                ):
+                    GLOBAL_REQUEST_TIMES.popleft()
+                if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
+                    sleepTime = RATE_LIMIT_WINDOW - (
+                        currentTime - GLOBAL_REQUEST_TIMES[0]
+                    )
+                    _SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                    currentTime = time.time()
+                    while (
+                        GLOBAL_REQUEST_TIMES
+                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                    ):
+                        GLOBAL_REQUEST_TIMES.popleft()
+                try:
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=[
+                            (
+                                f"Transcribe the image, including all math, in LaTeX format. Use the given preamble as a base, "
+                                f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
+                                f"If there's a graphic, either recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{preamble}",
+                                image,
+                            ),
+                        ],
+                    )
+                except Exception as e:
+                    console.print(
+                        f"[bold red]Error during transcription of {imagePath.name}: {e}[/bold red]"
+                    )
+                    raise
+                responses[imagePath.name] = response
+                GLOBAL_REQUEST_TIMES.append(time.time())
+                if fullResponseDir is None:
+                    fullResponseDir = outputDir
+                localPickleDir = Path(fullResponseDir, "pickles")
+                localPickleDir.mkdir(parents=True, exist_ok=True)
+                try:
+                    picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
+                    with picklePath.open("wb") as file:
+                        pickle.dump(responses, file)
+                except Exception as e:
+                    console.print(f"[bold red]Failed to save responses: {e}[/bold red]")
+            else:
+                raise ValueError(
+                    "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
+                )
+            progress.update(task, advance=1)
+            if bulkPagesTask is not None:
+                progress.update(bulkPagesTask, advance=1)
+
+        # Combine responses into a single LaTeX document.
+        combinedResponse = ""
+        for idx, (imageName, response) in enumerate(responses.items()):
+            responseText: str | list[str] | None = response.text
+            if responseText is None:
+                combinedResponse += f"\n\\section{{Image {idx}: {imageName}}}\n\nError: Text content is None\n"
+                continue
+            if isinstance(responseText, str):
+                responseText = responseText.splitlines()
+            if responseText and responseText[0].strip().startswith("```"):
+                responseText = responseText[1:]
+            if responseText and responseText[-1].strip() == "```":
+                responseText = responseText[:-1]
+            combinedResponse += "\n".join(responseText) + "\n"
+
+        Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
+        cleanedResponse = _CleanResponse(
+            combinedResponse=combinedResponse, preamble=preamble
+        )
+        Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
+        progress.remove_task(task)
+
+
+def TranscribeSlides(
     source: Path | list[Path],
     outputDir: Path = None,
     lectureNumPattern: str = r".*(\d+).*",
@@ -1342,7 +1537,7 @@ def BulkTranscribeSlides(
 
     numSlideFiles = len(slideFiles)
 
-    totalPages = GetTotalPageCount(slideFiles)
+    totalPages = _GetTotalPageCount(slideFiles)
 
     if outputDir is None:
 
@@ -1391,7 +1586,7 @@ def BulkTranscribeSlides(
 
             PDFToPNG(pdfPath=slideFile, pagesDir=pagesDir, progress=progress)
 
-            TranscribeSlideImages(
+            _TranscribeSlideImages(
                 imageDir=pagesDir,
                 limiterMethod="tracking",
                 outputDir=baseOutputDir,
@@ -1409,7 +1604,7 @@ def BulkTranscribeSlides(
             )
 
 
-def BulkTranscribeLectures(
+def TranscribeLectures(
     source: Path | list[Path],
     outputDir: Path = None,
     lectureNumPattern: str = r".*(\d+).*",
@@ -1513,7 +1708,7 @@ def BulkTranscribeLectures(
 
     numLectureFiles = len(lectureFiles)
 
-    totalPages = GetTotalPageCount(lectureFiles)
+    totalPages = _GetTotalPageCount(lectureFiles)
 
     if outputDir is None:
 
@@ -1562,7 +1757,7 @@ def BulkTranscribeLectures(
 
             PDFToPNG(pdfPath=lectureFile, pagesDir=pagesDir, progress=progress)
 
-            TranscribeLectureImages(
+            _TranscribeSlideImages(
                 imageDir=pagesDir,
                 limiterMethod="tracking",
                 outputDir=baseOutputDir,
@@ -1580,7 +1775,7 @@ def BulkTranscribeLectures(
             )
 
 
-def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
+def TranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
     """
     Process and transcribe document PDFs from a directory or a list of PDF file paths.
     For each PDF, create an output directory named after the PDF (with spaces replaced by hyphens)
@@ -1642,7 +1837,7 @@ def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
         parentOutputDir = outputDir
 
     parentOutputDir.mkdir(parents=True, exist_ok=True)
-    totalPages = GetTotalPageCount(pdfFiles)
+    totalPages = _GetTotalPageCount(pdfFiles)
 
     with Progress(
         SpinnerColumn(),
@@ -1683,7 +1878,7 @@ def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
 
             PDFToPNG(pdfPath=pdfFile, pagesDir=pagesDir, progress=progress)
 
-            TranscribeDocumentImages(
+            _TranscribeDocumentImages(
                 imageDir=pagesDir,
                 limiterMethod="tracking",
                 outputDir=baseOutputDir,
@@ -1696,6 +1891,86 @@ def BulkTranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
             progress.update(
                 task, description=f"Transcribed {pdfFile.name}", advance=1, refresh=True
             )
+
+
+def TranscribeImages(
+    source: Path | list[Path],
+    preamble: str,
+    outputDir: Path = None,
+    filePattern: str = "*.png",
+):
+    """
+    Process and transcribe image files from a directory or a list of image file paths.
+    This function collects the image files and then calls _TranscribeImages.
+
+    Parameters
+    ----------
+    source : Path or list[Path]
+        A directory containing image files or a list of image file paths.
+    preamble : str
+        The LaTeX preamble to use for transcription.
+    outputDir : Path, optional
+        Parent directory where transcribed outputs will be stored.
+        If not provided, defaults to a 'transcribed-images' subdirectory within the input directory.
+    filePattern : str, optional
+        Glob pattern for image files. Defaults to "*.png".
+
+    Returns
+    -------
+    None
+    """
+    # Determine the list of image files and base input directory.
+    if isinstance(source, Path) and source.is_dir():
+        imageFiles = natsorted(list(source.glob(filePattern)))
+        inputDir = source
+    elif isinstance(source, list):
+        imageFiles = source
+        inputDirs = [img.parent for img in imageFiles]
+        inputDir = inputDirs[0]
+    else:
+        raise ValueError(
+            "Parameter 'source' must be a directory path or a list of image file paths."
+        )
+
+    # Determine the output directory.
+    if outputDir is None:
+        bulkOutputDir = Path(inputDir, "transcribed-images")
+    else:
+        bulkOutputDir = outputDir
+
+    bulkOutputDir.mkdir(parents=True, exist_ok=True)
+    numImageFiles = len(imageFiles)
+
+    # Use a rich Progress instance to track overall bulk transcription.
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}", justify="left"),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        BarColumn(bar_width=None),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        expand=True,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("Bulk transcribing image files", total=numImageFiles)
+        allPagesTask = progress.add_task(
+            "Transcribing image pages", total=numImageFiles
+        )
+        # Call _TranscribeImages on the collected image files.
+        _TranscribeImages(
+            imageSource=imageFiles,
+            preamble=preamble,
+            limiterMethod="tracking",
+            outputDir=bulkOutputDir,
+            outputName="bulk-transcribed",
+            fullResponseDir=bulkOutputDir,
+            progress=progress,
+            bulkPagesTask=allPagesTask,
+        )
+        progress.update(task, advance=numImageFiles)
 
 
 def FinishPickleSlides(
@@ -1728,7 +2003,7 @@ def FinishPickleSlides(
         combinedResponse += "\n".join(responseText) + "\n"
 
     Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
-    cleanedResponse = CleanResponse(
+    cleanedResponse = _CleanResponse(
         combinedResponse=combinedResponse, preamble=SLIDE_LATEX_PREAMBLE
     )
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
@@ -1763,7 +2038,7 @@ def FinishPickleLecture(
         combinedResponse += "\n".join(responseText) + "\n"
 
     Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
-    cleanedResponse = CleanResponse(
+    cleanedResponse = _CleanResponse(
         combinedResponse=combinedResponse, preamble=LECTURE_LATEX_PREAMBLE
     )
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
@@ -1798,56 +2073,70 @@ def FinishPickleDocument(
         combinedResponse += "\n".join(responseText) + "\n"
 
     Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
-    cleanedResponse = CleanResponse(
+    cleanedResponse = _CleanResponse(
         combinedResponse=combinedResponse, preamble=DOCUMENT_LATEX_PREAMBLE
+    )
+    Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
+
+
+def FinishPickleImage(
+    picklePath: Path,
+    fullResponseDir: Path,
+    outputDir: Path,
+    outputName: str,
+    preamble: str,
+):
+    """
+    Process a pickle file containing image transcription responses, combine them into a single text string,
+    clean the LaTeX output using the given preamble, and write both a text file and a cleaned .tex file.
+
+    Parameters
+    ----------
+    picklePath : Path
+        The path to the pickle file containing responses.
+    fullResponseDir : Path
+        Directory where the combined text output (.txt) will be stored.
+    outputDir : Path
+        Directory where the cleaned LaTeX output (.tex) will be stored.
+    outputName : str
+        Base name for the output files.
+    preamble : str
+        The LaTeX preamble to use for cleaning the combined response.
+
+    Returns
+    -------
+    None
+    """
+    with picklePath.open("rb") as file:
+        responses = pickle.load(file)
+
+    combinedResponse = ""
+    for idx, (imageName, response) in enumerate(responses.items()):
+        responseText: str | list[str] | None = response.text
+        if responseText is None:
+            combinedResponse += f"\n\\section{{Image {idx}: {imageName}}}\n\nError: Text content is None\n"
+            continue
+        if isinstance(responseText, str):
+            responseText = responseText.splitlines()
+        if responseText and responseText[0].strip().startswith("```"):
+            responseText = responseText[1:]
+        if responseText and responseText[-1].strip() == "```":
+            responseText = responseText[:-1]
+        combinedResponse += "\n".join(responseText) + "\n"
+
+    Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
+    cleanedResponse = _CleanResponse(
+        combinedResponse=combinedResponse, preamble=preamble
     )
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
 
 if __name__ == "__main__":
 
-    # BulkTranscribeSlides(
-    #     source=MATH_465_SLIDES_DIR,
-    #     outputDir=Path(
-    #         "/Users/kadengruizenga/Documents/School/W25/Math465/Summaries/Lectures/Transcribed"
-    #     ),
-    #     lectureNumPattern=MATH_465_PATTERN,
-    #     excludeLectureNums=[],
-    # )
-
-    # BulkTranscribeSlides(
-    #     source=MATH_465_SLIDES_DIR,
-    #     lectureNumPattern=MATH_465_PATTERN,
-    #     excludeLectureNums=[],
-    # )
-
-    # BulkTranscribeLectures(
-    #     source=MATH_425_SLIDES_DIR,
-    #     lectureNumPattern=MATH_425_PATTERN,
-    #     excludeLectureNums=[],
-    # )
-
-    # BulkTranscribeLectures(
-    #     source=EECS_476_SLIDES_DIR,
-    #     lectureNumPattern=EECS_476_PATTERN,
-    #     excludeLectureNums=[],
-    # )
-
-    # BulkTranscribeDocuments(
-    #     [
-    #         Path(
-    #             "/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys/Homework 4 Solutions.pdf"
-    #         ),
-    #         Path(
-    #             "/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys/Homework 5 Solutions.pdf"
-    #         ),
-    #     ]
-    # )
-
     a = Path(
         "/Users/kadengruizenga/Developer/Projects/quantio/questions/.green-book.pdf"
     )
 
-    BulkTranscribeDocuments([a])
+    TranscribeDocuments(a)
 
     pass
