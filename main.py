@@ -1250,7 +1250,7 @@ def _TranscribeDocumentImages(
         progress.remove_task(task)
 
 
-def _TranscribeImages(
+def _TranscribeImage(
     imageSource: Path | list[Path],
     limiterMethod: str = "tracking",
     outputDir: Path = OUTPUT_DIR,
@@ -1300,7 +1300,7 @@ def _TranscribeImages(
         raise ValueError("GEMINI_API_KEY environment variable not set")
 
     responses = OrderedDict()
-    defaultDescription = "Transcribing Images"
+    defaultDescription = "Transcribing Image"
 
     currentLimiterMethod = limiterMethod
     if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
@@ -1566,7 +1566,6 @@ def TranscribeSlides(
         TextColumn("•"),
         TimeRemainingColumn(),
         expand=True,
-        transient=True,
     ) as progress:
 
         task = progress.add_task(f"Transcribing slide files", total=numSlideFiles)
@@ -1737,7 +1736,6 @@ def TranscribeLectures(
         TextColumn("•"),
         TimeRemainingColumn(),
         expand=True,
-        transient=True,
     ) as progress:
 
         task = progress.add_task("Transcribing lecture files", total=numLectureFiles)
@@ -1856,7 +1854,6 @@ def TranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
         TextColumn("•"),
         TimeRemainingColumn(),
         expand=True,
-        transient=True,
     ) as progress:
 
         task = progress.add_task("Transcribing document files", total=len(pdfFiles))
@@ -1903,10 +1900,11 @@ def TranscribeImages(
     source: Path | list[Path],
     outputDir: Path = None,
     filePattern: str = "*.png",
+    separateOutputs: bool = True,
 ):
     """
     Process and transcribe image files from a directory or a list of image file paths.
-    This function collects the image files and then calls _TranscribeImages.
+    This function collects the image files and then calls _TranscribeImage.
 
     Parameters
     ----------
@@ -1942,37 +1940,68 @@ def TranscribeImages(
         bulkOutputDir = outputDir
 
     bulkOutputDir.mkdir(parents=True, exist_ok=True)
-    numImageFiles = len(imageFiles)
 
-    # Use a rich Progress instance to track overall bulk transcription.
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]{task.description}", justify="left"),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        BarColumn(bar_width=None),
-        MofNCompleteColumn(),
-        TextColumn("•"),
-        TimeElapsedColumn(),
-        TextColumn("•"),
-        TimeRemainingColumn(),
-        expand=True,
-        transient=True,
-    ) as progress:
-        task = progress.add_task("Bulk transcribing image files", total=numImageFiles)
-        allPagesTask = progress.add_task(
-            "Transcribing image pages", total=numImageFiles
-        )
-        # Call _TranscribeImages on the collected image files.
-        _TranscribeImages(
-            imageSource=imageFiles,
-            limiterMethod="tracking",
-            outputDir=bulkOutputDir,
-            outputName="bulk-transcribed",
-            fullResponseDir=bulkOutputDir,
-            progress=progress,
-            bulkPagesTask=allPagesTask,
-        )
-        progress.update(task, advance=numImageFiles)
+    if separateOutputs:
+        # Process each image file separately, each in its own subdirectory
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}", justify="left"),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            BarColumn(bar_width=None),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            TextColumn("•"),
+            TimeRemainingColumn(),
+            expand=True,
+        ) as progress:
+            task = progress.add_task(
+                "Transcribing individual image files", total=len(imageFiles)
+            )
+            for imgPath in imageFiles:
+                # Create a subdirectory for each image output using its stem
+                outputSubDir = bulkOutputDir / imgPath.stem
+                outputSubDir.mkdir(parents=True, exist_ok=True)
+                _TranscribeImage(
+                    imageSource=[imgPath],
+                    limiterMethod="tracking",
+                    outputDir=outputSubDir,
+                    outputName=imgPath.stem + "-transcribed",
+                    fullResponseDir=outputSubDir,
+                    progress=progress,
+                )
+                progress.update(task, advance=1)
+    else:
+        # Combined output: process all images together
+        numImageFiles = len(imageFiles)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}", justify="left"),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            BarColumn(bar_width=None),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            TextColumn("•"),
+            TimeRemainingColumn(),
+            expand=True,
+        ) as progress:
+            task = progress.add_task(
+                "Bulk transcribing image files", total=numImageFiles
+            )
+            allPagesTask = progress.add_task(
+                "Transcribing image pages", total=numImageFiles
+            )
+            _TranscribeImage(
+                imageSource=imageFiles,
+                limiterMethod="tracking",
+                outputDir=bulkOutputDir,
+                outputName="bulk-transcribed",
+                fullResponseDir=bulkOutputDir,
+                progress=progress,
+                bulkPagesTask=allPagesTask,
+            )
+            progress.update(task, advance=numImageFiles)
 
 
 def FinishPickleSlides(
