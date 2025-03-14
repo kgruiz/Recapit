@@ -79,6 +79,15 @@ if not DOCUMENT_LATEX_PREAMBLE_PATH.exists():
 
 DOCUMENT_LATEX_PREAMBLE = DOCUMENT_LATEX_PREAMBLE_PATH.read_text()
 
+IMAGE_LATEX_PREAMBLE_PATH = Path("utils", "image-template.txt")
+
+if not IMAGE_LATEX_PREAMBLE_PATH.exists():
+
+    raise FileNotFoundError(
+        f"Image latex preamble file {IMAGE_LATEX_PREAMBLE_PATH} not found"
+    )
+
+IMAGE_LATEX_PREAMBLE = IMAGE_LATEX_PREAMBLE_PATH.read_text()
 
 # Common slide dirs and patterns
 MATH_465_SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math465/Slides")
@@ -1243,7 +1252,6 @@ def _TranscribeDocumentImages(
 
 def _TranscribeImages(
     imageSource: Path | list[Path],
-    preamble: str,
     limiterMethod: str = "tracking",
     outputDir: Path = OUTPUT_DIR,
     outputName: str = "transcribed",
@@ -1258,8 +1266,6 @@ def _TranscribeImages(
     ----------
     imageSource : Path or list[Path]
         A directory containing image files or a list of image file paths.
-    preamble : str
-        The LaTeX preamble to use for transcription.
     limiterMethod : str, optional
         Rate limiting method ("fixedDelay" or "tracking"). Defaults to "tracking".
     outputDir : Path, optional
@@ -1332,7 +1338,7 @@ def _TranscribeImages(
                             (
                                 f"Transcribe the image, including all math, in LaTeX format. Use the given preamble as a base, "
                                 f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
-                                f"If there's a graphic, either recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{preamble}",
+                                f"If there's a graphic, either recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{IMAGE_LATEX_PREAMBLE}",
                                 image,
                             ),
                         ],
@@ -1383,7 +1389,7 @@ def _TranscribeImages(
                             (
                                 f"Transcribe the image, including all math, in LaTeX format. Use the given preamble as a base, "
                                 f"ensuring any other needed packages or details are added. Escape characters like '&', '%', etc., properly. "
-                                f"If there's a graphic, either recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{preamble}",
+                                f"If there's a graphic, either recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{IMAGE_LATEX_PREAMBLE}",
                                 image,
                             ),
                         ],
@@ -1430,7 +1436,7 @@ def _TranscribeImages(
 
         Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
         cleanedResponse = _CleanResponse(
-            combinedResponse=combinedResponse, preamble=preamble
+            combinedResponse=combinedResponse, preamble=IMAGE_LATEX_PREAMBLE
         )
         Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
         progress.remove_task(task)
@@ -1895,7 +1901,6 @@ def TranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
 
 def TranscribeImages(
     source: Path | list[Path],
-    preamble: str,
     outputDir: Path = None,
     filePattern: str = "*.png",
 ):
@@ -1907,8 +1912,6 @@ def TranscribeImages(
     ----------
     source : Path or list[Path]
         A directory containing image files or a list of image file paths.
-    preamble : str
-        The LaTeX preamble to use for transcription.
     outputDir : Path, optional
         Parent directory where transcribed outputs will be stored.
         If not provided, defaults to a 'transcribed-images' subdirectory within the input directory.
@@ -1962,7 +1965,6 @@ def TranscribeImages(
         # Call _TranscribeImages on the collected image files.
         _TranscribeImages(
             imageSource=imageFiles,
-            preamble=preamble,
             limiterMethod="tracking",
             outputDir=bulkOutputDir,
             outputName="bulk-transcribed",
@@ -2084,7 +2086,6 @@ def FinishPickleImage(
     fullResponseDir: Path,
     outputDir: Path,
     outputName: str,
-    preamble: str,
 ):
     """
     Process a pickle file containing image transcription responses, combine them into a single text string,
@@ -2100,8 +2101,6 @@ def FinishPickleImage(
         Directory where the cleaned LaTeX output (.tex) will be stored.
     outputName : str
         Base name for the output files.
-    preamble : str
-        The LaTeX preamble to use for cleaning the combined response.
 
     Returns
     -------
@@ -2126,7 +2125,7 @@ def FinishPickleImage(
 
     Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
     cleanedResponse = _CleanResponse(
-        combinedResponse=combinedResponse, preamble=preamble
+        combinedResponse=combinedResponse, preamble=IMAGE_LATEX_PREAMBLE
     )
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
@@ -2134,9 +2133,9 @@ def FinishPickleImage(
 if __name__ == "__main__":
 
     a = Path(
-        "/Users/kadengruizenga/Developer/Projects/quantio/questions/.green-book.pdf"
+        "/Users/kadengruizenga/Developer/Projects/apple-reminders-exporter/eventkit-docs/screenshots"
     )
 
-    TranscribeDocuments(a)
+    TranscribeImages(a)
 
     pass
