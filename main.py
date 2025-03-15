@@ -1921,11 +1921,49 @@ def TranscribeImages(
     None
     """
     # Determine the list of image files and base input directory.
-    if isinstance(source, Path) and source.is_dir():
+    if isinstance(source, Path):
+
+        if not source.exists():
+
+            raise FileNotFoundError(f"Directory {source} does not exist.")
+
+        elif not source.is_dir():
+
+            raise NotADirectoryError(f"{source} is not a directory.")
+
         imageFiles = natsorted(list(source.glob(filePattern)))
         inputDir = source
     elif isinstance(source, list):
+
         imageFiles = source
+
+        nonexistant = list()
+        nonfiles = list()
+
+        for entry in imageFiles:
+
+            if not entry.exists():
+
+                nonexistant.append(entry)
+
+            elif not entry.is_file():
+
+                nonfiles.append(entry)
+
+        if len(nonexistant) > 0 and len(nonfiles) > 0:
+
+            raise FileNotFoundError(
+                f"Files do not exist: {nonexistant}\nNot files: {nonfiles}"
+            )
+
+        elif len(nonexistant) > 0:
+
+            raise FileNotFoundError(f"Files do not exist: {nonexistant}")
+
+        elif len(nonfiles) > 0:
+
+            raise ValueError(f"Not files: {nonfiles}")
+
         inputDirs = [img.parent for img in imageFiles]
         inputDir = inputDirs[0]
     else:
@@ -2162,7 +2200,7 @@ def FinishPickleImage(
 if __name__ == "__main__":
 
     a = Path(
-        "/Users/kadengruizenga/Developer/Projects/apple-reminders-exporter/eventkit-docs/screenshots"
+        "/Users/kadengruizenga/Developer/Projects/Export-Apple-Reminders/eventkit-docs/screenshots/objective-c"
     )
 
     TranscribeImages(a)
