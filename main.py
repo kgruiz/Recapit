@@ -1550,67 +1550,71 @@ def _TranscribeImage(
 
 
 def TranscribeSlides(
-    source: Path | list[Path],
+    source: Path | list[Path] | str | list[str],
     outputDir: Path = None,
     lectureNumPattern: str = r".*(\d+).*",
     excludeLectureNums: list[int] = [],
     skipExisting: bool = True,
 ):
     """
-    Process and transcribe slide PDFs from a directory or a list of PDF file paths.
+    Process and transcribe slide PDFs from a directory, a single PDF file, or a list of PDF file paths.
+    This function converts string inputs to Path objects if possible.
 
     Parameters
     ----------
-    source : Path or list[Path]
-        A directory containing PDF files or a list of PDF file paths.
+    source : Path or list[Path] or str or list[str]
+        A directory containing PDF files, a single PDF file, or a list of PDF file paths.
     outputDir : Path, optional
         Directory where transcribed outputs will be stored. If not provided, a default directory is used.
     lectureNumPattern : str, optional
         Regular expression pattern used to extract the lecture number from the PDF file name.
     excludeLectureNums : list[int], optional
         A list of lecture numbers to exclude from processing.
+    skipExisting : bool, optional
+        If True, skip PDF files that already have transcribed output.
 
     Returns
     -------
     None
     """
 
-    # Determine the list of PDF files from either a directory or an explicit list.
-    if isinstance(source, Path) and source.is_dir():
-
-        slideFiles = natsorted(list(source.glob("*.pdf")))
-
-        if outputDir is None:
-
-            inputDir = source
-
+    # Convert string input(s) to Path(s) if needed.
+    if isinstance(source, str):
+        source = Path(source)
     elif isinstance(source, list):
-
-        slideFiles = source
-
-        if outputDir is None:
-
-            inputDirs = []
-
-            for slideFile in slideFiles:
-
-                inputDirs.append(slideFile.parent)
-
-            if len(set(inputDirs)) > 1:
-
-                inputDir = inputDirs[0]
-
-                console.print(
-                    f"Multiple input directories found: {set(inputDirs)}.\nUsing the first, {inputDir}, for the location of the ouput directory."
-                )
-
+        source_converted = []
+        for item in source:
+            if isinstance(item, str):
+                source_converted.append(Path(item))
+            elif isinstance(item, Path):
+                source_converted.append(item)
             else:
+                raise ValueError("List items must be strings or Path objects.")
+        source = source_converted
 
+    if isinstance(source, Path):
+        if not source.exists():
+            raise FileNotFoundError(f"Path {source} does not exist.")
+        if source.is_file():
+            slideFiles = [source]
+            inputDir = source.parent
+        else:  # source is a directory
+            slideFiles = natsorted(list(source.glob("*.pdf")))
+            inputDir = source
+    elif isinstance(source, list):
+        slideFiles = source
+        if outputDir is None:
+            inputDirs = [slideFile.parent for slideFile in slideFiles]
+            if len(set(inputDirs)) > 1:
                 inputDir = inputDirs[0]
-
+                console.print(
+                    f"Multiple input directories found: {set(inputDirs)}.\nUsing the first, {inputDir}, for the location of the output directory."
+                )
+            else:
+                inputDir = inputDirs[0]
     else:
         raise ValueError(
-            "Parameter 'source' must be a directory path or a list of PDF file paths."
+            "Parameter 'source' must be a directory path, a single file, or a list of PDF file paths."
         )
 
     cleanedSlideFiles = []
@@ -1733,68 +1737,71 @@ def TranscribeSlides(
 
 
 def TranscribeLectures(
-    source: Path | list[Path],
+    source: Path | list[Path] | str | list[str],
     outputDir: Path = None,
     lectureNumPattern: str = r".*(\d+).*",
     excludeLectureNums: list[int] = [],
     skipExisting: bool = True,
 ):
     """
-    Process and transcribe lecture PDFs from a directory or a list of PDF file paths.
+    Process and transcribe lecture PDFs from a directory, a single PDF file, or a list of PDF file paths.
+    This function converts string inputs to Path objects if possible.
 
     Parameters
     ----------
-    source : Path or list[Path]
-        A directory containing PDF files or a list of PDF file paths.
+    source : Path or list[Path] or str or list[str]
+        A directory containing PDF files, a single PDF file, or a list of PDF file paths.
     outputDir : Path, optional
         Directory where transcribed outputs will be stored. If not provided, defaults to a subdirectory within the input directory.
     lectureNumPattern : str, optional
         Regular expression pattern used to extract the lecture number from the PDF file name.
     excludeLectureNums : list[int], optional
         A list of lecture numbers to exclude from processing.
+    skipExisting : bool, optional
+        If True, skip PDF files that already have transcribed output.
 
     Returns
     -------
     None
     """
 
-    # Determine the list of PDF files from either a directory or an explicit list.
-    if isinstance(source, Path) and source.is_dir():
-
-        lectureFiles = natsorted(list(source.glob("*.pdf")))
-
-        if outputDir is None:
-
-            inputDir = source
-
+    # Convert string input(s) to Path(s) if needed.
+    if isinstance(source, str):
+        source = Path(source)
     elif isinstance(source, list):
-
-        lectureFiles = source
-
-        if outputDir is None:
-
-            inputDirs = []
-
-            for lectureFile in lectureFiles:
-
-                inputDirs.append(lectureFile.parent)
-
-            if len(set(inputDirs)) > 1:
-
-                inputDir = inputDirs[0]
-
-                console.print(
-                    f"Multiple input directories found: {set(inputDirs)}.\nUsing the first, {inputDir}, for the location of the ouput directory."
-                )
-
+        source_converted = []
+        for item in source:
+            if isinstance(item, str):
+                source_converted.append(Path(item))
+            elif isinstance(item, Path):
+                source_converted.append(item)
             else:
+                raise ValueError("List items must be strings or Path objects.")
+        source = source_converted
 
+    if isinstance(source, Path):
+        if not source.exists():
+            raise FileNotFoundError(f"Path {source} does not exist.")
+        if source.is_file():
+            lectureFiles = [source]
+            inputDir = source.parent
+        else:
+            lectureFiles = natsorted(list(source.glob("*.pdf")))
+            inputDir = source
+    elif isinstance(source, list):
+        lectureFiles = source
+        if outputDir is None:
+            inputDirs = [lectureFile.parent for lectureFile in lectureFiles]
+            if len(set(inputDirs)) > 1:
                 inputDir = inputDirs[0]
-
+                console.print(
+                    f"Multiple input directories found: {set(inputDirs)}.\nUsing the first, {inputDir}, for the location of the output directory."
+                )
+            else:
+                inputDir = inputDirs[0]
     else:
-
         raise ValueError(
-            "Parameter 'source' must be a directory path or a list of PDF file paths."
+            "Parameter 'source' must be a directory path, a single file, or a list of PDF file paths."
         )
 
     cleanedLectureFiles = []
@@ -1919,18 +1926,21 @@ def TranscribeLectures(
 
 
 def TranscribeDocuments(
-    source: Path | list[Path], outputDir: Path = None, skipExisting: bool = True
+    source: Path | list[Path] | str | list[str],
+    outputDir: Path = None,
+    skipExisting: bool = True,
 ):
     """
-    Process and transcribe document PDFs from a directory or a list of PDF file paths.
+    Process and transcribe document PDFs from a directory, a single PDF file, or a list of PDF file paths.
+    This function converts string inputs to Path objects if possible.
     For each PDF, create an output directory named after the PDF (with spaces replaced by hyphens)
     as a subdirectory of the specified output directory. If no outputDir is provided, defaults to a directory
     named "transcribed-documents" within the input directory.
 
     Parameters
     ----------
-    source : Path or list[Path]
-        A directory containing PDF files or a list of PDF file paths.
+    source : Path or list[Path] or str or list[str]
+        A directory containing PDF files, a single PDF file, or a list of PDF file paths.
     outputDir : Path, optional
         Parent directory where transcribed outputs will be stored.
 
@@ -1939,41 +1949,43 @@ def TranscribeDocuments(
     None
     """
 
-    if isinstance(source, Path) and source.is_dir():
-
-        pdfFiles = natsorted(list(source.glob("*.pdf")))
-
-        if outputDir is None:
-
-            inputDir = source
-
+    # Convert string input(s) to Path(s) if needed.
+    if isinstance(source, str):
+        source = Path(source)
     elif isinstance(source, list):
+        source_converted = []
+        for item in source:
+            if isinstance(item, str):
+                source_converted.append(Path(item))
+            elif isinstance(item, Path):
+                source_converted.append(item)
+            else:
+                raise ValueError("List items must be strings or Path objects.")
+        source = source_converted
 
+    if isinstance(source, Path):
+        if not source.exists():
+            raise FileNotFoundError(f"Path {source} does not exist.")
+        if source.is_file():
+            pdfFiles = [source]
+            inputDir = source.parent
+        else:
+            pdfFiles = natsorted(list(source.glob("*.pdf")))
+            inputDir = source
+    elif isinstance(source, list):
         pdfFiles = source
-
         if outputDir is None:
-
-            inputDirs = []
-
-            for pdfFile in pdfFiles:
-
-                inputDirs.append(pdfFile.parent)
-
+            inputDirs = [pdfFile.parent for pdfFile in pdfFiles]
             if len(set(inputDirs)) > 1:
-
                 inputDir = inputDirs[0]
-
                 console.print(
                     f"Multiple input directories found: {inputDirs}.\nUsing the first one, {inputDir}, for the location of the output directory."
                 )
-
             else:
-
                 inputDir = inputDirs[0]
-
     else:
         raise ValueError(
-            "Parameter 'source' must be a directory path or a list of PDF file paths."
+            "Parameter 'source' must be a directory path, a single file, or a list of PDF file paths."
         )
 
     if outputDir is None:
@@ -2053,32 +2065,48 @@ def TranscribeDocuments(
 
 
 def TranscribeImages(
-    source: Path | list[Path],
+    source: Path | list[Path] | str | list[str],
     outputDir: Path = None,
     filePattern: str = "*.png",
     separateOutputs: bool = True,
     skipExisting: bool = True,
 ):
     """
-    Process and transcribe image files from a directory or a list of image file paths.
-    This function collects the image files and then calls _TranscribeImage.
+    Process and transcribe image files from a directory, a single image file, or a list of image file paths.
+    This function converts string inputs to Path objects if possible.
 
     Parameters
     ----------
-    source : Path or list[Path]
-        A directory containing image files or a list of image file paths.
+    source : Path or list[Path] or str or list[str]
+        A directory, a single image file, or a list of image file paths.
     outputDir : Path, optional
         Parent directory where transcribed outputs will be stored.
         If not provided, defaults to a 'transcribed-images' subdirectory within the input directory.
     filePattern : str, optional
         Glob pattern for image files. Defaults to "*.png".
+    separateOutputs : bool, optional
+        If True, process each image file separately in its own subdirectory; otherwise, process them in bulk.
+    skipExisting : bool, optional
+        If True, skip image files that already have transcribed output.
 
     Returns
     -------
     None
     """
 
-    # TODO: If a list of directories or files, make separate output dirs
+    # Convert string input(s) to Path(s) if needed.
+    if isinstance(source, str):
+        source = Path(source)
+    elif isinstance(source, list):
+        source_converted = []
+        for item in source:
+            if isinstance(item, str):
+                source_converted.append(Path(item))
+            elif isinstance(item, Path):
+                source_converted.append(item)
+            else:
+                raise ValueError("List items must be strings or Path objects.")
+        source = source_converted
 
     # Determine the list of image files and base input directory.
     if isinstance(source, Path):
@@ -2086,21 +2114,21 @@ def TranscribeImages(
         if not source.exists():
 
             console.print(
-                f"[bold red]Directory [bold yellow]{source}[/bold yellow] does not exist.[/bold red]"
+                f"[bold red]Path [bold yellow]{source}[/bold yellow] does not exist.[/bold red]"
             )
 
-            raise FileNotFoundError(f"Directory {source} does not exist.")
+            raise FileNotFoundError(f"Path {source} does not exist.")
 
-        elif not source.is_dir():
+        if source.is_file():
 
-            console.print(
-                f"[bold red][bold yellow]{source}[/bold yellow] is not a directory.[/bold red]"
-            )
+            imageFiles = [source]
+            inputDir = source.parent
 
-            raise NotADirectoryError(f"{source} is not a directory.")
+        else:  # source is a directory
 
-        imageFiles = natsorted(list(source.glob(filePattern)))
-        inputDir = source
+            imageFiles = natsorted(list(source.glob(filePattern)))
+            inputDir = source
+
     elif isinstance(source, list):
 
         imageFiles = source
@@ -2146,6 +2174,7 @@ def TranscribeImages(
 
         inputDirs = [img.parent for img in imageFiles]
         inputDir = inputDirs[0]
+
     else:
 
         console.print(
@@ -2428,10 +2457,10 @@ def FinishPickleImage(
 
 if __name__ == "__main__":
 
-    a = Path(
-        "/Users/kadengruizenga/Developer/Projects/Export-Apple-Reminders/eventkit-docs/screenshots/swift"
+    math465HW6SolPath = Path(
+        "/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys/Homework 6 Solutions.pdf"
     )
 
-    TranscribeImages(a)
+    TranscribeDocuments(math465HW6SolPath)
 
     pass
