@@ -35,6 +35,37 @@ from rich.text import Text
 # TODO: Add other slide formats (German 322)
 # TODO: Change default output dir for transribe image functions to be a new directory in same parent dir as input images
 
+# TODO: Except and keep going:
+# ⠼ Transcribing individual image files  93% ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╸━━━━━━━ 25/27 • 0:03:06 • 0:00:26
+# ⠼ Transcribing setting-alarm.png        0% ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 0/1   • 0:00:00 • -:--:--
+# Traceback (most recent call last):
+#   File "/Users/kadengruizenga/Developer/Projects/LectureSummarizer/main.py", line 2311, in <module>
+#     TranscribeImages(a)
+#   File "/Users/kadengruizenga/Developer/Projects/LectureSummarizer/main.py", line 2108, in TranscribeImages
+#     _TranscribeImage(
+#   File "/Users/kadengruizenga/Developer/Projects/LectureSummarizer/main.py", line 1363, in _TranscribeImage
+#     response = client.models.generate_content(
+#                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/models.py", line 4410, in generate_content
+#     response = self._generate_content(
+#                ^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/models.py", line 3669, in _generate_content
+#     response_dict = self.api_client.request(
+#                     ^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/_api_client.py", line 374, in request
+#     response = self._request(http_request, stream=False)
+#                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/_api_client.py", line 309, in _request
+#     return self._request_unauthorized(http_request, stream)
+#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/_api_client.py", line 332, in _request_unauthorized
+#     errors.APIError.raise_for_response(response)
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/errors.py", line 102, in raise_for_response
+#     raise ServerError(status_code, response)
+# google.genai.errors.ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'The service is currently unavailable.', 'status': 'UNAVAILABLE'}}
+# (basic) 11:41:25 ~/Developer/Projects/LectureSummarizer %
+
+
 console = Console()
 
 # Global deque to track request times across instances
@@ -1283,12 +1314,18 @@ def _TranscribeImage(
     -------
     None
     """
+
     # Determine list of image files.
     if isinstance(imageSource, Path) and imageSource.is_dir():
+
         imagePaths = natsorted(list(imageSource.glob("*.png")))
+
     elif isinstance(imageSource, list):
+
         imagePaths = imageSource
+
     else:
+
         raise ValueError(
             "Parameter 'imageSource' must be a directory path or a list of image file paths."
         )
@@ -1296,19 +1333,23 @@ def _TranscribeImage(
     imageTuples = [(imgPath, PIL.Image.open(imgPath)) for imgPath in imagePaths]
 
     apiKey = os.getenv("GEMINI_API_KEY")
+
     if apiKey is None:
         raise ValueError("GEMINI_API_KEY environment variable not set")
 
     responses = OrderedDict()
-    defaultDescription = "Transcribing Image"
+    defaultDescription = "Transcribing Image Files"
 
     currentLimiterMethod = limiterMethod
+
     if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
         currentLimiterMethod = "fixedDelay"
+
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
     runID = time.time()
 
     if progress is None:
+
         progress = Progress(
             SpinnerColumn(),
             TextColumn("[bold blue]{task.description}", justify="left"),
@@ -1321,16 +1362,34 @@ def _TranscribeImage(
             TimeRemainingColumn(),
             expand=True,
         )
+
     elif not isinstance(progress, Progress):
+
         raise ValueError("progress must be a rich.progress.Progress instance")
 
     with progress:
+
         task = progress.add_task(defaultDescription, total=len(imageTuples))
+
         for imagePath, image in imageTuples:
+
+            specificDescription = f"Transcribing {imagePath.name}"
+
+            progress.update(
+                task,
+                description=specificDescription,
+                advance=0,
+                refresh=True,
+            )
+
             currentTime = time.time()
+
             if currentLimiterMethod == "fixedDelay":
+
                 startTime = currentTime
+
                 try:
+
                     client = genai.Client(api_key=apiKey)
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
@@ -1343,45 +1402,67 @@ def _TranscribeImage(
                             ),
                         ],
                     )
+
                 except Exception as e:
+
                     console.print(
                         f"[bold red]Error during transcription of {imagePath.name}: {e}[/bold red]"
                     )
                     raise
+
                 responses[imagePath.name] = response
+
                 # Save responses as pickle in case of error.
                 if fullResponseDir is None:
+
                     fullResponseDir = outputDir
+
                 localPickleDir = Path(fullResponseDir, "pickles")
                 localPickleDir.mkdir(parents=True, exist_ok=True)
+
                 try:
+
                     picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
+
                     with picklePath.open("wb") as file:
                         pickle.dump(responses, file)
+
                 except Exception as e:
+
                     console.print(f"[bold red]Failed to save responses: {e}[/bold red]")
                 elapsed = time.time() - startTime
+
                 if elapsed < delayBetweenCalls:
+
                     sleepTime = delayBetweenCalls - elapsed
-                    _SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                    _SleepWithProgress(progress, task, sleepTime, specificDescription)
+
             elif currentLimiterMethod == "tracking":
+
                 while (
                     GLOBAL_REQUEST_TIMES
                     and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
                 ):
+
                     GLOBAL_REQUEST_TIMES.popleft()
+
                 if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
+
                     sleepTime = RATE_LIMIT_WINDOW - (
                         currentTime - GLOBAL_REQUEST_TIMES[0]
                     )
-                    _SleepWithProgress(progress, task, sleepTime, defaultDescription)
+                    _SleepWithProgress(progress, task, sleepTime, specificDescription)
                     currentTime = time.time()
+
                     while (
                         GLOBAL_REQUEST_TIMES
                         and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
                     ):
+
                         GLOBAL_REQUEST_TIMES.popleft()
+
                 try:
+
                     client = genai.Client(api_key=apiKey)
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
@@ -1394,51 +1475,77 @@ def _TranscribeImage(
                             ),
                         ],
                     )
+
                 except Exception as e:
+
                     console.print(
                         f"[bold red]Error during transcription of {imagePath.name}: {e}[/bold red]"
                     )
                     raise
+
                 responses[imagePath.name] = response
                 GLOBAL_REQUEST_TIMES.append(time.time())
+
                 if fullResponseDir is None:
+
                     fullResponseDir = outputDir
+
                 localPickleDir = Path(fullResponseDir, "pickles")
                 localPickleDir.mkdir(parents=True, exist_ok=True)
+
                 try:
+
                     picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
+
                     with picklePath.open("wb") as file:
+
                         pickle.dump(responses, file)
+
                 except Exception as e:
                     console.print(f"[bold red]Failed to save responses: {e}[/bold red]")
+
             else:
+
                 raise ValueError(
                     "Invalid limiterMethod. Use 'fixedDelay' or 'tracking'."
                 )
-            progress.update(task, advance=1)
+
+            progress.update(task, advance=1, refresh=True)
+
             if bulkPagesTask is not None:
-                progress.update(bulkPagesTask, advance=1)
+                progress.update(bulkPagesTask, advance=1, refresh=True)
 
         # Combine responses into a single LaTeX document.
         combinedResponse = ""
+
         for idx, (imageName, response) in enumerate(responses.items()):
+
             responseText: str | list[str] | None = response.text
+
             if responseText is None:
+
                 combinedResponse += f"\n\\section{{Image {idx}: {imageName}}}\n\nError: Text content is None\n"
                 continue
+
             if isinstance(responseText, str):
                 responseText = responseText.splitlines()
+
             if responseText and responseText[0].strip().startswith("```"):
                 responseText = responseText[1:]
+
             if responseText and responseText[-1].strip() == "```":
                 responseText = responseText[:-1]
+
             combinedResponse += "\n".join(responseText) + "\n"
 
         Path(fullResponseDir, f"{outputName}.txt").write_text(combinedResponse)
+
         cleanedResponse = _CleanResponse(
             combinedResponse=combinedResponse, preamble=IMAGE_LATEX_PREAMBLE
         )
+
         Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
+
         progress.remove_task(task)
 
 
@@ -1447,6 +1554,7 @@ def TranscribeSlides(
     outputDir: Path = None,
     lectureNumPattern: str = r".*(\d+).*",
     excludeLectureNums: list[int] = [],
+    skipExisting: bool = True,
 ):
     """
     Process and transcribe slide PDFs from a directory or a list of PDF file paths.
@@ -1589,13 +1697,28 @@ def TranscribeSlides(
             fullResponseDir.joinpath("pickles").mkdir(parents=True, exist_ok=True)
             pagesDir.mkdir(parents=True, exist_ok=True)
 
+            outputName = f"{slideFile.stem}-transcribed"
+
+            outputPath = Path(baseOutputDir, outputName)
+
+            if skipExisting and outputPath.with_suffix(".tex").exists():
+
+                progress.update(
+                    task,
+                    description=f"Skipping {slideFile.name}",
+                    advance=1,
+                    refresh=True,
+                )
+
+                continue
+
             PDFToPNG(pdfPath=slideFile, pagesDir=pagesDir, progress=progress)
 
             _TranscribeSlideImages(
                 imageDir=pagesDir,
                 limiterMethod="tracking",
                 outputDir=baseOutputDir,
-                outputName=f"{slideFile.stem}-transcribed",
+                outputName=outputName,
                 fullResponseDir=fullResponseDir,
                 progress=progress,
                 bulkPagesTask=allPagesTask,
@@ -1614,6 +1737,7 @@ def TranscribeLectures(
     outputDir: Path = None,
     lectureNumPattern: str = r".*(\d+).*",
     excludeLectureNums: list[int] = [],
+    skipExisting: bool = True,
 ):
     """
     Process and transcribe lecture PDFs from a directory or a list of PDF file paths.
@@ -1759,13 +1883,28 @@ def TranscribeLectures(
             fullResponseDir.joinpath("pickles").mkdir(parents=True, exist_ok=True)
             pagesDir.mkdir(parents=True, exist_ok=True)
 
+            outputName = f"{lectureFile.stem}-transcribed"
+
+            outputPath = Path(baseOutputDir, outputName)
+
+            if skipExisting and outputPath.with_suffix(".tex").exists():
+
+                progress.update(
+                    task,
+                    description=f"Skipping {lectureFile.name}",
+                    advance=1,
+                    refresh=True,
+                )
+
+                continue
+
             PDFToPNG(pdfPath=lectureFile, pagesDir=pagesDir, progress=progress)
 
             _TranscribeSlideImages(
                 imageDir=pagesDir,
                 limiterMethod="tracking",
                 outputDir=baseOutputDir,
-                outputName=f"{lectureFile.stem}-transcribed",
+                outputName=outputName,
                 fullResponseDir=fullResponseDir,
                 progress=progress,
                 bulkPagesTask=allPagesTask,
@@ -1779,7 +1918,9 @@ def TranscribeLectures(
             )
 
 
-def TranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
+def TranscribeDocuments(
+    source: Path | list[Path], outputDir: Path = None, skipExisting: bool = True
+):
     """
     Process and transcribe document PDFs from a directory or a list of PDF file paths.
     For each PDF, create an output directory named after the PDF (with spaces replaced by hyphens)
@@ -1879,13 +2020,28 @@ def TranscribeDocuments(source: Path | list[Path], outputDir: Path = None):
             fullResponseDir.joinpath("pickles").mkdir(parents=True, exist_ok=True)
             pagesDir.mkdir(parents=True, exist_ok=True)
 
+            outputName = f"{pdfFile.stem}-transcribed"
+
+            outputPath = Path(baseOutputDir, outputName)
+
+            if skipExisting and outputPath.with_suffix(".tex").exists():
+
+                progress.update(
+                    task,
+                    description=f"Skipping {pdfFile.name}",
+                    advance=1,
+                    refresh=True,
+                )
+
+                continue
+
             PDFToPNG(pdfPath=pdfFile, pagesDir=pagesDir, progress=progress)
 
             _TranscribeDocumentImages(
                 imageDir=pagesDir,
                 limiterMethod="tracking",
                 outputDir=baseOutputDir,
-                outputName=f"{pdfFile.stem}-transcribed",
+                outputName=outputName,
                 fullResponseDir=fullResponseDir,
                 progress=progress,
                 bulkPagesTask=allPagesTask,
@@ -1901,6 +2057,7 @@ def TranscribeImages(
     outputDir: Path = None,
     filePattern: str = "*.png",
     separateOutputs: bool = True,
+    skipExisting: bool = True,
 ):
     """
     Process and transcribe image files from a directory or a list of image file paths.
@@ -1920,6 +2077,9 @@ def TranscribeImages(
     -------
     None
     """
+
+    # TODO: If a list of directories or files, make separate output dirs
+
     # Determine the list of image files and base input directory.
     if isinstance(source, Path):
 
@@ -2004,6 +2164,11 @@ def TranscribeImages(
 
     bulkOutputDir.mkdir(parents=True, exist_ok=True)
 
+    defaultDescription = "Transcribing Individual Image Files"
+
+    totalImageFiles = len(imageFiles)
+    skippedImageFiles = 0
+
     if separateOutputs:
         # Process each image file separately, each in its own subdirectory
         with Progress(
@@ -2019,25 +2184,50 @@ def TranscribeImages(
             expand=True,
             transient=True,
         ) as progress:
-            task = progress.add_task(
-                "Transcribing individual image files", total=len(imageFiles)
-            )
+
+            task = progress.add_task(defaultDescription, total=totalImageFiles)
+
             for imgPath in imageFiles:
                 # Create a subdirectory for each image output using its stem
                 outputSubDir = bulkOutputDir / imgPath.stem
                 outputSubDir.mkdir(parents=True, exist_ok=True)
+
+                outputName = f"{imgPath.stem}-transcribed"
+
+                outputPath = Path(outputSubDir, outputName)
+
+                if skipExisting and outputPath.with_suffix(".tex").exists():
+
+                    progress.update(
+                        task,
+                        description=f"Skipping {imgPath.name}",
+                        advance=1,
+                        refresh=True,
+                    )
+
+                    progress.update(
+                        task,
+                        description=defaultDescription,
+                        advance=0,
+                        refresh=True,
+                    )
+
+                    skippedImageFiles += 1
+
+                    continue
+
                 _TranscribeImage(
                     imageSource=[imgPath],
                     limiterMethod="tracking",
                     outputDir=outputSubDir,
-                    outputName=imgPath.stem + "-transcribed",
+                    outputName=outputName,
                     fullResponseDir=outputSubDir,
                     progress=progress,
                 )
                 progress.update(task, advance=1)
+
     else:
-        # Combined output: process all images together
-        numImageFiles = len(imageFiles)
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[bold blue]{task.description}", justify="left"),
@@ -2050,11 +2240,12 @@ def TranscribeImages(
             TimeRemainingColumn(),
             expand=True,
         ) as progress:
+
             task = progress.add_task(
-                "Bulk transcribing image files", total=numImageFiles
+                "Bulk transcribing image files", total=totalImageFiles
             )
             allPagesTask = progress.add_task(
-                "Transcribing image pages", total=numImageFiles
+                "Transcribing image pages", total=totalImageFiles
             )
             _TranscribeImage(
                 imageSource=imageFiles,
@@ -2065,7 +2256,19 @@ def TranscribeImages(
                 progress=progress,
                 bulkPagesTask=allPagesTask,
             )
-            progress.update(task, advance=numImageFiles)
+            progress.update(task, advance=totalImageFiles)
+
+    if skippedImageFiles > 0:
+
+        console.print(
+            f"[bold green]Transcribed [bold yellow]{totalImageFiles - skippedImageFiles}[/bold yellow] image files, Skipped [bold yellow]{skippedImageFiles}[/bold yellow] image files ([bold yellow]{totalImageFiles}[/bold yellow] total)[/bold green]"
+        )
+
+    else:
+
+        console.print(
+            f"[bold green]Transcribed [bold yellow]{totalImageFiles}[/bold yellow] image files[/bold green]"
+        )
 
 
 def FinishPickleSlides(
@@ -2226,7 +2429,7 @@ def FinishPickleImage(
 if __name__ == "__main__":
 
     a = Path(
-        "/Users/kadengruizenga/Developer/Projects/Export-Apple-Reminders/eventkit-docs/screenshots/objective-c"
+        "/Users/kadengruizenga/Developer/Projects/Export-Apple-Reminders/eventkit-docs/screenshots/swift"
     )
 
     TranscribeImages(a)
