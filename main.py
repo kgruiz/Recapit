@@ -1678,6 +1678,7 @@ def TranscribeSlides(
         TextColumn("•"),
         TimeRemainingColumn(),
         expand=True,
+        transient=True,
     ) as progress:
 
         task = progress.add_task(f"Transcribing slide files", total=numSlideFiles)
@@ -1867,6 +1868,7 @@ def TranscribeLectures(
         TextColumn("•"),
         TimeRemainingColumn(),
         expand=True,
+        transient=True,
     ) as progress:
 
         task = progress.add_task("Transcribing lecture files", total=numLectureFiles)
@@ -2007,6 +2009,7 @@ def TranscribeDocuments(
         TextColumn("•"),
         TimeRemainingColumn(),
         expand=True,
+        transient=True,
     ) as progress:
 
         task = progress.add_task("Transcribing document files", total=len(pdfFiles))
@@ -2457,10 +2460,10 @@ def FinishPickleImage(
 
 if __name__ == "__main__":
 
-    math465HW6SolPath = Path(
-        "/Users/kadengruizenga/Documents/School/W25/Math465/HW/Keys/Homework 6 Solutions.pdf"
+    math465SlidesPath = Path(
+        "/Users/kadengruizenga/Documents/School/W25/Math465/Slides"
     )
 
-    TranscribeDocuments(math465HW6SolPath)
+    TranscribeSlides(math465SlidesPath)
 
     pass
