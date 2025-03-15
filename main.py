@@ -1925,9 +1925,17 @@ def TranscribeImages(
 
         if not source.exists():
 
+            console.print(
+                f"[bold red]Directory [bold yellow]{source}[/bold yellow] does not exist.[/bold red]"
+            )
+
             raise FileNotFoundError(f"Directory {source} does not exist.")
 
         elif not source.is_dir():
+
+            console.print(
+                f"[bold red][bold yellow]{source}[/bold yellow] is not a directory.[/bold red]"
+            )
 
             raise NotADirectoryError(f"{source} is not a directory.")
 
@@ -1952,21 +1960,38 @@ def TranscribeImages(
 
         if len(nonexistant) > 0 and len(nonfiles) > 0:
 
+            console.print(
+                f"[bold red]Files do not exist: [bold yellow]{nonexistant}[/bold yellow]\nNot files: [bold yellow]{nonfiles}[/bold yellow][/bold red]"
+            )
+
             raise FileNotFoundError(
                 f"Files do not exist: {nonexistant}\nNot files: {nonfiles}"
             )
 
         elif len(nonexistant) > 0:
 
+            console.print(
+                f"[bold red]Files do not exist: [bold yellow]{nonexistant}[/bold yellow][/bold red]"
+            )
+
             raise FileNotFoundError(f"Files do not exist: {nonexistant}")
 
         elif len(nonfiles) > 0:
+
+            console.print(
+                f"[bold red]Not files: [bold yellow]{nonfiles}[/bold yellow][/bold red]"
+            )
 
             raise ValueError(f"Not files: {nonfiles}")
 
         inputDirs = [img.parent for img in imageFiles]
         inputDir = inputDirs[0]
     else:
+
+        console.print(
+            "[bold red]Parameter [bold yellow]'source'[/bold yellow] must be a [bold yellow]directory path[/bold yellow] or a [bold yellow]list of image file paths[/bold yellow].[/bold red]"
+        )
+
         raise ValueError(
             "Parameter 'source' must be a directory path or a list of image file paths."
         )
@@ -2200,7 +2225,7 @@ def FinishPickleImage(
 if __name__ == "__main__":
 
     a = Path(
-        "/Users/kadengruizenga/Developer/Projects/Export-Apple-Reminders/eventkit-docs/screenshots/objective-c"
+        "/Users/kadengruizenga/Developer/Projects/a/eventkit-docs/screenshots/objective-c"
     )
 
     TranscribeImages(a)
