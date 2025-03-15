@@ -2017,6 +2017,7 @@ def TranscribeImages(
             TextColumn("•"),
             TimeRemainingColumn(),
             expand=True,
+            transient=True,
         ) as progress:
             task = progress.add_task(
                 "Transcribing individual image files", total=len(imageFiles)
@@ -2225,7 +2226,7 @@ def FinishPickleImage(
 if __name__ == "__main__":
 
     a = Path(
-        "/Users/kadengruizenga/Developer/Projects/a/eventkit-docs/screenshots/objective-c"
+        "/Users/kadengruizenga/Developer/Projects/Export-Apple-Reminders/eventkit-docs/screenshots/objective-c"
     )
 
     TranscribeImages(a)
