@@ -1,0 +1,26 @@
+Convert the following LaTeX content into Markdown while preserving formatting, equations, and structures as closely as possible. This is not an exhaustive list of LaTeX-to-Markdown conversions—ensure all possible elements are translated appropriately.
+
+- Math:
+  - Use `$...$` for inline math and `$$...$$` for display math.
+- Headings:
+  - Convert `\section{}` into `#`, `\subsection{}` into `##`, and so on.
+- Lists:
+  - Convert `\begin{itemize}` to `-` and `\begin{enumerate}` to `1.`.
+- Text Formatting:
+  - Convert `\textbf{}` to `**bold**` and `\textit{}` to `*italic*`.
+- Tables:
+  - Convert `\begin{tabular}` into a Markdown table.
+- Code Blocks:
+  - Convert `\begin{verbatim}` into triple backticks (```).
+- Figures & TikZ:
+  - Replace `\includegraphics{}` and `\begin{tikzpicture}` with `[Placeholder: Image or Diagram]`.
+  - If `\caption{}` is present, include it inside the placeholder as text.
+- References & Citations:
+  - Convert `\cite{}` to `[citation needed]`.
+  - Convert `\ref{}` to `[see section X]`.
+- Ignore:
+  - Remove unnecessary LaTeX-specific commands that have no Markdown equivalent (e.g., `\usepackage{}`, `\newcommand{}`, etc.).
+
+Ensure that all other valid LaTeX constructs are converted appropriately, even if they are not explicitly listed above.
+
+Return only the converted Markdown without explanations or additional text.

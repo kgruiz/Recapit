@@ -51,6 +51,8 @@ from rich.text import Text
 
 # TODO: Also limit TPM and RPD
 
+# TODO: Convert functions to use code block removal function
+
 # TODO: Need to handle multiple rate limits used in a run
 
 # TODO: Except and keep going:
@@ -357,6 +359,25 @@ def _GetTotalPageCount(pdfFiles: list[Path]) -> int:
             runningTotal += len(reader.pages)
 
     return runningTotal
+
+
+def _RemoveCodeBlockSyntax(string: str | list[str]) -> str:
+
+    if not isinstance(string, (str, list)):
+
+        raise TypeError(
+            f'Parameter "string" must be a str or list[str]. Given type: "{type(string).__name__}"'
+        )
+
+    if isinstance(string, str):
+        responseText = responseText.splitlines()
+
+    if responseText[0].strip().startswith("```"):
+        responseText = responseText[1:]
+    if responseText[-1].strip() == "```":
+        responseText = responseText[:-1]
+
+    return "\n".join(responseText) + "\n"
 
 
 def PDFToPNG(pdfPath: Path, pagesDir: Path = None, progress=None):
@@ -1807,7 +1828,7 @@ def _LatexToMarkdown(
     if model not in RATE_LIMITS:
 
         raise ValueError(
-            f'Model "{model}" is not an available models:\nAvailable Models:\n{"\n".join(list(RATE_LIMITS.keys()))}'
+            f'Model "{model}" is not an available model.\nAvailable Models:\n{"\n".join(list(RATE_LIMITS.keys()))}'
         )
 
     rateLimit = RATE_LIMITS.get(model)
@@ -1827,7 +1848,7 @@ def _LatexToMarkdown(
     if apiKey is None:
         raise ValueError("GEMINI_API_KEY environment variable not set")
 
-    defaultDescription = "Converting LaTeX Files to Markdown"
+    defaultDescription = "Converting LaTeX File to Markdown"
 
     currentLimiterMethod = limiterMethod
 
@@ -1863,7 +1884,7 @@ def _LatexToMarkdown(
 
         task = progress.add_task(defaultDescription, total=1)
 
-        specificDescription = f"Transcribing {latexSource.name}"
+        specificDescription = f"Converting {latexSource.name}"
 
         progress.update(
             task,
@@ -1880,13 +1901,21 @@ def _LatexToMarkdown(
 
             try:
 
-                client = genai.Client(api_key=apiKey)
-                response = client.models.generate_content(
-                    model=model,
-                    contents=[
-                        (f"{LATEX_TO_MARKDOWN_PROMPT}"),
-                    ],
-                )
+                latexContent = latexSource.read_text()
+
+                if latexContent == "":
+
+                    response = ""
+
+                else:
+
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model=model,
+                        contents=[
+                            f"Instructions:\n{LATEX_TO_MARKDOWN_PROMPT}\n\nLaTeX:\n{latexContent}",
+                        ],
+                    )
 
             except Exception as e:
 
@@ -1946,13 +1975,21 @@ def _LatexToMarkdown(
 
             try:
 
-                client = genai.Client(api_key=apiKey)
-                response = client.models.generate_content(
-                    model=model,
-                    contents=[
-                        (f"{LATEX_TO_MARKDOWN_PROMPT}"),
-                    ],
-                )
+                latexContent = latexSource.read_text()
+
+                if latexContent == "":
+
+                    response = ""
+
+                else:
+
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model=model,
+                        contents=[
+                            f"Instructions:\n{LATEX_TO_MARKDOWN_PROMPT}\n\nLaTeX:\n{latexContent}",
+                        ],
+                    )
 
             except Exception as e:
 
@@ -1994,7 +2031,11 @@ def _LatexToMarkdown(
 
             raise ValueError(f"Response is {response}")
 
-        outputPath.write_text(response.text)
+        responseText = response.text
+
+        responseText = _RemoveCodeBlockSyntax(responseText)
+
+        outputPath.write_text(responseText)
 
         progress.remove_task(task)
 
@@ -2100,16 +2141,22 @@ def LatexToMarkdown(
 
     # Determine the output directory.
     if outputDir is None:
-        bulkOutputDir = Path(inputDir, "converted-latexs")
+        bulkOutputDir = Path(inputDir, "converted-latex")
     else:
         bulkOutputDir = outputDir
 
     bulkOutputDir.mkdir(parents=True, exist_ok=True)
 
-    defaultDescription = "Transcribing Individual Latex Files"
-
     totalLatexFiles = len(latexFiles)
     skippedLatexFiles = 0
+
+    if totalLatexFiles > 1:
+
+        defaultDescription = "Converting Latex Files to Markdown"
+
+    else:
+
+        defaultDescription = "Converting Latex File to Markdown"
 
     with Progress(
         SpinnerColumn(),
