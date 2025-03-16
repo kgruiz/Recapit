@@ -65,6 +65,120 @@ from rich.text import Text
 # google.genai.errors.ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'The service is currently unavailable.', 'status': 'UNAVAILABLE'}}
 # (basic) 11:41:25 ~/Developer/Projects/LectureSummarizer %
 
+# TODO: Same as above, except and keep going:
+# ⠧ Transcribing 465 Lecture 1.pdf               0% ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  0/16   • 0:00:38 • -:--:--
+# ⠧ Transcribing slides from 465 Lecture 1.pdf   5% ━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  14/272 • 0:00:38 • 0:11:13
+# Traceback (most recent call last):
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 787, in urlopen
+#     response = self._make_request(
+#                ^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 488, in _make_request
+#     raise new_e
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 464, in _make_request
+#     self._validate_conn(conn)
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 1093, in _validate_conn
+#     conn.connect()
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connection.py", line 741, in connect
+#     sock_and_verified = _ssl_wrap_socket_and_match_hostname(
+#                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connection.py", line 920, in _ssl_wrap_socket_and_match_hostname
+#     ssl_sock = ssl_wrap_socket(
+#                ^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/util/ssl_.py", line 460, in ssl_wrap_socket
+#     ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
+#                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/util/ssl_.py", line 504, in _ssl_wrap_socket_impl
+#     return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
+#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/ssl.py", line 455, in wrap_socket
+#     return self.sslsocket_class._create(
+#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/ssl.py", line 1042, in _create
+#     self.do_handshake()
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/ssl.py", line 1320, in do_handshake
+#     self._sslobj.do_handshake()
+# ConnectionResetError: [Errno 54] Connection reset by peer
+
+# During handling of the above exception, another exception occurred:
+
+# Traceback (most recent call last):
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/requests/adapters.py", line 667, in send
+#     resp = conn.urlopen(
+#            ^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 841, in urlopen
+#     retries = retries.increment(
+#               ^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/util/retry.py", line 474, in increment
+#     raise reraise(type(error), error, _stacktrace)
+#           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/util/util.py", line 38, in reraise
+#     raise value.with_traceback(tb)
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 787, in urlopen
+#     response = self._make_request(
+#                ^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 488, in _make_request
+#     raise new_e
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 464, in _make_request
+#     self._validate_conn(conn)
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 1093, in _validate_conn
+#     conn.connect()
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connection.py", line 741, in connect
+#     sock_and_verified = _ssl_wrap_socket_and_match_hostname(
+#                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connection.py", line 920, in _ssl_wrap_socket_and_match_hostname
+#     ssl_sock = ssl_wrap_socket(
+#                ^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/util/ssl_.py", line 460, in ssl_wrap_socket
+#     ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
+#                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/util/ssl_.py", line 504, in _ssl_wrap_socket_impl
+#     return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
+#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/ssl.py", line 455, in wrap_socket
+#     return self.sslsocket_class._create(
+#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/ssl.py", line 1042, in _create
+#     self.do_handshake()
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/ssl.py", line 1320, in do_handshake
+#     self._sslobj.do_handshake()
+# urllib3.exceptions.ProtocolError: ('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))
+
+# During handling of the above exception, another exception occurred:
+
+# Traceback (most recent call last):
+#   File "/Users/kadengruizenga/Developer/Projects/LectureSummarizer/main.py", line 2467, in <module>
+#     TranscribeSlides(math465SlidesPath)
+#   File "/Users/kadengruizenga/Developer/Projects/LectureSummarizer/main.py", line 1722, in TranscribeSlides
+#     _TranscribeSlideImages(
+#   File "/Users/kadengruizenga/Developer/Projects/LectureSummarizer/main.py", line 870, in _TranscribeSlideImages
+#     response = client.models.generate_content(
+#                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/models.py", line 4410, in generate_content
+#     response = self._generate_content(
+#                ^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/models.py", line 3669, in _generate_content
+#     response_dict = self.api_client.request(
+#                     ^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/_api_client.py", line 374, in request
+#     response = self._request(http_request, stream=False)
+#                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/_api_client.py", line 309, in _request
+#     return self._request_unauthorized(http_request, stream)
+#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/_api_client.py", line 324, in _request_unauthorized
+#     response = http_session.request(
+#                ^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/requests/sessions.py", line 589, in request
+#     resp = self.send(prep, **send_kwargs)
+#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/requests/sessions.py", line 703, in send
+#     r = adapter.send(request, **kwargs)
+#         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/requests/adapters.py", line 682, in send
+#     raise ConnectionError(err, request=request)
+# requests.exceptions.ConnectionError: ('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))
+# (basic) 19:36:57 ~/Developer/Projects/LectureSummarizer %
+
 
 console = Console()
 
@@ -694,7 +808,7 @@ def _TranscribeSlideImages(
         progress.remove_task(task)
 
 
-def _TranscribeSlideImages(
+def _TranscribeLectureImages(
     imageDir: Path,
     limiterMethod: str = "tracking",
     outputDir: Path = OUTPUT_DIR,
@@ -1909,7 +2023,7 @@ def TranscribeLectures(
 
             PDFToPNG(pdfPath=lectureFile, pagesDir=pagesDir, progress=progress)
 
-            _TranscribeSlideImages(
+            _TranscribeLectureImages(
                 imageDir=pagesDir,
                 limiterMethod="tracking",
                 outputDir=baseOutputDir,
