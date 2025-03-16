@@ -34,6 +34,24 @@ from rich.text import Text
 # TODO: If a rate limit error is raised, keep going after waiting.
 # TODO: Add other slide formats (German 322)
 # TODO: Change default output dir for transribe image functions to be a new directory in same parent dir as input images
+# TODO: Add different models and auto change rate limit
+# TODO: Include function in console error message
+# TODO: Add config for models? Ex:
+# config=types.GenerateContentConfig(
+#         temperature=0.7,
+#         max_output_tokens=150
+# )
+
+
+# TODO: Add model param to all "_" functions
+
+# TODO: Always ensure models arent deprectaed
+
+# TODO: Verify type and value of all params, especially limiter type
+
+# TODO: Also limit TPM and RPD
+
+# TODO: Need to handle multiple rate limits used in a run
 
 # TODO: Except and keep going:
 # ⠼ Transcribing individual image files  93% ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╸━━━━━━━ 25/27 • 0:03:06 • 0:00:26
@@ -228,16 +246,27 @@ console = Console()
 # Global deque to track request times across instances
 GLOBAL_REQUEST_TIMES = deque()
 
-# Define rate limit
+# Define models
+GEMINI_2_FLASH = "gemini-2.0-flash"
+GEMINI_2_FLASH_THINKING_EXPERIMENTAL = "gemini-2.0-flash-thinking-exp"
+
+# Define rate limits
+RATE_LIMITS = {GEMINI_2_FLASH: 15, GEMINI_2_FLASH_THINKING_EXPERIMENTAL: 10}
+RATE_LIMIT_WINDOW_SEC = 60
+
+# TODO: Deprecated
 RATE_LIMIT_PER_MINUTE = 15
-RATE_LIMIT_WINDOW = 60
+
+MAX_USED_RATE_LIMIT = None
+
+AVAILABLE_MODELS = [GEMINI_2_FLASH, GEMINI_2_FLASH_THINKING_EXPERIMENTAL]
 
 OUTPUT_DIR = Path("output")
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Load latex preambles
-SLIDE_LATEX_PREAMBLE_PATH = Path("utils", "slide-template.txt")
+SLIDE_LATEX_PREAMBLE_PATH = Path("templates", "slide-template.txt")
 
 if not SLIDE_LATEX_PREAMBLE_PATH.exists():
 
@@ -247,7 +276,7 @@ if not SLIDE_LATEX_PREAMBLE_PATH.exists():
 
 SLIDE_LATEX_PREAMBLE = SLIDE_LATEX_PREAMBLE_PATH.read_text()
 
-LECTURE_LATEX_PREAMBLE_PATH = Path("utils", "lecture-template.txt")
+LECTURE_LATEX_PREAMBLE_PATH = Path("templates", "lecture-template.txt")
 
 if not LECTURE_LATEX_PREAMBLE_PATH.exists():
 
@@ -257,7 +286,7 @@ if not LECTURE_LATEX_PREAMBLE_PATH.exists():
 
 LECTURE_LATEX_PREAMBLE = LECTURE_LATEX_PREAMBLE_PATH.read_text()
 
-DOCUMENT_LATEX_PREAMBLE_PATH = Path("utils", "document-template.txt")
+DOCUMENT_LATEX_PREAMBLE_PATH = Path("templates", "document-template.txt")
 
 if not DOCUMENT_LATEX_PREAMBLE_PATH.exists():
 
@@ -267,7 +296,7 @@ if not DOCUMENT_LATEX_PREAMBLE_PATH.exists():
 
 DOCUMENT_LATEX_PREAMBLE = DOCUMENT_LATEX_PREAMBLE_PATH.read_text()
 
-IMAGE_LATEX_PREAMBLE_PATH = Path("utils", "image-template.txt")
+IMAGE_LATEX_PREAMBLE_PATH = Path("templates", "image-template.txt")
 
 if not IMAGE_LATEX_PREAMBLE_PATH.exists():
 
@@ -276,6 +305,16 @@ if not IMAGE_LATEX_PREAMBLE_PATH.exists():
     )
 
 IMAGE_LATEX_PREAMBLE = IMAGE_LATEX_PREAMBLE_PATH.read_text()
+
+LATEX_TO_MARKDOWN_PROMPT_PATH = Path("templates", "latex-to-md-template.txt")
+
+if not LATEX_TO_MARKDOWN_PROMPT_PATH.exists():
+
+    raise FileNotFoundError(
+        f"Latex to Markdown prompt file {LATEX_TO_MARKDOWN_PROMPT_PATH} not found"
+    )
+
+LATEX_TO_MARKDOWN_PROMPT = LATEX_TO_MARKDOWN_PROMPT_PATH.read_text()
 
 # Common slide dirs and patterns
 MATH_465_SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math465/Slides")
@@ -708,13 +747,13 @@ def _TranscribeSlideImages(
 
                 while (
                     GLOBAL_REQUEST_TIMES
-                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW_SEC
                 ):
                     GLOBAL_REQUEST_TIMES.popleft()
 
                 if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
 
-                    sleepTime = RATE_LIMIT_WINDOW - (
+                    sleepTime = RATE_LIMIT_WINDOW_SEC - (
                         currentTime - GLOBAL_REQUEST_TIMES[0]
                     )
 
@@ -723,7 +762,8 @@ def _TranscribeSlideImages(
 
                     while (
                         GLOBAL_REQUEST_TIMES
-                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                        and currentTime - GLOBAL_REQUEST_TIMES[0]
+                        >= RATE_LIMIT_WINDOW_SEC
                     ):
                         GLOBAL_REQUEST_TIMES.popleft()
 
@@ -1002,13 +1042,13 @@ def _TranscribeLectureImages(
 
                 while (
                     GLOBAL_REQUEST_TIMES
-                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW_SEC
                 ):
                     GLOBAL_REQUEST_TIMES.popleft()
 
                 if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
 
-                    sleepTime = RATE_LIMIT_WINDOW - (
+                    sleepTime = RATE_LIMIT_WINDOW_SEC - (
                         currentTime - GLOBAL_REQUEST_TIMES[0]
                     )
 
@@ -1017,7 +1057,8 @@ def _TranscribeLectureImages(
 
                     while (
                         GLOBAL_REQUEST_TIMES
-                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                        and currentTime - GLOBAL_REQUEST_TIMES[0]
+                        >= RATE_LIMIT_WINDOW_SEC
                     ):
                         GLOBAL_REQUEST_TIMES.popleft()
 
@@ -1295,13 +1336,13 @@ def _TranscribeDocumentImages(
 
                 while (
                     GLOBAL_REQUEST_TIMES
-                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW_SEC
                 ):
                     GLOBAL_REQUEST_TIMES.popleft()
 
                 if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
 
-                    sleepTime = RATE_LIMIT_WINDOW - (
+                    sleepTime = RATE_LIMIT_WINDOW_SEC - (
                         currentTime - GLOBAL_REQUEST_TIMES[0]
                     )
 
@@ -1310,7 +1351,8 @@ def _TranscribeDocumentImages(
 
                     while (
                         GLOBAL_REQUEST_TIMES
-                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                        and currentTime - GLOBAL_REQUEST_TIMES[0]
+                        >= RATE_LIMIT_WINDOW_SEC
                     ):
                         GLOBAL_REQUEST_TIMES.popleft()
 
@@ -1598,14 +1640,14 @@ def _TranscribeImage(
 
                 while (
                     GLOBAL_REQUEST_TIMES
-                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW_SEC
                 ):
 
                     GLOBAL_REQUEST_TIMES.popleft()
 
                 if len(GLOBAL_REQUEST_TIMES) >= RATE_LIMIT_PER_MINUTE:
 
-                    sleepTime = RATE_LIMIT_WINDOW - (
+                    sleepTime = RATE_LIMIT_WINDOW_SEC - (
                         currentTime - GLOBAL_REQUEST_TIMES[0]
                     )
                     _SleepWithProgress(progress, task, sleepTime, specificDescription)
@@ -1613,7 +1655,8 @@ def _TranscribeImage(
 
                     while (
                         GLOBAL_REQUEST_TIMES
-                        and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW
+                        and currentTime - GLOBAL_REQUEST_TIMES[0]
+                        >= RATE_LIMIT_WINDOW_SEC
                     ):
 
                         GLOBAL_REQUEST_TIMES.popleft()
@@ -1704,6 +1747,436 @@ def _TranscribeImage(
         Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
         progress.remove_task(task)
+
+
+def _LatexToMarkdown(
+    latexSource: Path,
+    limiterMethod: str = "tracking",
+    outputDir: Path = OUTPUT_DIR,
+    outputName: str | None = None,
+    fullResponseDir: Path = None,
+    progress=None,
+    bulkConversionTask=None,
+    model: str = GEMINI_2_FLASH_THINKING_EXPERIMENTAL,
+):
+    """
+    Transcribe a LaTeX file to Markdown using the API.
+    """
+
+    # Determine list of latex files.
+    if isinstance(latexSource, Path):
+
+        pass
+
+    elif isinstance(latexSource, str):
+
+        latexSource = Path(latexSource)
+
+    else:
+
+        raise ValueError(
+            f'Parameter "latexSource" must be a str or a path to a .tex file.\nGiven latexSource: "{latexSource}"'
+        )
+
+    if latexSource.is_file() and latexSource.suffix == ".tex":
+
+        pass
+
+    elif latexSource.is_dir():
+
+        raise ValueError(
+            f'Parameter "latexSource" must be a .tex file, not a directory.\nGiven directory: "{latexSource}"'
+        )
+
+    elif latexSource.suffix != ".tex":
+
+        raise ValueError(
+            f'Parameter "latexSource" must have a .tex extension.\nGiven file: "{latexSource}"\nGiven Extension: "{latexSource.suffix}"'
+        )
+
+    if not latexSource.exists():
+
+        raise FileNotFoundError(f'Given "latexSource" file "{latexSource}" not found.')
+
+    if not isinstance(model, str):
+
+        raise TypeError(
+            f'Parameter "model" must be a string. Given type: "{type(model).__name__}"'
+        )
+
+    if model not in RATE_LIMITS:
+
+        raise ValueError(
+            f'Model "{model}" is not an available models:\nAvailable Models:\n{"\n".join(list(RATE_LIMITS.keys()))}'
+        )
+
+    rateLimit = RATE_LIMITS.get(model)
+
+    if outputName is None:
+
+        outputName = latexSource.stem
+
+    # Ensure outputName has an extension
+    if not Path(outputName).suffix:
+        outputName += ".md"
+
+    outputPath = Path(outputDir, outputName)
+
+    apiKey = os.getenv("GEMINI_API_KEY")
+
+    if apiKey is None:
+        raise ValueError("GEMINI_API_KEY environment variable not set")
+
+    defaultDescription = "Converting LaTeX Files to Markdown"
+
+    currentLimiterMethod = limiterMethod
+
+    # Kept to align with other functions, might remove
+    if 1 < rateLimit:
+        currentLimiterMethod = "fixedDelay"
+
+    delayBetweenCalls = 60 / rateLimit
+    runID = time.time()
+
+    response = None
+
+    if progress is None:
+
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}", justify="left"),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            BarColumn(bar_width=None),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            TextColumn("•"),
+            TimeRemainingColumn(),
+            expand=True,
+        )
+
+    elif not isinstance(progress, Progress):
+
+        raise ValueError("progress must be a rich.progress.Progress instance")
+
+    with progress:
+
+        task = progress.add_task(defaultDescription, total=1)
+
+        specificDescription = f"Transcribing {latexSource.name}"
+
+        progress.update(
+            task,
+            description=specificDescription,
+            advance=0,
+            refresh=True,
+        )
+
+        currentTime = time.time()
+
+        if currentLimiterMethod == "fixedDelay":
+
+            startTime = currentTime
+
+            try:
+
+                client = genai.Client(api_key=apiKey)
+                response = client.models.generate_content(
+                    model=model,
+                    contents=[
+                        (f"{LATEX_TO_MARKDOWN_PROMPT}"),
+                    ],
+                )
+
+            except Exception as e:
+
+                console.print(
+                    f"[bold red]Error during LaTeX to Markdown conversion of {latexSource.name}: {e}[/bold red]"
+                )
+                raise
+
+            # Save responses as pickle in case of error.
+            if fullResponseDir is None:
+
+                fullResponseDir = outputDir
+
+            localPickleDir = Path(fullResponseDir, "pickles")
+            localPickleDir.mkdir(parents=True, exist_ok=True)
+
+            try:
+
+                picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
+
+                with picklePath.open("wb") as file:
+                    pickle.dump(response, file)
+
+            except Exception as e:
+
+                console.print(f"[bold red]Failed to save response: {e}[/bold red]")
+            elapsed = time.time() - startTime
+
+            if elapsed < delayBetweenCalls:
+
+                sleepTime = delayBetweenCalls - elapsed
+                _SleepWithProgress(progress, task, sleepTime, specificDescription)
+
+        elif currentLimiterMethod == "tracking":
+
+            while (
+                GLOBAL_REQUEST_TIMES
+                and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW_SEC
+            ):
+
+                GLOBAL_REQUEST_TIMES.popleft()
+
+            if len(GLOBAL_REQUEST_TIMES) >= rateLimit:
+
+                sleepTime = RATE_LIMIT_WINDOW_SEC - (
+                    currentTime - GLOBAL_REQUEST_TIMES[0]
+                )
+                _SleepWithProgress(progress, task, sleepTime, specificDescription)
+                currentTime = time.time()
+
+                while (
+                    GLOBAL_REQUEST_TIMES
+                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW_SEC
+                ):
+
+                    GLOBAL_REQUEST_TIMES.popleft()
+
+            try:
+
+                client = genai.Client(api_key=apiKey)
+                response = client.models.generate_content(
+                    model=model,
+                    contents=[
+                        (f"{LATEX_TO_MARKDOWN_PROMPT}"),
+                    ],
+                )
+
+            except Exception as e:
+
+                console.print(
+                    f"[bold red]Error during LaTeX to Markdown transcription of {latexSource.name}: {e}[/bold red]"
+                )
+                raise
+
+            GLOBAL_REQUEST_TIMES.append(time.time())
+
+            if fullResponseDir is None:
+
+                fullResponseDir = outputDir
+
+            localPickleDir = Path(fullResponseDir, "pickles")
+            localPickleDir.mkdir(parents=True, exist_ok=True)
+
+            try:
+
+                picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
+
+                with picklePath.open("wb") as file:
+
+                    pickle.dump(response, file)
+
+            except Exception as e:
+                console.print(f"[bold red]Failed to save response: {e}[/bold red]")
+
+        else:
+
+            raise ValueError("Invalid limiterMethod. Use 'fixedDelay' or 'tracking'.")
+
+        progress.update(task, advance=1, refresh=True)
+
+        if bulkConversionTask is not None:
+            progress.update(bulkConversionTask, advance=1, refresh=True)
+
+        if response is None:
+
+            raise ValueError(f"Response is {response}")
+
+        outputPath.write_text(response.text)
+
+        progress.remove_task(task)
+
+
+def LatexToMarkdown(
+    source: Path | list[Path] | str | list[str],
+    outputDir: Path = None,
+    filePattern: str = "*.tex",
+    skipExisting: bool = True,
+):
+
+    # Convert string input(s) to Path(s) if needed.
+    if isinstance(source, str):
+        source = Path(source)
+    elif isinstance(source, list):
+        source_converted = []
+        for item in source:
+            if isinstance(item, str):
+                source_converted.append(Path(item))
+            elif isinstance(item, Path):
+                source_converted.append(item)
+            else:
+                raise ValueError("List items must be strings or Path objects.")
+        source = source_converted
+
+    # Determine the list of latex files and base input directory.
+    if isinstance(source, Path):
+
+        if not source.exists():
+
+            console.print(
+                f"[bold red]Path [bold yellow]{source}[/bold yellow] does not exist.[/bold red]"
+            )
+
+            raise FileNotFoundError(f"Path {source} does not exist.")
+
+        if source.is_file():
+
+            latexFiles = [source]
+            inputDir = source.parent
+
+        # source is a directory
+        else:
+
+            latexFiles = natsorted(list(source.glob(filePattern)))
+            inputDir = source
+
+    elif isinstance(source, list):
+
+        latexFiles = source
+
+        nonexistant = list()
+        nonfiles = list()
+
+        for entry in latexFiles:
+
+            if not entry.exists():
+
+                nonexistant.append(entry)
+
+            elif not entry.is_file():
+
+                nonfiles.append(entry)
+
+        if len(nonexistant) > 0 and len(nonfiles) > 0:
+
+            console.print(
+                f"[bold red]Files do not exist: [bold yellow]{nonexistant}[/bold yellow]\nNot files: [bold yellow]{nonfiles}[/bold yellow][/bold red]"
+            )
+
+            raise FileNotFoundError(
+                f"Files do not exist: {nonexistant}\nNot files: {nonfiles}"
+            )
+
+        elif len(nonexistant) > 0:
+
+            console.print(
+                f"[bold red]Files do not exist: [bold yellow]{nonexistant}[/bold yellow][/bold red]"
+            )
+
+            raise FileNotFoundError(f"Files do not exist: {nonexistant}")
+
+        elif len(nonfiles) > 0:
+
+            console.print(
+                f"[bold red]Not files: [bold yellow]{nonfiles}[/bold yellow][/bold red]"
+            )
+
+            raise ValueError(f"Not files: {nonfiles}")
+
+        inputDirs = [file.parent for file in latexFiles]
+        inputDir = inputDirs[0]
+
+    else:
+
+        console.print(
+            "[bold red]Parameter [bold yellow]'source'[/bold yellow] must be a [bold yellow]directory path[/bold yellow] or a [bold yellow]list of latex file paths[/bold yellow].[/bold red]"
+        )
+
+        raise ValueError(
+            "Parameter 'source' must be a directory path or a list of latex file paths."
+        )
+
+    # Determine the output directory.
+    if outputDir is None:
+        bulkOutputDir = Path(inputDir, "converted-latexs")
+    else:
+        bulkOutputDir = outputDir
+
+    bulkOutputDir.mkdir(parents=True, exist_ok=True)
+
+    defaultDescription = "Transcribing Individual Latex Files"
+
+    totalLatexFiles = len(latexFiles)
+    skippedLatexFiles = 0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}", justify="left"),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        BarColumn(bar_width=None),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        expand=True,
+        transient=True,
+    ) as progress:
+
+        task = progress.add_task(defaultDescription, total=totalLatexFiles)
+
+        for latexPath in latexFiles:
+            # Create a subdirectory for each latex output using its stem
+            outputSubDir = bulkOutputDir / latexPath.stem
+            outputSubDir.mkdir(parents=True, exist_ok=True)
+
+            outputName = f"{latexPath.stem}"
+
+            outputPath = Path(outputSubDir, f"{outputName}.md")
+
+            if skipExisting and outputPath.exists():
+
+                progress.update(
+                    task,
+                    description=f"Skipping {latexPath.name}",
+                    advance=1,
+                    refresh=True,
+                )
+
+                progress.update(
+                    task,
+                    description=defaultDescription,
+                    advance=0,
+                    refresh=True,
+                )
+
+                skippedLatexFiles += 1
+
+                continue
+
+            _LatexToMarkdown(
+                latexSource=latexPath,
+                limiterMethod="tracking",
+                outputDir=outputSubDir,
+                outputName=outputName,
+                fullResponseDir=outputSubDir,
+                progress=progress,
+            )
+            progress.update(task, advance=1)
+
+    if skippedLatexFiles > 0:
+
+        console.print(
+            f"[bold green]Converted [bold yellow]{totalLatexFiles - skippedLatexFiles}[/bold yellow] latex files, Skipped [bold yellow]{skippedLatexFiles}[/bold yellow] latex files ([bold yellow]{totalLatexFiles}[/bold yellow] total)[/bold green]"
+        )
+
+    else:
+
+        console.print(
+            f"[bold green]Converted [bold yellow]{totalLatexFiles}[/bold yellow] LaTeX files to Markdown[/bold green]"
+        )
 
 
 def TranscribeSlides(
