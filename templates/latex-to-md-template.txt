@@ -15,6 +15,8 @@ Convert the following LaTeX content into Markdown while preserving formatting, e
 - Figures & TikZ:
   - Replace `\includegraphics{}` and `\begin{tikzpicture}` with `[Placeholder: Image or Diagram]`.
   - If `\caption{}` is present, include it inside the placeholder as text.
+  - If no caption or description is available, make a best guess based on the file path or filename.
+    - If a guess is provided, begin with `POSSIBLY:` or `GUESS:`.
 - References & Citations:
   - Convert `\cite{}` to `[citation needed]`.
   - Convert `\ref{}` to `[see section X]`.

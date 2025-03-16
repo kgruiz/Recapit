@@ -369,22 +369,33 @@ def _RemoveCodeBlockSyntax(string: str | list[str]) -> str:
             f'Parameter "string" must be a str or list[str]. Given type: "{type(string).__name__}"'
         )
 
-    if isinstance(string, str):
-        responseText = responseText.splitlines()
+    if isinstance(string, list):
 
-    # if responseText[0].strip().startswith("```"):
-    #     responseText = responseText[1:]
-    # if responseText[-1].strip() == "```":
-    #     responseText = responseText[:-1]
+        string = "\n".join(string) + "\n"
+        string = string.strip()
+
+    else:
+
+        string = string.strip()
+
+    if isinstance(string, str):
+
+        string = string.splitlines()
+
+    # if string[0].strip().startswith("```"):
+    #     string = string[1:]
+    # if string[-1].strip() == "```":
+    #     string = string[:-1]
 
     # Strip code block markers only if both the first and last lines are "```",
     # ensuring the entire document is wrapped while preserving any internal code blocks
     # that should remain intact.
-    if responseText[0].strip().startswith("```") and responseText[-1].strip() == "```":
 
-        responseText[1:-1]
+    if string[0].strip().startswith("```") and string[-1].strip() == "```":
 
-    return "\n".join(responseText) + "\n"
+        string = string[1:-1]
+
+    return "\n".join(string) + "\n"
 
 
 def PDFToPNG(pdfPath: Path, pagesDir: Path = None, progress=None):
@@ -2052,21 +2063,36 @@ def LatexToMarkdown(
     outputDir: Path = None,
     filePattern: str = "*.tex",
     skipExisting: bool = True,
+    model: str = GEMINI_2_FLASH_THINKING_EXPERIMENTAL,
 ):
+
+    # TODO: Get thinking working. Response is blank currently.
+
+    if not isinstance(model, str):
+
+        raise TypeError(
+            f'Parameter "model" must be a string. Given type: "{type(model).__name__}"'
+        )
+
+    if model not in RATE_LIMITS:
+
+        raise ValueError(
+            f'Model "{model}" is not an available model.\nAvailable Models:\n{"\n".join(list(RATE_LIMITS.keys()))}'
+        )
 
     # Convert string input(s) to Path(s) if needed.
     if isinstance(source, str):
         source = Path(source)
     elif isinstance(source, list):
-        source_converted = []
+        sourceConverted = []
         for item in source:
             if isinstance(item, str):
-                source_converted.append(Path(item))
+                sourceConverted.append(Path(item))
             elif isinstance(item, Path):
-                source_converted.append(item)
+                sourceConverted.append(item)
             else:
                 raise ValueError("List items must be strings or Path objects.")
-        source = source_converted
+        source = sourceConverted
 
     # Determine the list of latex files and base input directory.
     if isinstance(source, Path):
@@ -2266,15 +2292,15 @@ def TranscribeSlides(
     if isinstance(source, str):
         source = Path(source)
     elif isinstance(source, list):
-        source_converted = []
+        sourceConverted = []
         for item in source:
             if isinstance(item, str):
-                source_converted.append(Path(item))
+                sourceConverted.append(Path(item))
             elif isinstance(item, Path):
-                source_converted.append(item)
+                sourceConverted.append(item)
             else:
                 raise ValueError("List items must be strings or Path objects.")
-        source = source_converted
+        source = sourceConverted
 
     if isinstance(source, Path):
         if not source.exists():
@@ -2454,15 +2480,15 @@ def TranscribeLectures(
     if isinstance(source, str):
         source = Path(source)
     elif isinstance(source, list):
-        source_converted = []
+        sourceConverted = []
         for item in source:
             if isinstance(item, str):
-                source_converted.append(Path(item))
+                sourceConverted.append(Path(item))
             elif isinstance(item, Path):
-                source_converted.append(item)
+                sourceConverted.append(item)
             else:
                 raise ValueError("List items must be strings or Path objects.")
-        source = source_converted
+        source = sourceConverted
 
     if isinstance(source, Path):
         if not source.exists():
@@ -2639,15 +2665,15 @@ def TranscribeDocuments(
     if isinstance(source, str):
         source = Path(source)
     elif isinstance(source, list):
-        source_converted = []
+        sourceConverted = []
         for item in source:
             if isinstance(item, str):
-                source_converted.append(Path(item))
+                sourceConverted.append(Path(item))
             elif isinstance(item, Path):
-                source_converted.append(item)
+                sourceConverted.append(item)
             else:
                 raise ValueError("List items must be strings or Path objects.")
-        source = source_converted
+        source = sourceConverted
 
     if isinstance(source, Path):
         if not source.exists():
@@ -2785,15 +2811,15 @@ def TranscribeImages(
     if isinstance(source, str):
         source = Path(source)
     elif isinstance(source, list):
-        source_converted = []
+        sourceConverted = []
         for item in source:
             if isinstance(item, str):
-                source_converted.append(Path(item))
+                sourceConverted.append(Path(item))
             elif isinstance(item, Path):
-                source_converted.append(item)
+                sourceConverted.append(item)
             else:
                 raise ValueError("List items must be strings or Path objects.")
-        source = source_converted
+        source = sourceConverted
 
     # Determine the list of image files and base input directory.
     if isinstance(source, Path):
@@ -3118,10 +3144,12 @@ def FinishPickleImage(
     -------
     None
     """
+
     with picklePath.open("rb") as file:
         responses = pickle.load(file)
 
     combinedResponse = ""
+
     for idx, (imageName, response) in enumerate(responses.items()):
         responseText: str | list[str] | None = response.text
         if responseText is None:
@@ -3142,12 +3170,56 @@ def FinishPickleImage(
     Path(outputDir, f"{outputName}.tex").write_text(cleanedResponse)
 
 
+def FinishPickleLatexToMarkdown(
+    picklePath: Path,
+    outputDir: Path,
+    outputName: str,
+):
+
+    if not isinstance(picklePath, Path):
+        raise TypeError(
+            f'Parameter "picklePath" must be a Path. Given type: "{type(picklePath).__name__}"'
+        )
+
+    if not isinstance(outputDir, Path):
+        raise TypeError(
+            f'Parameter "outputDir" must be a Path. Given type: "{type(outputDir).__name__}"'
+        )
+
+    if not isinstance(outputName, str):
+        raise TypeError(
+            f'Parameter "outputName" must be a str. Given type: "{type(outputName).__name__}"'
+        )
+
+    with picklePath.open("rb") as file:
+
+        response = pickle.load(file)
+
+    # Ensure outputName has an extension
+    if not Path(outputName).suffix:
+        outputName += ".md"
+
+    outputPath = Path(outputDir, outputName)
+
+    if response is None:
+
+        raise ValueError(f"Response is {response}")
+
+    print(f"{response=}")
+
+    responseText = response.text
+
+    responseText = _RemoveCodeBlockSyntax(responseText)
+
+    outputPath.write_text(responseText)
+
+
 if __name__ == "__main__":
 
-    math465SlidesPath = Path(
-        "/Users/kadengruizenga/Documents/School/W25/Math465/Slides"
+    math465LectureLatexDir = Path(
+        "/Users/kadengruizenga/Documents/School/W25/Math465/Summaries/Lectures/Transcribed"
     )
 
-    TranscribeSlides(math465SlidesPath)
+    LatexToMarkdown(math465LectureLatexDir, model=GEMINI_2_FLASH)
 
     pass
