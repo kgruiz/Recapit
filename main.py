@@ -372,10 +372,17 @@ def _RemoveCodeBlockSyntax(string: str | list[str]) -> str:
     if isinstance(string, str):
         responseText = responseText.splitlines()
 
-    if responseText[0].strip().startswith("```"):
-        responseText = responseText[1:]
-    if responseText[-1].strip() == "```":
-        responseText = responseText[:-1]
+    # if responseText[0].strip().startswith("```"):
+    #     responseText = responseText[1:]
+    # if responseText[-1].strip() == "```":
+    #     responseText = responseText[:-1]
+
+    # Strip code block markers only if both the first and last lines are "```",
+    # ensuring the entire document is wrapped while preserving any internal code blocks
+    # that should remain intact.
+    if responseText[0].strip().startswith("```") and responseText[-1].strip() == "```":
+
+        responseText[1:-1]
 
     return "\n".join(responseText) + "\n"
 
