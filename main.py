@@ -8,6 +8,7 @@ from collections import OrderedDict, deque
 from pathlib import Path
 
 import PIL.Image
+import pillow_avif
 from google import genai
 from google.genai import types
 from natsort import natsorted
@@ -29,219 +30,6 @@ from rich.progress import (
 )
 from rich.rule import Rule
 from rich.table import Table
-from rich.text import Text
-
-# TODO: If a rate limit error is raised, keep going after waiting.
-# TODO: Add other slide formats (German 322)
-# TODO: Change default output dir for transribe image functions to be a new directory in same parent dir as input images
-# TODO: Add different models and auto change rate limit
-# TODO: Include function in console error message
-# TODO: Add config for models? Ex:
-# config=types.GenerateContentConfig(
-#         temperature=0.7,
-#         max_output_tokens=150
-# )
-
-
-# TODO: Add model param to all "_" functions
-
-# TODO: Always ensure models arent deprectaed
-
-# TODO: Verify type and value of all params, especially limiter type
-
-# TODO: Also limit TPM and RPD
-
-# TODO: Convert functions to use code block removal function
-
-# TODO: Need to handle multiple rate limits used in a run
-
-# TODO: Except and keep going:
-# ⠼ Transcribing individual image files  93% ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╸━━━━━━━ 25/27 • 0:03:06 • 0:00:26
-# ⠼ Transcribing setting-alarm.png        0% ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 0/1   • 0:00:00 • -:--:--
-# Traceback (most recent call last):
-#   File "/Users/kadengruizenga/Developer/Projects/LectureSummarizer/main.py", line 2311, in <module>
-#     TranscribeImages(a)
-#   File "/Users/kadengruizenga/Developer/Projects/LectureSummarizer/main.py", line 2108, in TranscribeImages
-#     _TranscribeImage(
-#   File "/Users/kadengruizenga/Developer/Projects/LectureSummarizer/main.py", line 1363, in _TranscribeImage
-#     response = client.models.generate_content(
-#                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/models.py", line 4410, in generate_content
-#     response = self._generate_content(
-#                ^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/models.py", line 3669, in _generate_content
-#     response_dict = self.api_client.request(
-#                     ^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/_api_client.py", line 374, in request
-#     response = self._request(http_request, stream=False)
-#                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/_api_client.py", line 309, in _request
-#     return self._request_unauthorized(http_request, stream)
-#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/_api_client.py", line 332, in _request_unauthorized
-#     errors.APIError.raise_for_response(response)
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/errors.py", line 102, in raise_for_response
-#     raise ServerError(status_code, response)
-# google.genai.errors.ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'The service is currently unavailable.', 'status': 'UNAVAILABLE'}}
-# (basic) 11:41:25 ~/Developer/Projects/LectureSummarizer %
-
-# TODO: Same as above, except and keep going:
-# ⠧ Transcribing 465 Lecture 1.pdf               0% ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  0/16   • 0:00:38 • -:--:--
-# ⠧ Transcribing slides from 465 Lecture 1.pdf   5% ━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  14/272 • 0:00:38 • 0:11:13
-# Traceback (most recent call last):
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 787, in urlopen
-#     response = self._make_request(
-#                ^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 488, in _make_request
-#     raise new_e
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 464, in _make_request
-#     self._validate_conn(conn)
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 1093, in _validate_conn
-#     conn.connect()
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connection.py", line 741, in connect
-#     sock_and_verified = _ssl_wrap_socket_and_match_hostname(
-#                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connection.py", line 920, in _ssl_wrap_socket_and_match_hostname
-#     ssl_sock = ssl_wrap_socket(
-#                ^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/util/ssl_.py", line 460, in ssl_wrap_socket
-#     ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
-#                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/util/ssl_.py", line 504, in _ssl_wrap_socket_impl
-#     return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
-#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/ssl.py", line 455, in wrap_socket
-#     return self.sslsocket_class._create(
-#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/ssl.py", line 1042, in _create
-#     self.do_handshake()
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/ssl.py", line 1320, in do_handshake
-#     self._sslobj.do_handshake()
-# ConnectionResetError: [Errno 54] Connection reset by peer
-
-# During handling of the above exception, another exception occurred:
-
-# Traceback (most recent call last):
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/requests/adapters.py", line 667, in send
-#     resp = conn.urlopen(
-#            ^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 841, in urlopen
-#     retries = retries.increment(
-#               ^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/util/retry.py", line 474, in increment
-#     raise reraise(type(error), error, _stacktrace)
-#           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/util/util.py", line 38, in reraise
-#     raise value.with_traceback(tb)
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 787, in urlopen
-#     response = self._make_request(
-#                ^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 488, in _make_request
-#     raise new_e
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 464, in _make_request
-#     self._validate_conn(conn)
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connectionpool.py", line 1093, in _validate_conn
-#     conn.connect()
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connection.py", line 741, in connect
-#     sock_and_verified = _ssl_wrap_socket_and_match_hostname(
-#                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/connection.py", line 920, in _ssl_wrap_socket_and_match_hostname
-#     ssl_sock = ssl_wrap_socket(
-#                ^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/util/ssl_.py", line 460, in ssl_wrap_socket
-#     ssl_sock = _ssl_wrap_socket_impl(sock, context, tls_in_tls, server_hostname)
-#                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/urllib3/util/ssl_.py", line 504, in _ssl_wrap_socket_impl
-#     return ssl_context.wrap_socket(sock, server_hostname=server_hostname)
-#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/ssl.py", line 455, in wrap_socket
-#     return self.sslsocket_class._create(
-#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/ssl.py", line 1042, in _create
-#     self.do_handshake()
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/ssl.py", line 1320, in do_handshake
-#     self._sslobj.do_handshake()
-# urllib3.exceptions.ProtocolError: ('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))
-
-# During handling of the above exception, another exception occurred:
-
-# Traceback (most recent call last):
-#   File "/Users/kadengruizenga/Developer/Projects/LectureSummarizer/main.py", line 2467, in <module>
-#     TranscribeSlides(math465SlidesPath)
-#   File "/Users/kadengruizenga/Developer/Projects/LectureSummarizer/main.py", line 1722, in TranscribeSlides
-#     _TranscribeSlideImages(
-#   File "/Users/kadengruizenga/Developer/Projects/LectureSummarizer/main.py", line 870, in _TranscribeSlideImages
-#     response = client.models.generate_content(
-#                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/models.py", line 4410, in generate_content
-#     response = self._generate_content(
-#                ^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/models.py", line 3669, in _generate_content
-#     response_dict = self.api_client.request(
-#                     ^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/_api_client.py", line 374, in request
-#     response = self._request(http_request, stream=False)
-#                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/_api_client.py", line 309, in _request
-#     return self._request_unauthorized(http_request, stream)
-#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/google/genai/_api_client.py", line 324, in _request_unauthorized
-#     response = http_session.request(
-#                ^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/requests/sessions.py", line 589, in request
-#     resp = self.send(prep, **send_kwargs)
-#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/requests/sessions.py", line 703, in send
-#     r = adapter.send(request, **kwargs)
-#         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/Users/kadengruizenga/anaconda3/envs/basic/lib/python3.12/site-packages/requests/adapters.py", line 682, in send
-#     raise ConnectionError(err, request=request)
-# requests.exceptions.ConnectionError: ('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))
-# (basic) 19:36:57 ~/Developer/Projects/LectureSummarizer %
-
-
-# ### Best Gemini Models by Category with Stats
-
-# #### LaTeX-Generated Math
-# - Best Model: Gemini 2.0 Pro Exp. 02-05
-#   - Stats: RPM: 2 | TPM: 1,000,000 | RPD: 50
-# - Second Best: Gemini 2.0 Flash
-#   - Stats: RPM: 15 | TPM: 1,000,000 | RPD: 1,500
-
-# #### Full Text (Printed OCR)
-# - Best Model: Gemini 2.0 Flash
-#   - Stats: RPM: 15 | TPM: 1,000,000 | RPD: 1,500
-# - Second Best: Gemini 2.0 Flash-Lite
-#   - Stats: RPM: 30 | TPM: 1,000,000 | RPD: 1,500
-
-# #### All Handwriting
-# - Best Model: Gemini 2.0 Flash Thinking Exp. 01-21
-#   - Stats: RPM: 10 | TPM: 4,000,000 | RPD: 1,500
-# - Second Best: Gemini 2.0 Pro Exp. 02-05
-#   - Stats: RPM: 2 | TPM: 1,000,000 | RPD: 50
-
-# #### LaTeX Math + Full Text
-# - Best Model: Gemini 2.0 Pro Exp. 02-05
-#   - Stats: RPM: 2 | TPM: 1,000,000 | RPD: 50
-# - Second Best: Gemini 2.0 Flash
-#   - Stats: RPM: 15 | TPM: 1,000,000 | RPD: 1,500
-
-# #### LaTeX Math + Handwriting
-# - Best Model: Gemini 2.0 Pro Exp. 02-05
-#   - Stats: RPM: 2 | TPM: 1,000,000 | RPD: 50
-# - Second Best: Gemini 2.0 Flash Thinking Exp. 01-21
-#   - Stats: RPM: 10 | TPM: 4,000,000 | RPD: 1,500
-
-# #### All Three (Math + Text + Handwriting)
-# - Best Model: Gemini 2.0 Pro Exp. 02-05
-#   - Stats: RPM: 2 | TPM: 1,000,000 | RPD: 50
-# - Second Best: Gemini 2.0 Flash Thinking Exp. 01-21
-#   - Stats: RPM: 10 | TPM: 4,000,000 | RPD: 1,500
-
-# ### Key Takeaways
-# - Best for Math & LaTeX OCR → Pro Exp. 02-05 (Most accurate, but slowest)
-# - Best for Handwriting OCR → Flash Thinking Exp. 01-21 (More context-aware)
-# - Best for Fast General Text OCR → Flash & Flash-Lite (Faster, but less accurate for math/handwriting)
 
 console = Console()
 
@@ -250,7 +38,7 @@ GLOBAL_REQUEST_TIMES = deque()
 
 # Define models
 GEMINI_2_FLASH = "gemini-2.0-flash"
-GEMINI_2_FLASH_THINKING_EXPERIMENTAL = "gemini-2.0-flash-thinking-exp"
+GEMINI_2_FLASH_THINKING_EXPERIMENTAL = "gemini-2.0-flash-thinking-exp-01-21"
 
 # Define rate limits
 RATE_LIMITS = {GEMINI_2_FLASH: 15, GEMINI_2_FLASH_THINKING_EXPERIMENTAL: 10}
@@ -318,6 +106,17 @@ if not LATEX_TO_MARKDOWN_PROMPT_PATH.exists():
 
 LATEX_TO_MARKDOWN_PROMPT = LATEX_TO_MARKDOWN_PROMPT_PATH.read_text()
 
+LATEX_TO_JSON_PROMPT_PATH = Path("templates", "latex-to-json-template.txt")
+
+if not LATEX_TO_JSON_PROMPT_PATH.exists():
+
+    raise FileNotFoundError(
+        f"Latex to JSON prompt file {LATEX_TO_JSON_PROMPT_PATH} not found"
+    )
+
+LATEX_TO_JSON_PROMPT = LATEX_TO_JSON_PROMPT_PATH.read_text()
+
+
 # Common slide dirs and patterns
 MATH_465_SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math465/Slides")
 
@@ -347,6 +146,10 @@ def _GetTotalPageCount(pdfFiles: list[Path]) -> int:
     int
         The sum of all pages in the provided PDF files.
     """
+
+    if isinstance(pdfFiles, Path):
+
+        pdfFiles = [pdfFiles]
 
     runningTotal = 0
 
@@ -398,7 +201,9 @@ def _RemoveCodeBlockSyntax(string: str | list[str]) -> str:
     return "\n".join(string) + "\n"
 
 
-def PDFToPNG(pdfPath: Path, pagesDir: Path = None, progress=None):
+def PDFToPNG(
+    pdfPath: Path, pagesDir: Path = None, progress=None, outputName: str | None = None
+):
     """
     Convert a PDF file to PNG images and save them to the specified directory.
 
@@ -417,11 +222,15 @@ def PDFToPNG(pdfPath: Path, pagesDir: Path = None, progress=None):
     None
     """
 
-    if pagesDir is None:
+    if pagesDir is None and outputName is not None:
+
+        pagesDir = Path(OUTPUT_DIR, f"{outputName}-pages")
+
+    elif pagesDir is None:
 
         pagesDir = Path(OUTPUT_DIR, f"{pdfPath.stem}-pages")
 
-    images = convert_from_path(pdfPath)
+    images = convert_from_path(pdfPath, use_cropbox=False)
 
     if pagesDir.exists():
         shutil.rmtree(pagesDir)
@@ -449,11 +258,29 @@ def PDFToPNG(pdfPath: Path, pagesDir: Path = None, progress=None):
 
     with progress:
 
-        task = progress.add_task(f"Converting {pdfPath.name} to png", total=len(images))
+        if outputName is not None:
+
+            task = progress.add_task(
+                f"Converting {pdfPath.name} to png",
+                total=len(images),
+            )
+
+        else:
+
+            task = progress.add_task(
+                f"Converting {pdfPath.name} to png", total=len(images)
+            )
 
         for i, image in enumerate(images):
 
-            image.save(Path(pagesDir, f"{pdfPath.stem}-{i}.png"), "png")
+            if outputName is not None:
+
+                image.save(Path(pagesDir, f"{outputName}-{i}.png"), "png")
+
+            else:
+
+                image.save(Path(pagesDir, f"{pdfPath.stem}-{i}.png"), "png")
+
             progress.update(task, advance=1)
 
         progress.remove_task(task)
@@ -683,8 +510,8 @@ def _TranscribeSlideImages(
     defaultDescription = "Transcribing Slides"
 
     currentLimiterMethod = limiterMethod
-    if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
-        currentLimiterMethod = "fixedDelay"
+    # if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
+    #     currentLimiterMethod = "fixedDelay"
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
 
     runID = time.time()
@@ -980,8 +807,8 @@ def _TranscribeLectureImages(
     defaultDescription = "Transcribing Lecture"
 
     currentLimiterMethod = limiterMethod
-    if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
-        currentLimiterMethod = "fixedDelay"
+    # if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
+    #     currentLimiterMethod = "fixedDelay"
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
 
     runID = time.time()
@@ -1230,6 +1057,7 @@ def _TranscribeDocumentImages(
     fullResponseDir: Path = None,
     progress=None,
     bulkPagesTask=None,
+    model: str = GEMINI_2_FLASH,
 ):
     """
     Transcribe document images to LaTeX format using the API.
@@ -1272,10 +1100,24 @@ def _TranscribeDocumentImages(
     responses = OrderedDict()
     defaultDescription = "Transcribing Document"
 
+    if not isinstance(model, str):
+
+        raise TypeError(
+            f'Parameter "model" must be a string. Given type: "{type(model).__name__}"'
+        )
+
+    if model not in RATE_LIMITS:
+
+        raise ValueError(
+            f'Model "{model}" is not an available model.\nAvailable Models:\n{"\n".join(list(RATE_LIMITS.keys()))}'
+        )
+
+    rateLimit = RATE_LIMITS.get(model)
+
     currentLimiterMethod = limiterMethod
-    if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
-        currentLimiterMethod = "fixedDelay"
-    delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
+    # if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
+    #     currentLimiterMethod = "fixedDelay"
+    delayBetweenCalls = 60 / rateLimit
 
     runID = time.time()
 
@@ -1303,7 +1145,6 @@ def _TranscribeDocumentImages(
         task = progress.add_task(defaultDescription, total=len(imageTuples))
 
         for imagePath, image in imageTuples:
-
             currentTime = time.time()
 
             if currentLimiterMethod == "fixedDelay":
@@ -1317,7 +1158,7 @@ def _TranscribeDocumentImages(
                         model="gemini-2.0-flash",
                         contents=[
                             (
-                                f"Transcribe the document image, including all math, in LaTeX format. "
+                                f"Transcribe the document image, including all math, in LaTeX format. Put tables into latex tables."
                                 f"Use the document preamble as a base and add any necessary packages. "
                                 f"Escape special characters appropriately. "
                                 f"If there is a graphic, recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{DOCUMENT_LATEX_PREAMBLE}"
@@ -1404,7 +1245,7 @@ def _TranscribeDocumentImages(
                             (
                                 f"Transcribe the document image, including all math, in LaTeX format. "
                                 f"Use the document preamble as a base and add any necessary packages. "
-                                f"Escape special characters appropriately. "
+                                f"Escape special characters appropriately. No need to manually add in the page numbers."
                                 f"If there is a graphic, recreate it with tikz or leave a placeholder.\n\nLatex Preamble:{DOCUMENT_LATEX_PREAMBLE}"
                             ),
                             image,
@@ -1580,8 +1421,8 @@ def _TranscribeImage(
 
     currentLimiterMethod = limiterMethod
 
-    if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
-        currentLimiterMethod = "fixedDelay"
+    # if len(imageTuples) < RATE_LIMIT_PER_MINUTE:
+    #     currentLimiterMethod = "fixedDelay"
 
     delayBetweenCalls = 60 / RATE_LIMIT_PER_MINUTE
     runID = time.time()
@@ -2058,6 +1899,276 @@ def _LatexToMarkdown(
         progress.remove_task(task)
 
 
+def _LatexToJSON(
+    latexSource: Path,
+    limiterMethod: str = "tracking",
+    outputDir: Path = OUTPUT_DIR,
+    outputName: str | None = None,
+    fullResponseDir: Path = None,
+    progress=None,
+    bulkConversionTask=None,
+    model: str = GEMINI_2_FLASH_THINKING_EXPERIMENTAL,
+):
+    """
+    Transcribe a LaTeX file to Markdown using the API.
+    """
+
+    # Determine list of latex files.
+    if isinstance(latexSource, Path):
+
+        pass
+
+    elif isinstance(latexSource, str):
+
+        latexSource = Path(latexSource)
+
+    else:
+
+        raise ValueError(
+            f'Parameter "latexSource" must be a str or a path to a .tex file.\nGiven latexSource: "{latexSource}"'
+        )
+
+    if latexSource.is_file() and latexSource.suffix == ".tex":
+
+        pass
+
+    elif latexSource.is_dir():
+
+        raise ValueError(
+            f'Parameter "latexSource" must be a .tex file, not a directory.\nGiven directory: "{latexSource}"'
+        )
+
+    elif latexSource.suffix != ".tex":
+
+        raise ValueError(
+            f'Parameter "latexSource" must have a .tex extension.\nGiven file: "{latexSource}"\nGiven Extension: "{latexSource.suffix}"'
+        )
+
+    if not latexSource.exists():
+
+        raise FileNotFoundError(f'Given "latexSource" file "{latexSource}" not found.')
+
+    if not isinstance(model, str):
+
+        raise TypeError(
+            f'Parameter "model" must be a string. Given type: "{type(model).__name__}"'
+        )
+
+    if model not in RATE_LIMITS:
+
+        raise ValueError(
+            f'Model "{model}" is not an available model.\nAvailable Models:\n{"\n".join(list(RATE_LIMITS.keys()))}'
+        )
+
+    rateLimit = RATE_LIMITS.get(model)
+
+    if outputName is None:
+
+        outputName = latexSource.stem
+
+    # Ensure outputName has an extension
+    if not Path(outputName).suffix:
+        outputName += ".json"
+
+    outputPath = Path(outputDir, outputName)
+
+    apiKey = os.getenv("GEMINI_API_KEY")
+
+    if apiKey is None:
+        raise ValueError("GEMINI_API_KEY environment variable not set")
+
+    defaultDescription = "Converting LaTeX File to JSON"
+
+    currentLimiterMethod = limiterMethod
+
+    # Kept to align with other functions, might remove
+    # if 1 < rateLimit:
+    #     currentLimiterMethod = "fixedDelay"
+
+    delayBetweenCalls = 60 / rateLimit
+    runID = time.time()
+
+    response = None
+
+    if progress is None:
+
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}", justify="left"),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            BarColumn(bar_width=None),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            TextColumn("•"),
+            TimeRemainingColumn(),
+            expand=True,
+        )
+
+    elif not isinstance(progress, Progress):
+
+        raise ValueError("progress must be a rich.progress.Progress instance")
+
+    with progress:
+
+        task = progress.add_task(defaultDescription, total=1)
+
+        specificDescription = f"Converting {latexSource.name}"
+
+        progress.update(
+            task,
+            description=specificDescription,
+            advance=0,
+            refresh=True,
+        )
+
+        currentTime = time.time()
+
+        if currentLimiterMethod == "fixedDelay":
+
+            startTime = currentTime
+
+            try:
+
+                latexContent = latexSource.read_text()
+
+                if latexContent == "":
+
+                    response = ""
+
+                else:
+
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model=model,
+                        contents=[
+                            f"Instructions:\n{LATEX_TO_JSON_PROMPT}\n\n```\n{latexContent}\n```",
+                        ],
+                    )
+
+            except Exception as e:
+
+                console.print(
+                    f"[bold red]Error during LaTeX to JSON conversion of {latexSource.name}: {e}[/bold red]"
+                )
+                raise
+
+            # Save responses as pickle in case of error.
+            if fullResponseDir is None:
+
+                fullResponseDir = outputDir
+
+            localPickleDir = Path(fullResponseDir, "pickles")
+            localPickleDir.mkdir(parents=True, exist_ok=True)
+
+            try:
+
+                picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
+
+                with picklePath.open("wb") as file:
+                    pickle.dump(response, file)
+
+            except Exception as e:
+
+                console.print(f"[bold red]Failed to save response: {e}[/bold red]")
+            elapsed = time.time() - startTime
+
+            if elapsed < delayBetweenCalls:
+
+                sleepTime = delayBetweenCalls - elapsed
+                _SleepWithProgress(progress, task, sleepTime, specificDescription)
+
+        elif currentLimiterMethod == "tracking":
+
+            while (
+                GLOBAL_REQUEST_TIMES
+                and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW_SEC
+            ):
+
+                GLOBAL_REQUEST_TIMES.popleft()
+
+            if len(GLOBAL_REQUEST_TIMES) >= rateLimit:
+
+                sleepTime = RATE_LIMIT_WINDOW_SEC - (
+                    currentTime - GLOBAL_REQUEST_TIMES[0]
+                )
+                _SleepWithProgress(progress, task, sleepTime, specificDescription)
+                currentTime = time.time()
+
+                while (
+                    GLOBAL_REQUEST_TIMES
+                    and currentTime - GLOBAL_REQUEST_TIMES[0] >= RATE_LIMIT_WINDOW_SEC
+                ):
+
+                    GLOBAL_REQUEST_TIMES.popleft()
+
+            try:
+
+                latexContent = latexSource.read_text()
+
+                if latexContent == "":
+
+                    response = ""
+
+                else:
+
+                    client = genai.Client(api_key=apiKey)
+                    response = client.models.generate_content(
+                        model=model,
+                        contents=[
+                            f"Instructions:\n{LATEX_TO_JSON_PROMPT}\n\n```\n{latexContent}\n```",
+                        ],
+                    )
+
+            except Exception as e:
+
+                console.print(
+                    f"[bold red]Error during LaTeX to JSON transcription of {latexSource.name}: {e}[/bold red]"
+                )
+                raise
+
+            GLOBAL_REQUEST_TIMES.append(time.time())
+
+            if fullResponseDir is None:
+
+                fullResponseDir = outputDir
+
+            localPickleDir = Path(fullResponseDir, "pickles")
+            localPickleDir.mkdir(parents=True, exist_ok=True)
+
+            try:
+
+                picklePath = Path(localPickleDir, f"{outputName}-{runID}.pkl")
+
+                with picklePath.open("wb") as file:
+
+                    pickle.dump(response, file)
+
+            except Exception as e:
+                console.print(f"[bold red]Failed to save response: {e}[/bold red]")
+
+        else:
+
+            raise ValueError("Invalid limiterMethod. Use 'fixedDelay' or 'tracking'.")
+
+        progress.update(task, advance=1, refresh=True)
+
+        if bulkConversionTask is not None:
+            progress.update(bulkConversionTask, advance=1, refresh=True)
+
+        if response is None:
+
+            raise ValueError(f"Response is {response}")
+
+        responseText = response.text
+
+        responseText = _RemoveCodeBlockSyntax(responseText)
+
+        outputPath.write_text(responseText)
+
+        progress.remove_task(task)
+
+
 def LatexToMarkdown(
     source: Path | list[Path] | str | list[str],
     outputDir: Path = None,
@@ -2425,6 +2536,13 @@ def TranscribeSlides(
                     refresh=True,
                 )
 
+                progress.update(
+                    allPagesTask,
+                    description=f"Skipping {slideFile.name}",
+                    advance=_GetTotalPageCount(slideFile),
+                    refresh=True,
+                )
+
                 continue
 
             PDFToPNG(pdfPath=slideFile, pagesDir=pagesDir, progress=progress)
@@ -2615,6 +2733,13 @@ def TranscribeLectures(
                     refresh=True,
                 )
 
+                progress.update(
+                    allPagesTask,
+                    description=f"Skipping {lectureFile.name}",
+                    advance=_GetTotalPageCount(lectureFile),
+                    refresh=True,
+                )
+
                 continue
 
             PDFToPNG(pdfPath=lectureFile, pagesDir=pagesDir, progress=progress)
@@ -2641,6 +2766,9 @@ def TranscribeDocuments(
     source: Path | list[Path] | str | list[str],
     outputDir: Path = None,
     skipExisting: bool = True,
+    outputName: str | None = None,
+    recursive: bool = False,
+    model: str = GEMINI_2_FLASH,
 ):
     """
     Process and transcribe document PDFs from a directory, a single PDF file, or a list of PDF file paths.
@@ -2681,6 +2809,9 @@ def TranscribeDocuments(
         if source.is_file():
             pdfFiles = [source]
             inputDir = source.parent
+        elif recursive:
+            pdfFiles = natsorted(list(source.rglob("*.pdf")))
+            inputDir = source
         else:
             pdfFiles = natsorted(list(source.glob("*.pdf")))
             inputDir = source
@@ -2704,6 +2835,26 @@ def TranscribeDocuments(
         parentOutputDir = Path(inputDir, "transcribed-documents")
     else:
         parentOutputDir = outputDir
+
+    if outputName is not None:
+
+        if not isinstance(outputName, str):
+
+            raise TypeError(
+                f"outputName must be a string. Given type: {type(outputName).__name__}"
+            )
+
+        if "." in outputName:
+
+            raise ValueError(
+                f"outputName should not contain a file extension. Given: {outputName}"
+            )
+
+        if "/" in outputName:
+
+            raise ValueError(
+                f"outputName should not contain a path separator. Given: {outputName}"
+            )
 
     parentOutputDir.mkdir(parents=True, exist_ok=True)
     totalPages = _GetTotalPageCount(pdfFiles)
@@ -2745,7 +2896,9 @@ def TranscribeDocuments(
             fullResponseDir.joinpath("pickles").mkdir(parents=True, exist_ok=True)
             pagesDir.mkdir(parents=True, exist_ok=True)
 
-            outputName = f"{pdfFile.stem}-transcribed"
+            if outputName is None:
+
+                outputName = f"{pdfFile.stem}-transcribed"
 
             outputPath = Path(baseOutputDir, outputName)
 
@@ -2758,9 +2911,21 @@ def TranscribeDocuments(
                     refresh=True,
                 )
 
+                progress.update(
+                    allPagesTask,
+                    description=f"Skipping {pdfFile.name}",
+                    advance=_GetTotalPageCount(pdfFile),
+                    refresh=True,
+                )
+
                 continue
 
-            PDFToPNG(pdfPath=pdfFile, pagesDir=pagesDir, progress=progress)
+            PDFToPNG(
+                pdfPath=pdfFile,
+                pagesDir=pagesDir,
+                progress=progress,
+                outputName=outputName,
+            )
 
             _TranscribeDocumentImages(
                 imageDir=pagesDir,
@@ -2770,6 +2935,7 @@ def TranscribeDocuments(
                 fullResponseDir=fullResponseDir,
                 progress=progress,
                 bulkPagesTask=allPagesTask,
+                model=model,
             )
 
             progress.update(
@@ -3013,6 +3179,219 @@ def TranscribeImages(
         )
 
 
+def LatexToJson(
+    source: Path | list[Path] | str | list[str],
+    outputDir: Path = None,
+    filePattern: str = "*.tex",
+    skipExisting: bool = True,
+    model: str = GEMINI_2_FLASH_THINKING_EXPERIMENTAL,
+    recursive=False,
+):
+
+    # TODO: Get thinking working. Response is blank currently.
+
+    if not isinstance(model, str):
+
+        raise TypeError(
+            f'Parameter "model" must be a string. Given type: "{type(model).__name__}"'
+        )
+
+    if model not in RATE_LIMITS:
+
+        raise ValueError(
+            f'Model "{model}" is not an available model.\nAvailable Models:\n{"\n".join(list(RATE_LIMITS.keys()))}'
+        )
+
+    # Convert string input(s) to Path(s) if needed.
+    if isinstance(source, str):
+        source = Path(source)
+    elif isinstance(source, list):
+        sourceConverted = []
+        for item in source:
+            if isinstance(item, str):
+                sourceConverted.append(Path(item))
+            elif isinstance(item, Path):
+                sourceConverted.append(item)
+            else:
+                raise ValueError("List items must be strings or Path objects.")
+        source = sourceConverted
+
+    # Determine the list of latex files and base input directory.
+    if isinstance(source, Path):
+
+        if not source.exists():
+
+            console.print(
+                f"[bold red]Path [bold yellow]{source}[/bold yellow] does not exist.[/bold red]"
+            )
+
+            raise FileNotFoundError(f"Path {source} does not exist.")
+
+        if source.is_file():
+
+            latexFiles = [source]
+            inputDir = source.parent
+
+        # source is a directory
+        elif recursive:
+
+            latexFiles = natsorted(list(source.rglob(filePattern)))
+            inputDir = source
+
+        # source is a directory
+        else:
+
+            latexFiles = natsorted(list(source.glob(filePattern)))
+            inputDir = source
+
+    elif isinstance(source, list):
+
+        latexFiles = source
+
+        nonexistant = list()
+        nonfiles = list()
+
+        for entry in latexFiles:
+
+            if not entry.exists():
+
+                nonexistant.append(entry)
+
+            elif not entry.is_file():
+
+                nonfiles.append(entry)
+
+        if len(nonexistant) > 0 and len(nonfiles) > 0:
+
+            console.print(
+                f"[bold red]Files do not exist: [bold yellow]{nonexistant}[/bold yellow]\nNot files: [bold yellow]{nonfiles}[/bold yellow][/bold red]"
+            )
+
+            raise FileNotFoundError(
+                f"Files do not exist: {nonexistant}\nNot files: {nonfiles}"
+            )
+
+        elif len(nonexistant) > 0:
+
+            console.print(
+                f"[bold red]Files do not exist: [bold yellow]{nonexistant}[/bold yellow][/bold red]"
+            )
+
+            raise FileNotFoundError(f"Files do not exist: {nonexistant}")
+
+        elif len(nonfiles) > 0:
+
+            console.print(
+                f"[bold red]Not files: [bold yellow]{nonfiles}[/bold yellow][/bold red]"
+            )
+
+            raise ValueError(f"Not files: {nonfiles}")
+
+        inputDirs = [file.parent for file in latexFiles]
+        inputDir = inputDirs[0]
+
+    else:
+
+        console.print(
+            "[bold red]Parameter [bold yellow]'source'[/bold yellow] must be a [bold yellow]directory path[/bold yellow] or a [bold yellow]list of latex file paths[/bold yellow].[/bold red]"
+        )
+
+        raise ValueError(
+            "Parameter 'source' must be a directory path or a list of latex file paths."
+        )
+
+    # Determine the output directory.
+    if outputDir is None:
+        bulkOutputDir = Path(inputDir, "converted-latex")
+    else:
+        bulkOutputDir = outputDir
+
+    bulkOutputDir.mkdir(parents=True, exist_ok=True)
+
+    totalLatexFiles = len(latexFiles)
+    skippedLatexFiles = 0
+
+    if totalLatexFiles > 1:
+
+        defaultDescription = "Converting Latex Files to JSON"
+
+    else:
+
+        defaultDescription = "Converting Latex File to JSON"
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}", justify="left"),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        BarColumn(bar_width=None),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        expand=True,
+        transient=True,
+    ) as progress:
+
+        task = progress.add_task(defaultDescription, total=totalLatexFiles)
+
+        for latexPath in latexFiles:
+            # Create a subdirectory for each latex output using its stem
+            outputSubDir = bulkOutputDir / latexPath.stem
+            outputSubDir.mkdir(parents=True, exist_ok=True)
+
+            outputName = f"{latexPath.stem}"
+
+            outputPath = Path(outputSubDir, f"{outputName}.json")
+
+            if skipExisting and outputPath.exists():
+
+                progress.update(
+                    task,
+                    description=f"Skipping {latexPath.name}",
+                    advance=1,
+                    refresh=True,
+                )
+
+                progress.update(
+                    task,
+                    description=defaultDescription,
+                    advance=0,
+                    refresh=True,
+                )
+
+                skippedLatexFiles += 1
+
+                continue
+
+            _LatexToJSON(
+                latexSource=latexPath,
+                limiterMethod="tracking",
+                outputDir=outputSubDir,
+                outputName=outputName,
+                fullResponseDir=outputSubDir,
+                progress=progress,
+            )
+            progress.update(task, advance=1)
+
+    if skippedLatexFiles > 0:
+
+        console.print(
+            f"[bold green]Converted [bold yellow]{totalLatexFiles - skippedLatexFiles}[/bold yellow] latex files, Skipped [bold yellow]{skippedLatexFiles}[/bold yellow] latex files ([bold yellow]{totalLatexFiles}[/bold yellow] total)[/bold green]"
+        )
+
+    else:
+
+        console.print(
+            f"[bold green]Converted [bold yellow]{totalLatexFiles}[/bold yellow] LaTeX files to JSON[/bold green]"
+        )
+
+
+# ```latex
+# <INSERT YOUR TABLE HERE>
+# ```
+
+
 def FinishPickleSlides(
     picklePath: Path, fullResponseDir: Path, outputDir: Path, outputName: str
 ):
@@ -3216,10 +3595,18 @@ def FinishPickleLatexToMarkdown(
 
 if __name__ == "__main__":
 
-    math465LectureLatexDir = Path(
-        "/Users/kadengruizenga/Documents/School/W25/Math465/Summaries/Lectures/Transcribed"
+    math465Lectures = [
+        Path(
+            "/Users/kadengruizenga/Documents/School/W25/Math465/Slides/465 Lecture 18.pdf"
+        ),
+        Path(
+            "/Users/kadengruizenga/Documents/School/W25/Math465/Slides/465 Lecture 19.pdf"
+        ),
+    ]
+
+    TranscribeSlides(
+        math465Lectures,
+        outputDir=Path(
+            "/Users/kadengruizenga/Documents/School/W25/Math465/Summaries/Lectures/Transcribed"
+        ),
     )
-
-    LatexToMarkdown(math465LectureLatexDir, model=GEMINI_2_FLASH)
-
-    pass

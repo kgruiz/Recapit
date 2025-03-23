@@ -1,0 +1,43 @@
+Convert the following LaTeX table into JSON format. Ensure that:
+- The column headers are used as JSON keys.
+- Each row is represented as an object within a JSON array.
+- The data types are preserved (e.g., numerical values should remain numbers, not strings).
+- The output is formatted as valid, properly indented JSON.
+
+**Example Input (LaTeX Table):**
+```latex
+\begin{table}[]
+\begin{tabular}{|c|c|c|}
+\hline
+ID & Name  & Age \\
+\hline
+1  & Alice & 25  \\
+2  & Bob   & 30  \\
+3  & Carol & 22  \\
+\hline
+\end{tabular}
+\end{table}
+```
+
+**Expected Output (JSON):**
+```json
+[
+  {
+    "ID": 1,
+    "Name": "Alice",
+    "Age": 25
+  },
+  {
+    "ID": 2,
+    "Name": "Bob",
+    "Age": 30
+  },
+  {
+    "ID": 3,
+    "Name": "Carol",
+    "Age": 22
+  }
+]
+```
+
+Convert the following LaTeX table into JSON and return only the JSON output:
