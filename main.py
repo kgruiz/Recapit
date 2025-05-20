@@ -1,24 +1,13 @@
-import enum
 import os
 import pickle
 import re
-import shutil
 import time
-from collections import OrderedDict, deque
+from collections import OrderedDict
 from pathlib import Path
 
 import PIL.Image
-import pillow_avif
 from google import genai
-from google.genai import types
 from natsort import natsorted
-from pdf2image import convert_from_path
-from PyPDF2 import PdfReader
-from rich import box
-from rich.align import Align
-from rich.console import Console, Group
-from rich.padding import Padding
-from rich.panel import Panel
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -28,436 +17,27 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
-from rich.rule import Rule
-from rich.table import Table
 
-console = Console()
-
-# Global deque to track request times across instances
-GLOBAL_REQUEST_TIMES = deque()
-
-# Define models
-GEMINI_2_FLASH = "gemini-2.0-flash"
-GEMINI_2_FLASH_THINKING_EXPERIMENTAL = "gemini-2.0-flash-thinking-exp-01-21"
-
-# Define rate limits
-RATE_LIMITS = {GEMINI_2_FLASH: 15, GEMINI_2_FLASH_THINKING_EXPERIMENTAL: 10}
-RATE_LIMIT_WINDOW_SEC = 60
-
-# TODO: Deprecated
-RATE_LIMIT_PER_MINUTE = 15
-
-MAX_USED_RATE_LIMIT = None
-
-AVAILABLE_MODELS = [GEMINI_2_FLASH, GEMINI_2_FLASH_THINKING_EXPERIMENTAL]
-
-OUTPUT_DIR = Path("output")
-
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-# Load latex preambles
-SLIDE_LATEX_PREAMBLE_PATH = Path("templates", "slide-template.txt")
-
-if not SLIDE_LATEX_PREAMBLE_PATH.exists():
-
-    raise FileNotFoundError(
-        f"Slides latex preamble file {SLIDE_LATEX_PREAMBLE_PATH} not found"
-    )
-
-SLIDE_LATEX_PREAMBLE = SLIDE_LATEX_PREAMBLE_PATH.read_text()
-
-LECTURE_LATEX_PREAMBLE_PATH = Path("templates", "lecture-template.txt")
-
-if not LECTURE_LATEX_PREAMBLE_PATH.exists():
-
-    raise FileNotFoundError(
-        f"Lecture latex preamble file {LECTURE_LATEX_PREAMBLE_PATH} not found"
-    )
-
-LECTURE_LATEX_PREAMBLE = LECTURE_LATEX_PREAMBLE_PATH.read_text()
-
-DOCUMENT_LATEX_PREAMBLE_PATH = Path("templates", "document-template.txt")
-
-if not DOCUMENT_LATEX_PREAMBLE_PATH.exists():
-
-    raise FileNotFoundError(
-        f"Document latex preamble file {DOCUMENT_LATEX_PREAMBLE_PATH} not found"
-    )
-
-DOCUMENT_LATEX_PREAMBLE = DOCUMENT_LATEX_PREAMBLE_PATH.read_text()
-
-IMAGE_LATEX_PREAMBLE_PATH = Path("templates", "image-template.txt")
-
-if not IMAGE_LATEX_PREAMBLE_PATH.exists():
-
-    raise FileNotFoundError(
-        f"Image latex preamble file {IMAGE_LATEX_PREAMBLE_PATH} not found"
-    )
-
-IMAGE_LATEX_PREAMBLE = IMAGE_LATEX_PREAMBLE_PATH.read_text()
-
-LATEX_TO_MARKDOWN_PROMPT_PATH = Path("templates", "latex-to-md-template.txt")
-
-if not LATEX_TO_MARKDOWN_PROMPT_PATH.exists():
-
-    raise FileNotFoundError(
-        f"Latex to Markdown prompt file {LATEX_TO_MARKDOWN_PROMPT_PATH} not found"
-    )
-
-LATEX_TO_MARKDOWN_PROMPT = LATEX_TO_MARKDOWN_PROMPT_PATH.read_text()
-
-LATEX_TO_JSON_PROMPT_PATH = Path("templates", "latex-to-json-template.txt")
-
-if not LATEX_TO_JSON_PROMPT_PATH.exists():
-
-    raise FileNotFoundError(
-        f"Latex to JSON prompt file {LATEX_TO_JSON_PROMPT_PATH} not found"
-    )
-
-LATEX_TO_JSON_PROMPT = LATEX_TO_JSON_PROMPT_PATH.read_text()
-
-
-# Common slide dirs and patterns
-MATH_465_SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math465/Slides")
-
-MATH_425_SLIDES_DIR = Path("/Users/kadengruizenga/Documents/School/W25/Math425/Slides")
-
-EECS_476_SLIDES_DIR = Path(
-    "/Users/kadengruizenga/Documents/School/W25/EECS476/Lecture-Notes"
+from lecture_summarizer.config import (
+    console,
+    GLOBAL_REQUEST_TIMES,
+    GEMINI_2_FLASH,
+    GEMINI_2_FLASH_THINKING_EXPERIMENTAL,
+    RATE_LIMITS,
+    RATE_LIMIT_WINDOW_SEC,
+    RATE_LIMIT_PER_MINUTE,
+    OUTPUT_DIR,
+    SLIDE_LATEX_PREAMBLE,
+    LECTURE_LATEX_PREAMBLE,
+    DOCUMENT_LATEX_PREAMBLE,
+    IMAGE_LATEX_PREAMBLE,
+    LATEX_TO_MARKDOWN_PROMPT,
+    LATEX_TO_JSON_PROMPT,
 )
+from lecture_summarizer.utils.file_utils import get_total_page_count as _GetTotalPageCount, pdf_to_png as PDFToPNG
+from lecture_summarizer.utils.text_utils import remove_code_block_syntax as _RemoveCodeBlockSyntax, clean_response as _CleanResponse
+from lecture_summarizer.utils.rate_limiter import sleep_with_progress as _SleepWithProgress
 
-
-MATH_465_PATTERN = r"465 Lecture (\d+).pdf"
-MATH_425_PATTERN = r"Lecture(\d+).pdf"
-EECS_476_PATTERN = r"lec(\d+).*"
-
-
-def _GetTotalPageCount(pdfFiles: list[Path]) -> int:
-    """
-    Compute the total number of pages across multiple PDF files.
-
-    Parameters
-    ----------
-    pdfFiles : list[Path]
-        A list of PDF file paths.
-
-    Returns
-    -------
-    int
-        The sum of all pages in the provided PDF files.
-    """
-
-    if isinstance(pdfFiles, Path):
-
-        pdfFiles = [pdfFiles]
-
-    runningTotal = 0
-
-    for pdfFile in pdfFiles:
-
-        with pdfFile.open("rb") as pdf:
-
-            reader = PdfReader(pdf)
-
-            runningTotal += len(reader.pages)
-
-    return runningTotal
-
-
-def _RemoveCodeBlockSyntax(string: str | list[str]) -> str:
-
-    if not isinstance(string, (str, list)):
-
-        raise TypeError(
-            f'Parameter "string" must be a str or list[str]. Given type: "{type(string).__name__}"'
-        )
-
-    if isinstance(string, list):
-
-        string = "\n".join(string) + "\n"
-        string = string.strip()
-
-    else:
-
-        string = string.strip()
-
-    if isinstance(string, str):
-
-        string = string.splitlines()
-
-    # if string[0].strip().startswith("```"):
-    #     string = string[1:]
-    # if string[-1].strip() == "```":
-    #     string = string[:-1]
-
-    # Strip code block markers only if both the first and last lines are "```",
-    # ensuring the entire document is wrapped while preserving any internal code blocks
-    # that should remain intact.
-
-    if string[0].strip().startswith("```") and string[-1].strip() == "```":
-
-        string = string[1:-1]
-
-    return "\n".join(string) + "\n"
-
-
-def PDFToPNG(
-    pdfPath: Path, pagesDir: Path = None, progress=None, outputName: str | None = None
-):
-    """
-    Convert a PDF file to PNG images and save them to the specified directory.
-
-    Parameters
-    ----------
-    pdfPath : Path
-        The path to the PDF file.
-    pagesDir : Path, optional
-        The directory where the PNG images will be saved.
-        Defaults to OUTPUT_DIR / f"{pdfPath.stem}-pages" if not provided.
-    progress : Progress, optional
-        A rich Progress instance for displaying progress.
-
-    Returns
-    -------
-    None
-    """
-
-    if pagesDir is None and outputName is not None:
-
-        pagesDir = Path(OUTPUT_DIR, f"{outputName}-pages")
-
-    elif pagesDir is None:
-
-        pagesDir = Path(OUTPUT_DIR, f"{pdfPath.stem}-pages")
-
-    images = convert_from_path(pdfPath, use_cropbox=False)
-
-    if pagesDir.exists():
-        shutil.rmtree(pagesDir)
-
-    pagesDir.mkdir(parents=True, exist_ok=True)
-
-    if progress is None:
-
-        progress = Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}", justify="left"),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            BarColumn(bar_width=None),
-            MofNCompleteColumn(),
-            TextColumn("•"),
-            TimeElapsedColumn(),
-            TextColumn("•"),
-            TimeRemainingColumn(),
-            expand=True,
-        )
-
-    elif not isinstance(progress, Progress):
-
-        raise ValueError("progress must be a rich.progress.Progress instance")
-
-    with progress:
-
-        if outputName is not None:
-
-            task = progress.add_task(
-                f"Converting {pdfPath.name} to png",
-                total=len(images),
-            )
-
-        else:
-
-            task = progress.add_task(
-                f"Converting {pdfPath.name} to png", total=len(images)
-            )
-
-        for i, image in enumerate(images):
-
-            if outputName is not None:
-
-                image.save(Path(pagesDir, f"{outputName}-{i}.png"), "png")
-
-            else:
-
-                image.save(Path(pagesDir, f"{pdfPath.stem}-{i}.png"), "png")
-
-            progress.update(task, advance=1)
-
-        progress.remove_task(task)
-
-
-def _SleepWithProgress(progress, task, sleepTime, defaultDescription):
-    """
-    Sleep for a specified duration while updating the progress bar.
-
-    Parameters
-    ----------
-    progress : Progress
-        The progress object.
-    task : TaskID
-        The task identifier to update.
-    sleepTime : float
-        The total time in seconds to sleep.
-    defaultDescription : str
-        The description to revert to after sleeping.
-
-    Returns
-    -------
-    None
-    """
-
-    targetTime = time.time() + sleepTime
-
-    while True:
-        remaining = targetTime - time.time()
-        if remaining <= 0:
-            break
-        progress.update(
-            task, description=f"Sleeping for {remaining:.1f} sec due to rate limit"
-        )
-        time.sleep(min(0.5, remaining))
-    progress.update(task, description=defaultDescription)
-
-
-def _CleanResponse(
-    combinedResponse: str,
-    preamble: str,
-    title: str | None = "",
-    author: str | None = "",
-    date: str | None = "",
-) -> str:
-    """
-    Clean the combined LaTeX response by removing duplicate preamble lines and fixing formatting issues.
-
-    Parameters
-    ----------
-    combinedResponse : str
-        The raw combined LaTeX content.
-    preamble : str
-        The LaTeX preamble to use.
-    title : str, optional
-        Title to insert into the preamble.
-    author : str, optional
-        Author to insert into the preamble.
-    date : str, optional
-        Date to insert into the preamble.
-
-    Returns
-    -------
-    str
-        The cleaned LaTeX content.
-    """
-
-    preambleLines = preamble.splitlines()
-
-    for line in preambleLines:
-
-        combinedResponse = re.sub(
-            rf"^{re.escape(line)}$", "", combinedResponse, flags=re.MULTILINE
-        )
-
-    END_DOCUMENT_LINE = r"\end{document}"
-
-    combinedResponse = re.sub(
-        rf"^{re.escape(END_DOCUMENT_LINE)}$",
-        r"\\newpage",
-        combinedResponse,
-        flags=re.MULTILINE,
-    )
-
-    TITLE_LINE = r"\\title\{.*\}"
-    AUTHOR_LINE = r"\\author\{.*\}"
-    DATE_LINE = r"\\date\{.*\}"
-
-    OTHER_LINES = [
-        TITLE_LINE,
-        AUTHOR_LINE,
-        DATE_LINE,
-    ]
-
-    for line in OTHER_LINES:
-
-        combinedResponse = re.sub(
-            rf"^{line}$", "", combinedResponse, flags=re.MULTILINE
-        )
-
-    combinedResponse = combinedResponse.strip()
-
-    combinedResponse = re.sub(r"\n{2,}", "\n\n", combinedResponse)
-
-    remainingPackages = re.findall(
-        r"^\\usepackage\{([^\}]*)\}", combinedResponse, flags=re.MULTILINE
-    )
-
-    for package in remainingPackages:
-
-        preambleLines.insert(1, f"\\usepackage{{{package}}}")
-
-    preamble = "\n".join(preambleLines)
-
-    if re.search(r"^\\title\{.*\}", preamble, flags=re.MULTILINE) is None:
-
-        if title is not None:
-
-            preambleLines = preamble.splitlines()
-
-            preambleLines.insert(1, f"\\title{{{title}}}")
-
-            preamble = "\n".join(preambleLines)
-
-    elif title is not None:
-
-        preamble = re.sub(
-            r"^\\title\{(.*)\}", rf"\\title{{{title}}}", preamble, flags=re.MULTILINE
-        )
-
-    else:
-
-        preamble = re.sub(r"^\\title\{.*\}", "", preamble, flags=re.MULTILINE)
-
-    if re.search(r"^\\author\{.*\}", preamble, flags=re.MULTILINE) is None:
-
-        if author is not None:
-
-            preambleLines = preamble.splitlines()
-
-            preambleLines.insert(2, f"\\author{{{author}}}")
-
-            preamble = "\n".join(preambleLines)
-
-    elif author is not None:
-
-        preamble = re.sub(
-            r"^\\author\{(.*)\}", rf"\\author{{{author}}}", preamble, flags=re.MULTILINE
-        )
-
-    else:
-
-        preamble = re.sub(r"^\\author\{.*\}", "", preamble, flags=re.MULTILINE)
-
-    if re.search(r"^\\date\{.*\}", preamble, flags=re.MULTILINE) is None:
-
-        if date is not None:
-
-            preambleLines = preamble.splitlines()
-
-            preambleLines.insert(3, f"\\date{{{date}}}")
-
-            preamble = "\n".join(preambleLines)
-
-    elif date is not None:
-
-        preamble = re.sub(
-            r"^\\date\{(.*)\}", rf"\\date{{{date}}}", preamble, flags=re.MULTILINE
-        )
-
-    else:
-
-        preamble = re.sub(r"^\\date\{.*\}", "", preamble, flags=re.MULTILINE)
-
-    cleanedResponse = f"{preamble}\n{combinedResponse}\n{END_DOCUMENT_LINE}"
-
-    return cleanedResponse
 
 
 def _TranscribeSlideImages(
@@ -2502,8 +2082,8 @@ def TranscribeSlides(
         transient=True,
     ) as progress:
 
-        task = progress.add_task(f"Transcribing slide files", total=numSlideFiles)
-        allPagesTask = progress.add_task(f"Transcribing slide pages", total=totalPages)
+        task = progress.add_task("Transcribing slide files", total=numSlideFiles)
+        allPagesTask = progress.add_task("Transcribing slide pages", total=totalPages)
 
         for slideFile in slideFiles:
 
