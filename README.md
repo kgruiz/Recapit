@@ -58,24 +58,16 @@ lecture-summarizer /path/to/materials --recursive --include-images
 # Mixed PDF folders – auto-detects slides vs. documents, optional image pickup
 lecture-summarizer transcribe /path/to/more-materials --recursive --include-images
 
-# Slides and lecture decks
-lecture-summarizer slides /path/to/slides --pdf-mode images
-lecture-summarizer lectures /path/to/lectures --exclude 3,5
-
-# Generic PDFs (documents, worksheets, papers)
-lecture-summarizer documents /path/to/pdfs --recursive --pdf-mode pdf
 # Force a style if the heuristic guess is wrong
 lecture-summarizer transcribe /path/to/notes --kind lecture
 
 # Static images (PNG by default)
-lecture-summarizer images /path/to/imgs --pattern "*.jpg" --separate false
+lecture-summarizer transcribe /path/to/imgs --include-images --kind image
 
 # Post-processing helpers
 lecture-summarizer convert md /path/to/tex
 lecture-summarizer convert json /path/to/tex --recursive
 
-# Legacy presets (still available for scripts)
-lecture-summarizer slides /path/to/slides --pdf-mode images  # hidden in --help output
 ```
 
 Run `lecture-summarizer --help` or `lecture-summarizer <command> --help` for parameter details.
