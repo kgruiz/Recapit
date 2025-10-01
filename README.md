@@ -6,7 +6,7 @@ Lecture Summarizer is a modular toolkit for turning slide decks, lecture handout
 
 - **Unified pipelines** – one orchestration layer handles PDF-to-image fan out, direct PDF ingestion, LLM interactions, and LaTeX cleanup for slides, lectures, documents, and ad-hoc images.
 - **Per-model throttling** – built-in token bucket rate limiter respects conservative RPM caps for current Gemini models.
-- **Customizable prompts** – instruction prompts now live in editable `*-prompt.txt` files so you can tailor behaviour without touching code.
+- **Smart defaults** – works out of the box with built-in prompts and LaTeX preambles, but you can drop override files in `templates/` when you need fine control.
 - **Drop-in CLI & library** – invoke the Typer CLI from the shell or call the same functionality from Python without global state.
 - **Structured outputs** – every run captures raw model responses and cleaned LaTeX in deterministic directories under `output/`.
 
@@ -42,7 +42,7 @@ Environment variables:
 | `LECTURE_SUMMARIZER_OUTPUT_DIR` | Optional. Override the base output directory (`output/` by default). |
 | `LECTURE_SUMMARIZER_TEMPLATES_DIR` | Optional. Point to an alternate prompt template directory. |
 
-Prompt preambles and instructions live inside `templates/`. Adjust the `*-prompt.txt` files to fine-tune behaviour per content type.
+All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`).
 
 ## CLI Usage
 
