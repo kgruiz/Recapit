@@ -7,7 +7,7 @@ Lecture Summarizer is a modular toolkit for turning slide decks, lecture handout
 - **Unified pipelines** – one orchestration layer handles PDF-to-image fan out, direct PDF ingestion, LLM interactions, and LaTeX cleanup for slides, lectures, documents, and ad-hoc images.
 - **Per-model throttling** – built-in token bucket rate limiter respects conservative RPM caps for current Gemini models.
 - **Smart defaults** – works out of the box with built-in prompts and LaTeX preambles, but you can drop override files in `templates/` when you need fine control.
-- **Auto classification** – a single `transcribe` command heuristically routes decks, lecture notes, worksheets, and general PDFs to the right prompt without extra flags.
+- **Auto classification** – invoke the tool without subcommands (or via `transcribe`) and heuristics choose the right prompt for slides, notes, worksheets, or documents.
 - **Drop-in CLI & library** – invoke the Typer CLI from the shell or call the same functionality from Python without global state.
 - **Structured outputs** – every run captures raw model responses and cleaned LaTeX in deterministic directories under `output/`.
 
@@ -52,8 +52,11 @@ After installation the `lecture-summarizer` command becomes available. Every com
 ```shell
 export GEMINI_API_KEY="..."
 
+# Quick start – same as `transcribe`
+lecture-summarizer /path/to/materials --recursive --include-images
+
 # Mixed PDF folders – auto-detects slides vs. documents, optional image pickup
-lecture-summarizer transcribe /path/to/materials --recursive --include-images
+lecture-summarizer transcribe /path/to/more-materials --recursive --include-images
 
 # Slides and lecture decks
 lecture-summarizer slides /path/to/slides --pdf-mode images
