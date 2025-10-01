@@ -103,8 +103,8 @@ Markdown (`*.md`) and JSON (`*.json`) files are written alongside the LaTeX when
 - Expose streaming progress events for upstream integrations.
 - Ship optional Markdown/JSON schema validators.
 
-## License
-Released under the [GNU General Public License v3.0](LICENSE).
-
 ## Community & Support
 Questions, feature requests, or bugs are welcome—open an issue or submit a pull request. For feature proposals, please outline the use case and any model-specific constraints you have encountered.
+
+## License
+Released under the [GNU General Public License v3.0](LICENSE).

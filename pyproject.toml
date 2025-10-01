@@ -1,4 +1,5 @@
 [project]
+license = "GPL-3.0-or-later"
 name = "lecture-summarizer"
 version = "0.2.0"
 requires-python = ">=3.10"
