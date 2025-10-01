@@ -7,17 +7,18 @@ from natsort import natsorted
 from .config import AppConfig
 from .templates import TemplateLoader
 from .llm import LLMClient
-from .pipeline import Pipeline, Kind
-from .constants import GEMINI_2_FLASH, GEMINI_2_FLASH_THINKING_EXP
+from .pipeline import Pipeline, Kind, PDFMode
+from .constants import GEMINI_2_FLASH_THINKING_EXP
 
 
 def _mk(ctx_output_dir: Path | None = None) -> Pipeline:
     cfg = AppConfig.from_env()
     if ctx_output_dir:
-        cfg = type(cfg)(
+        cfg = AppConfig(
             api_key=cfg.api_key,
             output_dir=Path(ctx_output_dir),
             templates_dir=cfg.templates_dir,
+            default_model=cfg.default_model,
         )
     return Pipeline(cfg=cfg, llm=LLMClient(api_key=cfg.api_key), templates=TemplateLoader(cfg.templates_dir))
 
@@ -28,15 +29,17 @@ def TranscribeSlides(
     lectureNumPattern: str | None = r".*(\d+).*",
     excludeLectureNums: list[int] = [],
     skipExisting: bool = True,
-    model: str = GEMINI_2_FLASH,
+    model: str | None = None,
+    pdfMode: PDFMode = PDFMode.IMAGES,
 ):
     pl = _mk(outputDir)
+    active_model = model or pl.cfg.default_model
     paths = _coerce_pdfs(source)
     for p in _filter_by_pattern(paths, lectureNumPattern, excludeLectureNums):
         out_tex = pl.cfg.output_dir / p.stem / f"{p.stem}-transcribed.tex"
         if skipExisting and out_tex.exists():
             continue
-        pl.transcribe_pdf(pdf=p, kind=Kind.SLIDES, model=model)
+        pl.transcribe_pdf(pdf=p, kind=Kind.SLIDES, model=active_model, mode=pdfMode)
 
 
 def TranscribeLectures(
@@ -45,15 +48,17 @@ def TranscribeLectures(
     lectureNumPattern: str = r".*(\d+).*",
     excludeLectureNums: list[int] = [],
     skipExisting: bool = True,
-    model: str = GEMINI_2_FLASH,
+    model: str | None = None,
+    pdfMode: PDFMode = PDFMode.IMAGES,
 ):
     pl = _mk(outputDir)
+    active_model = model or pl.cfg.default_model
     paths = _coerce_pdfs(source)
     for p in _filter_by_pattern(paths, lectureNumPattern, excludeLectureNums):
         out_tex = pl.cfg.output_dir / p.stem / f"{p.stem}-transcribed.tex"
         if skipExisting and out_tex.exists():
             continue
-        pl.transcribe_pdf(pdf=p, kind=Kind.LECTURE, model=model)
+        pl.transcribe_pdf(pdf=p, kind=Kind.LECTURE, model=active_model, mode=pdfMode)
 
 
 def TranscribeDocuments(
@@ -62,16 +67,18 @@ def TranscribeDocuments(
     skipExisting: bool = True,
     outputName: str | None = None,
     recursive: bool = False,
-    model: str = GEMINI_2_FLASH,
+    model: str | None = None,
+    pdfMode: PDFMode = PDFMode.AUTO,
 ):
     pl = _mk(outputDir)
+    active_model = model or pl.cfg.default_model
     paths = _coerce_pdfs(source, recursive=recursive)
     for p in paths:
         out_name = outputName or f"{p.stem}-transcribed"
         out_tex = pl.cfg.output_dir / p.stem / f"{out_name}.tex"
         if skipExisting and out_tex.exists():
             continue
-        pl.transcribe_pdf(pdf=p, kind=Kind.DOCUMENT, model=model, output_name=out_name)
+        pl.transcribe_pdf(pdf=p, kind=Kind.DOCUMENT, model=active_model, output_name=out_name, mode=pdfMode)
 
 
 def TranscribeImages(
@@ -80,19 +87,20 @@ def TranscribeImages(
     filePattern: str = "*.png",
     separateOutputs: bool = True,
     skipExisting: bool = True,
-    model: str = GEMINI_2_FLASH,
+    model: str | None = None,
 ):
     pl = _mk(outputDir)
+    active_model = model or pl.cfg.default_model
     imgs = _coerce_images(source, pattern=filePattern)
     if not separateOutputs:
-        pl.transcribe_images(images=imgs, kind=Kind.IMAGE, model=model, output_dir=outputDir, bulk=True)
+        pl.transcribe_images(images=imgs, kind=Kind.IMAGE, model=active_model, output_dir=outputDir, bulk=True)
         return
     for img in imgs:
         out_dir = (Path(outputDir) if outputDir else pl.cfg.output_dir) / img.stem
         out_tex = out_dir / f"{img.stem}-transcribed.tex"
         if skipExisting and out_tex.exists():
             continue
-        pl.transcribe_images(images=[img], kind=Kind.IMAGE, model=model, output_dir=outputDir, bulk=False)
+        pl.transcribe_images(images=[img], kind=Kind.IMAGE, model=active_model, output_dir=outputDir, bulk=False)
 
 
 def LatexToMarkdown(
@@ -100,16 +108,17 @@ def LatexToMarkdown(
     outputDir: Path | None = None,
     filePattern: str = "*.tex",
     skipExisting: bool = True,
-    model: str = GEMINI_2_FLASH_THINKING_EXP,
+    model: str | None = None,
 ):
     pl = _mk(outputDir)
+    active_model = model or GEMINI_2_FLASH_THINKING_EXP
     tex_files = _coerce_tex(source, pattern=filePattern)
     for t in tex_files:
         out_dir = (Path(outputDir) if outputDir else pl.cfg.output_dir) / t.stem
         out_md = out_dir / f"{t.stem}.md"
         if skipExisting and out_md.exists():
             continue
-        pl.latex_to_markdown(tex_file=t, model=model, output_dir=out_dir, output_name=t.stem)
+        pl.latex_to_markdown(tex_file=t, model=active_model, output_dir=out_dir, output_name=t.stem)
 
 
 def LatexToJson(
@@ -117,17 +126,18 @@ def LatexToJson(
     outputDir: Path | None = None,
     filePattern: str = "*.tex",
     skipExisting: bool = True,
-    model: str = GEMINI_2_FLASH_THINKING_EXP,
+    model: str | None = None,
     recursive: bool = False,
 ):
     pl = _mk(outputDir)
+    active_model = model or GEMINI_2_FLASH_THINKING_EXP
     tex_files = _coerce_tex(source, pattern=filePattern, recursive=recursive)
     for t in tex_files:
         out_dir = (Path(outputDir) if outputDir else pl.cfg.output_dir) / t.stem
         out_json = out_dir / f"{t.stem}.json"
         if skipExisting and out_json.exists():
             continue
-        pl.latex_to_json(tex_file=t, model=model, output_dir=out_dir, output_name=t.stem)
+        pl.latex_to_json(tex_file=t, model=active_model, output_dir=out_dir, output_name=t.stem)
 
 
 # ---- helpers ----

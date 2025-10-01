@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Iterable, Callable
+from typing import Iterable
 
 from rich.progress import (
     Progress,
@@ -25,7 +25,7 @@ from .constants import (
 from .rate_limiter import TokenBucket
 from .templates import TemplateLoader
 from .llm import LLMClient
-from .pdf import pdf_to_png, total_pages
+from .pdf import pdf_to_png
 from .clean import strip_code_fences, clean_latex
 from .utils import ensure_dir, slugify
 
@@ -35,6 +35,12 @@ class Kind(Enum):
     LECTURE = "lecture"
     DOCUMENT = "document"
     IMAGE = "image"
+
+
+class PDFMode(Enum):
+    AUTO = "auto"
+    IMAGES = "images"
+    PDF = "pdf"
 
 
 @dataclass
@@ -61,45 +67,21 @@ class Pipeline:
     def _instruction_for_kind(self, kind: Kind) -> tuple[str, str]:
         if kind == Kind.SLIDES:
             pre = self.templates.slide_preamble()
-            instr = (
-                "Transcribe the slide image, including math, in LaTeX. "
-                "Use the given preamble as base. Escape &, %. "
-                "Do not include external files. For graphics, recreate with tikz or leave a placeholder.\n\n"
-                f"LaTeX Preamble:{pre}"
-            )
-            return instr, pre
-        if kind == Kind.LECTURE:
+        elif kind == Kind.LECTURE:
             pre = self.templates.lecture_preamble()
-            instr = (
-                "Transcribe the lecture page, including math, in LaTeX. "
-                "Use the given preamble as base. Escape &, %. No external files. "
-                "For graphics, use tikz or leave placeholder.\n\n"
-                f"LaTeX Preamble:{pre}"
-            )
-            return instr, pre
-        if kind == Kind.DOCUMENT:
+        elif kind == Kind.DOCUMENT:
             pre = self.templates.document_preamble()
-            instr = (
-                "Transcribe the document page, including math, in LaTeX. "
-                "Put tables into LaTeX tabular. Use the given preamble as base. "
-                "Escape special characters. No need to add page numbers. "
-                "For graphics, tikz or placeholder.\n\n"
-                f"LaTeX Preamble:{pre}"
-            )
-            return instr, pre
-        if kind == Kind.IMAGE:
+        elif kind == Kind.IMAGE:
             pre = self.templates.image_preamble()
-            instr = (
-                "Transcribe the image, including math, in LaTeX. "
-                "Use the given preamble as base. Escape &, %. "
-                "Graphics: tikz or placeholder.\n\n"
-                f"LaTeX Preamble:{pre}"
-            )
-            return instr, pre
-        raise ValueError(kind)
+        else:
+            raise ValueError(kind)
+        prompt_template = self.templates.prompt(kind.value)
+        instr = prompt_template.replace("{{PREAMBLE}}", pre)
+        return instr, pre
 
     def _bucket_for(self, model: str) -> TokenBucket:
-        return TokenBucket(per_minute=RATE_LIMITS[model], window_sec=RATE_LIMIT_WINDOW_SEC)
+        per_minute = RATE_LIMITS.get(model, 10)
+        return TokenBucket(per_minute=per_minute, window_sec=RATE_LIMIT_WINDOW_SEC)
 
     def _combine_and_write(self, *, texts: list[str], preamble: str, base_dir: Path, output_name: str):
         full_dir = ensure_dir(base_dir / FULL_RESPONSE_DIRNAME)
@@ -108,14 +90,42 @@ class Pipeline:
         cleaned = clean_latex(combined, preamble)
         (base_dir / f"{output_name}.tex").write_text(cleaned)
 
-    def transcribe_pdf(self, *, pdf: Path, kind: Kind, model: str, output_name: str | None = None):
+    def transcribe_pdf(
+        self,
+        *,
+        pdf: Path,
+        kind: Kind,
+        model: str,
+        output_name: str | None = None,
+        mode: PDFMode = PDFMode.AUTO,
+    ):
         bucket = self._bucket_for(model)
         instr, preamble = self._instruction_for_kind(kind)
 
-        base_dir = self.cfg.output_dir / slugify(pdf.stem)
-        pages_dir = ensure_dir(base_dir / PAGE_IMAGES_DIRNAME)
+        base_dir = ensure_dir(self.cfg.output_dir / slugify(pdf.stem))
         output_name = output_name or f"{pdf.stem}-transcribed"
 
+        strategy = mode
+        if isinstance(strategy, str):
+            strategy = PDFMode(strategy)
+        if strategy == PDFMode.AUTO:
+            strategy = PDFMode.PDF if self.llm.supports(model, "pdf") else PDFMode.IMAGES
+
+        if strategy == PDFMode.PDF and not self.llm.supports(model, "pdf"):
+            raise ValueError(f"Model {model} does not support PDF inputs")
+
+        if strategy == PDFMode.PDF:
+            texts: list[str] = []
+            with self._progress() as progress:
+                task = progress.add_task(f"Transcribing {pdf.name}", total=1)
+                bucket.acquire()
+                text = self.llm.transcribe_pdf(model=model, instruction=instr, pdf_path=pdf)
+                texts.append(text)
+                progress.update(task, advance=1)
+            self._combine_and_write(texts=texts, preamble=preamble, base_dir=base_dir, output_name=output_name)
+            return
+
+        pages_dir = ensure_dir(base_dir / PAGE_IMAGES_DIRNAME)
         images = pdf_to_png(pdf, pages_dir, prefix=output_name)
 
         texts: list[str] = []

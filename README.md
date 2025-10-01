@@ -4,17 +4,17 @@ Lecture Summarizer is a modular toolkit for turning slide decks, lecture handout
 
 ## Highlights
 
-- **Unified pipelines** – one orchestration layer handles PDF-to-image fan out, LLM interactions, and LaTeX cleanup for slides, lectures, documents, and ad-hoc images.
-- **Per-model throttling** – built-in token bucket rate limiter respects the recommended RPM caps for supported Gemini models.
-- **Template-driven prompts** – editable prompt templates live in `templates/` and are cached at runtime for fast reuse.
+- **Unified pipelines** – one orchestration layer handles PDF-to-image fan out, direct PDF ingestion, LLM interactions, and LaTeX cleanup for slides, lectures, documents, and ad-hoc images.
+- **Per-model throttling** – built-in token bucket rate limiter respects conservative RPM caps for current Gemini models.
+- **Customizable prompts** – instruction prompts now live in editable `*-prompt.txt` files so you can tailor behaviour without touching code.
 - **Drop-in CLI & library** – invoke the Typer CLI from the shell or call the same functionality from Python without global state.
 - **Structured outputs** – every run captures raw model responses and cleaned LaTeX in deterministic directories under `output/`.
 
 ## Requirements
 
 - Python 3.10+
-- Google Gemini access and a `GEMINI_API_KEY` with permissions for `gemini-2.0-flash` and `gemini-2.0-flash-thinking-exp-01-21`
-- Poppler (needed by `pdf2image` for PDF rasterization)
+- Google Gemini access and a `GEMINI_API_KEY` with permissions for the latest models (e.g. `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-pro`).
+- Poppler (needed by `pdf2image` when using image-based PDF transcription)
 
 ## Installation
 
@@ -33,11 +33,16 @@ To work on the codebase locally, create a virtual environment (e.g., `uv venv` o
 
 ## Configuration
 
+Environment variables:
+
 | Setting | Description |
 | --- | --- |
 | `GEMINI_API_KEY` | Required. API key picked up by the CLI and Python API via `AppConfig.from_env`. |
-| `templates/` | Contains prompt fragments used for each pipeline. Customize these to tune model behavior. |
-| `output/` | Default destination for generated artifacts (`full-response/`, cleaned `.tex`, optional `.md`/`.json`). |
+| `LECTURE_SUMMARIZER_DEFAULT_MODEL` | Optional. Override the default transcription model (defaults to `gemini-2.5-flash-lite`). |
+| `LECTURE_SUMMARIZER_OUTPUT_DIR` | Optional. Override the base output directory (`output/` by default). |
+| `LECTURE_SUMMARIZER_TEMPLATES_DIR` | Optional. Point to an alternate prompt template directory. |
+
+Prompt preambles and instructions live inside `templates/`. Adjust the `*-prompt.txt` files to fine-tune behaviour per content type.
 
 ## CLI Usage
 
@@ -47,11 +52,11 @@ After installation the `lecture-summarizer` command becomes available. Every com
 export GEMINI_API_KEY="..."
 
 # Slides and lecture decks
-lecture-summarizer slides /path/to/slides
+lecture-summarizer slides /path/to/slides --pdf-mode images
 lecture-summarizer lectures /path/to/lectures --exclude 3,5
 
 # Generic PDFs (documents, worksheets, papers)
-lecture-summarizer documents /path/to/pdfs --recursive
+lecture-summarizer documents /path/to/pdfs --recursive --pdf-mode pdf
 
 # Static images (PNG by default)
 lecture-summarizer images /path/to/imgs --pattern "*.jpg" --separate false
@@ -81,7 +86,7 @@ TranscribeDocuments(docs, recursive=True)
 An API call automatically:
 1. Loads configuration from the environment.
 2. Applies per-model rate limits.
-3. Converts PDFs to page images (for transcription flows).
+3. Chooses between direct PDF ingestion (if the selected model supports it) or PDF-to-image fan out.
 4. Writes combined raw output (`full-response/{name}.txt`) and cleaned LaTeX (`{name}.tex`).
 
 ## Output Structure

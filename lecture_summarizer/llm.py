@@ -1,12 +1,12 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import PIL.Image
 import pillow_avif  # noqa: F401
 from google import genai
 
+from .constants import MODEL_CAPABILITIES
 
 @dataclass
 class LLMClient:
@@ -20,6 +20,14 @@ class LLMClient:
         resp = self._client.models.generate_content(
             model=model,
             contents=[(instruction, img)],
+        )
+        return (resp.text or "").strip()
+
+    def transcribe_pdf(self, *, model: str, instruction: str, pdf_path: Path) -> str:
+        upload = self._client.files.upload(file=pdf_path)
+        resp = self._client.models.generate_content(
+            model=model,
+            contents=[instruction, upload],
         )
         return (resp.text or "").strip()
 
@@ -40,3 +48,13 @@ class LLMClient:
             contents=[f"Instructions:\n{prompt}\n\n```\n{latex_text}\n```"],
         )
         return (resp.text or "").strip()
+
+    def supports(self, model: str, capability: str) -> bool:
+        caps = MODEL_CAPABILITIES.get(model)
+        if caps is None and "-preview" in model:
+            caps = MODEL_CAPABILITIES.get(model.split("-preview", 1)[0])
+        if caps is None and "-exp" in model:
+            caps = MODEL_CAPABILITIES.get(model.split("-exp", 1)[0])
+        if caps is None:
+            return capability == "text"
+        return capability in caps
