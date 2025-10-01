@@ -68,8 +68,11 @@ lecture-summarizer transcribe /path/to/notes --kind lecture
 lecture-summarizer images /path/to/imgs --pattern "*.jpg" --separate false
 
 # Post-processing helpers
-lecture-summarizer latex-md /path/to/tex
-lecture-summarizer latex-json /path/to/tex --recursive
+lecture-summarizer convert md /path/to/tex
+lecture-summarizer convert json /path/to/tex --recursive
+
+# Legacy presets (still available for scripts)
+lecture-summarizer slides /path/to/slides --pdf-mode images  # hidden in --help output
 ```
 
 Run `lecture-summarizer --help` or `lecture-summarizer <command> --help` for parameter details.

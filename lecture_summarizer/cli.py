@@ -16,6 +16,8 @@ from .pipeline import PDFMode
 
 
 app = typer.Typer(add_completion=False)
+convert_app = typer.Typer(help="Utilities for converting LaTeX outputs")
+app.add_typer(convert_app, name="convert")
 
 
 @app.command()
@@ -43,7 +45,7 @@ def transcribe(
     )
 
 
-@app.command()
+@app.command(hidden=True)
 def slides(
     source: Path,
     output_dir: Path | None = None,
@@ -65,7 +67,7 @@ def slides(
     )
 
 
-@app.command()
+@app.command(hidden=True)
 def lectures(
     source: Path,
     output_dir: Path | None = None,
@@ -87,7 +89,7 @@ def lectures(
     )
 
 
-@app.command()
+@app.command(hidden=True)
 def documents(
     source: Path,
     output_dir: Path | None = None,
@@ -108,7 +110,7 @@ def documents(
     )
 
 
-@app.command()
+@app.command(hidden=True)
 def images(
     source: Path,
     output_dir: Path | None = None,
@@ -127,7 +129,7 @@ def images(
     )
 
 
-@app.command("latex-md")
+@convert_app.command("md")
 def latex_md(
     source: Path,
     output_dir: Path | None = None,
@@ -144,7 +146,7 @@ def latex_md(
     )
 
 
-@app.command("latex-json")
+@convert_app.command("json")
 def latex_json(
     source: Path,
     output_dir: Path | None = None,
