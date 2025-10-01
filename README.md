@@ -104,7 +104,7 @@ Markdown (`*.md`) and JSON (`*.json`) files are written alongside the LaTeX when
 - Ship optional Markdown/JSON schema validators.
 
 ## License
-This project does not yet publish an explicit license. If you plan to use the code in production, open an issue to discuss licensing.
+Released under the [GNU General Public License v3.0](LICENSE).
 
 ## Community & Support
 Questions, feature requests, or bugs are welcome—open an issue or submit a pull request. For feature proposals, please outline the use case and any model-specific constraints you have encountered.
