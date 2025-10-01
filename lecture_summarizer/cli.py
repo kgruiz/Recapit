@@ -10,11 +10,37 @@ from .api import (
     TranscribeImages,
     LatexToMarkdown,
     LatexToJson,
+    TranscribeAuto,
 )
 from .pipeline import PDFMode
 
 
 app = typer.Typer(add_completion=False)
+
+
+@app.command()
+def transcribe(
+    source: Path,
+    output_dir: Path | None = None,
+    kind: str = typer.Option("auto", "--kind", "-k", case_sensitive=False, help="auto|slides|lecture|document"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Override the default model"),
+    recursive: bool = False,
+    skip_existing: bool = True,
+    pdf_mode: PDFMode = typer.Option(PDFMode.AUTO, "--pdf-mode", case_sensitive=False, help="How to feed PDFs: images, pdf, or auto"),
+    include_images: bool = typer.Option(False, "--include-images", help="Also process standalone images when scanning directories"),
+    image_pattern: str = typer.Option("*.png", "--image-pattern", help="Glob for supplemental images when --include-images is set"),
+):
+    TranscribeAuto(
+        source,
+        outputDir=output_dir,
+        skipExisting=skip_existing,
+        recursive=recursive,
+        model=model,
+        pdfMode=pdf_mode,
+        kind=kind,
+        includeImages=include_images,
+        imagePattern=image_pattern,
+    )
 
 
 @app.command()

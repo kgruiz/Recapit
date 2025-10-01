@@ -7,6 +7,7 @@ Lecture Summarizer is a modular toolkit for turning slide decks, lecture handout
 - **Unified pipelines** – one orchestration layer handles PDF-to-image fan out, direct PDF ingestion, LLM interactions, and LaTeX cleanup for slides, lectures, documents, and ad-hoc images.
 - **Per-model throttling** – built-in token bucket rate limiter respects conservative RPM caps for current Gemini models.
 - **Smart defaults** – works out of the box with built-in prompts and LaTeX preambles, but you can drop override files in `templates/` when you need fine control.
+- **Auto classification** – a single `transcribe` command heuristically routes decks, lecture notes, worksheets, and general PDFs to the right prompt without extra flags.
 - **Drop-in CLI & library** – invoke the Typer CLI from the shell or call the same functionality from Python without global state.
 - **Structured outputs** – every run captures raw model responses and cleaned LaTeX in deterministic directories under `output/`.
 
@@ -42,7 +43,7 @@ Environment variables:
 | `LECTURE_SUMMARIZER_OUTPUT_DIR` | Optional. Override the base output directory (`output/` by default). |
 | `LECTURE_SUMMARIZER_TEMPLATES_DIR` | Optional. Point to an alternate prompt template directory. |
 
-All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`).
+All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
 
 ## CLI Usage
 
@@ -51,12 +52,17 @@ After installation the `lecture-summarizer` command becomes available. Every com
 ```shell
 export GEMINI_API_KEY="..."
 
+# Mixed PDF folders – auto-detects slides vs. documents, optional image pickup
+lecture-summarizer transcribe /path/to/materials --recursive --include-images
+
 # Slides and lecture decks
 lecture-summarizer slides /path/to/slides --pdf-mode images
 lecture-summarizer lectures /path/to/lectures --exclude 3,5
 
 # Generic PDFs (documents, worksheets, papers)
 lecture-summarizer documents /path/to/pdfs --recursive --pdf-mode pdf
+# Force a style if the heuristic guess is wrong
+lecture-summarizer transcribe /path/to/notes --kind lecture
 
 # Static images (PNG by default)
 lecture-summarizer images /path/to/imgs --pattern "*.jpg" --separate false
@@ -74,6 +80,7 @@ Every CLI command is backed by the same importable API. Common entry points:
 
 ```python
 from lecture_summarizer import (
+    TranscribeAuto,
     TranscribeDocuments,
     TranscribeLectures,
     LatexToMarkdown,
@@ -81,6 +88,9 @@ from lecture_summarizer import (
 
 docs = "/path/to/pdfs"
 TranscribeDocuments(docs, recursive=True)
+
+# Or let the library auto-detect slides vs. documents
+TranscribeAuto("/path/to/mixed", recursive=True, includeImages=True)
 ```
 
 An API call automatically:

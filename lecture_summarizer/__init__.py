@@ -5,6 +5,7 @@ from .api import (
     TranscribeImages,
     LatexToMarkdown,
     LatexToJson,
+    TranscribeAuto,
 )
 from .pipeline import PDFMode
 
@@ -15,5 +16,6 @@ __all__ = [
     "TranscribeImages",
     "LatexToMarkdown",
     "LatexToJson",
+    "TranscribeAuto",
     "PDFMode",
 ]
