@@ -2373,7 +2373,7 @@ def LatexToMarkdown(
 def TranscribeSlides(
     source: Path | list[Path] | str | list[str],
     outputDir: Path = None,
-    lectureNumPattern: str = r".*(\d+).*",
+    lectureNumPattern: str | None = r".*(\d+).*",
     excludeLectureNums: list[int] = [],
     skipExisting: bool = True,
 ):
@@ -2440,39 +2440,51 @@ def TranscribeSlides(
 
     cleanedSlideFiles = []
 
-    for slideFile in slideFiles:
+    if lectureNumPattern is not None:
 
-        lectureNum = re.findall(lectureNumPattern, slideFile.name)
+        for slideFile in slideFiles:
 
-        if not lectureNum:
+            lectureNum = re.findall(lectureNumPattern, slideFile.name)
 
-            console.print(f'Error extracting lecture number from "{slideFile.name}"')
+            if not lectureNum:
 
-            raise ValueError(f'Error extracting lecture number from "{slideFile.name}"')
+                console.print(
+                    f'Error extracting lecture number from "{slideFile.name}"'
+                )
 
-        elif len(lectureNum) > 1:
+                raise ValueError(
+                    f'Error extracting lecture number from "{slideFile.name}"'
+                )
 
-            console.print(f'Multiple lecture numbers found in "{slideFile.name}"')
+            elif len(lectureNum) > 1:
 
-            raise ValueError(f'Multiple lecture numbers found in "{slideFile.name}"')
+                console.print(f'Multiple lecture numbers found in "{slideFile.name}"')
 
-        try:
+                raise ValueError(
+                    f'Multiple lecture numbers found in "{slideFile.name}"'
+                )
 
-            lectureNum = int(lectureNum[0])
+            try:
 
-        except ValueError:
+                lectureNum = int(lectureNum[0])
 
-            console.print(
-                f'Error extracting lecture number from "{slideFile.name}". Extracted: "{lectureNum}"'
-            )
+            except ValueError:
 
-            raise
+                console.print(
+                    f'Error extracting lecture number from "{slideFile.name}". Extracted: "{lectureNum}"'
+                )
 
-        if lectureNum not in excludeLectureNums:
+                raise
 
-            cleanedSlideFiles.append(slideFile)
+            if lectureNum not in excludeLectureNums:
 
-    slideFiles = natsorted(cleanedSlideFiles)
+                cleanedSlideFiles.append(slideFile)
+
+        slideFiles = natsorted(cleanedSlideFiles)
+
+    else:
+
+        slideFiles = natsorted(slideFiles)
 
     numSlideFiles = len(slideFiles)
 
@@ -3595,18 +3607,10 @@ def FinishPickleLatexToMarkdown(
 
 if __name__ == "__main__":
 
-    math465Lectures = [
-        Path(
-            "/Users/kadengruizenga/Documents/School/W25/Math465/Slides/465 Lecture 18.pdf"
-        ),
-        Path(
-            "/Users/kadengruizenga/Documents/School/W25/Math465/Slides/465 Lecture 19.pdf"
-        ),
-    ]
-
-    TranscribeSlides(
-        math465Lectures,
-        outputDir=Path(
-            "/Users/kadengruizenga/Documents/School/W25/Math465/Summaries/Lectures/Transcribed"
-        ),
+    classInfo = natsorted(
+        Path("/Users/kadengruizenga/Documents/School/misc/course-planning/F25").glob(
+            "*.tex"
+        )
     )
+
+    LatexToMarkdown(classInfo)
