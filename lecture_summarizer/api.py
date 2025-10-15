@@ -204,7 +204,7 @@ def TranscribeAuto(
     kind: Kind | str | None = "auto",
     includeImages: bool = False,
     imagePattern: str = "*.png",
-    includeVideo: bool = False,
+    includeVideo: bool = True,
     videoPattern: str = "*.mp4",
     videoModel: str | None = None,
     videoTokenLimit: int | None = None,

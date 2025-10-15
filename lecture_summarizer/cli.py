@@ -100,10 +100,9 @@ def default(
         help="Glob for supplemental images when --include-images is set",
     ),
     include_video: bool = typer.Option(
-        False,
-        "--include-video",
-        "-V",
-        help="Also process video files when scanning directories",
+        True,
+        "--include-video/--no-include-video",
+        help="Toggle processing of video files when scanning directories",
     ),
     video_pattern: str = typer.Option(
         "*.mp4",
@@ -182,10 +181,9 @@ def transcribe(
         help="Glob for supplemental images when --include-images is set",
     ),
     include_video: bool = typer.Option(
-        False,
-        "--include-video",
-        "-V",
-        help="Also process video files when scanning directories",
+        True,
+        "--include-video/--no-include-video",
+        help="Toggle processing of video files when scanning directories",
     ),
     video_pattern: str = typer.Option(
         "*.mp4",
