@@ -36,6 +36,7 @@ def _run_transcribe(
     include_video: bool,
     video_pattern: str,
     video_model: Optional[str],
+    video_token_limit: Optional[int],
 ):
     normalized_pdf_mode = pdf_mode
     if isinstance(pdf_mode, str):
@@ -53,6 +54,7 @@ def _run_transcribe(
         includeVideo=include_video,
         videoPattern=video_pattern,
         videoModel=video_model,
+        videoTokenLimit=video_token_limit,
     )
 
 
@@ -114,6 +116,11 @@ def default(
         "--video-model",
         help="Override the default model specifically for video transcription",
     ),
+    video_token_limit: Optional[int] = typer.Option(
+        None,
+        "--video-token-limit",
+        help="Maximum tokens allowed per video chunk before splitting (default 300000)",
+    ),
 ):
     if ctx.invoked_subcommand:
         return
@@ -133,6 +140,7 @@ def default(
         include_video=include_video,
         video_pattern=video_pattern,
         video_model=video_model,
+        video_token_limit=video_token_limit,
     )
 
 
@@ -190,6 +198,11 @@ def transcribe(
         "--video-model",
         help="Override the default model specifically for video transcription",
     ),
+    video_token_limit: Optional[int] = typer.Option(
+        None,
+        "--video-token-limit",
+        help="Maximum tokens allowed per video chunk before splitting (default 300000)",
+    ),
 ):
     _run_transcribe(
         source=source,
@@ -204,6 +217,7 @@ def transcribe(
         include_video=include_video,
         video_pattern=video_pattern,
         video_model=video_model,
+        video_token_limit=video_token_limit,
     )
 
 

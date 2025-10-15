@@ -59,6 +59,7 @@ def _mk(ctx_output_dir: Path | None = None) -> Pipeline:
             templates_dir=cfg.templates_dir,
             default_model=cfg.default_model,
             save_full_response=cfg.save_full_response,
+            video_token_limit=cfg.video_token_limit,
         )
     return Pipeline(cfg=cfg, llm=LLMClient(api_key=cfg.api_key), templates=TemplateLoader(cfg.templates_dir))
 
@@ -175,6 +176,7 @@ def TranscribeVideos(
     filePattern: str = "*.mp4",
     skipExisting: bool = True,
     model: str | None = None,
+    tokenLimit: int | None = None,
 ):
     pl = _mk(outputDir)
     active_model = model or pl.cfg.default_model
@@ -182,7 +184,14 @@ def TranscribeVideos(
     videos = _coerce_videos(source, pattern=filePattern)
     if not videos:
         return
-    pl.transcribe_videos(videos=videos, model=active_model, output_dir=resolved_root, skip_existing=skipExisting)
+    effective_limit = tokenLimit if tokenLimit and tokenLimit > 0 else pl.cfg.video_token_limit
+    pl.transcribe_videos(
+        videos=videos,
+        model=active_model,
+        output_dir=resolved_root,
+        skip_existing=skipExisting,
+        token_limit=effective_limit,
+    )
 
 
 def TranscribeAuto(
@@ -198,6 +207,7 @@ def TranscribeAuto(
     includeVideo: bool = False,
     videoPattern: str = "*.mp4",
     videoModel: str | None = None,
+    videoTokenLimit: int | None = None,
 ):
     """Transcribe PDFs (and optionally images) with automatic prompt selection."""
 
@@ -252,6 +262,9 @@ def TranscribeAuto(
         includeVideo = True
 
     active_video_model = videoModel or active_model
+    if videoTokenLimit is not None and videoTokenLimit <= 0:
+        raise ValueError("videoTokenLimit must be a positive integer")
+    active_video_token_limit = videoTokenLimit or pl.cfg.video_token_limit
     pdf_error: Exception | None = None
     paths: list[Path] = []
     if not direct_video_input:
@@ -345,6 +358,7 @@ def TranscribeAuto(
             filePattern=videoPattern,
             skipExisting=skipExisting,
             model=active_video_model,
+            tokenLimit=active_video_token_limit,
         )
         did_process = True
 

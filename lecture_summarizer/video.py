@@ -6,11 +6,13 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .constants import DEFAULT_VIDEO_TOKENS_PER_SECOND
 from .utils import ensure_dir
 
 
 DEFAULT_MAX_CHUNK_SECONDS = 7200.0  # 2 hours
 DEFAULT_MAX_CHUNK_BYTES = 500 * 1024 * 1024  # 500 MB safety cap
+DEFAULT_TOKENS_PER_SECOND = float(DEFAULT_VIDEO_TOKENS_PER_SECOND)
 
 
 @dataclass(frozen=True)
@@ -167,12 +169,20 @@ def plan_video_chunks(
     normalized_path: Path,
     max_seconds: float = DEFAULT_MAX_CHUNK_SECONDS,
     max_bytes: int = DEFAULT_MAX_CHUNK_BYTES,
+    token_limit: int | None = None,
+    tokens_per_second: float = DEFAULT_TOKENS_PER_SECOND,
     chunk_dir: Path | None = None,
     manifest_path: Path | None = None,
 ) -> VideoChunkPlan:
     """Compute chunk boundaries and optionally prepare file paths."""
     chunk_dir = ensure_dir(Path(chunk_dir or normalized_path.parent))
-    boundaries = _compute_chunk_boundaries(metadata, max_seconds=max_seconds, max_bytes=max_bytes)
+    boundaries = _compute_chunk_boundaries(
+        metadata,
+        max_seconds=max_seconds,
+        max_bytes=max_bytes,
+        token_limit=token_limit,
+        tokens_per_second=tokens_per_second,
+    )
 
     if len(boundaries) == 1:
         start, end = boundaries[0]
@@ -199,6 +209,8 @@ def _compute_chunk_boundaries(
     *,
     max_seconds: float,
     max_bytes: int,
+    token_limit: int | None,
+    tokens_per_second: float,
 ) -> list[tuple[float, float]]:
     duration = max(metadata.duration_seconds, 0.0)
     if duration == 0.0:
@@ -211,6 +223,10 @@ def _compute_chunk_boundaries(
         max_seconds_by_size = max_bytes / bytes_per_second
 
     effective_max = max_seconds
+    if token_limit and tokens_per_second > 0:
+        max_seconds_by_tokens = token_limit / tokens_per_second
+        if math.isfinite(max_seconds_by_tokens):
+            effective_max = min(effective_max, max_seconds_by_tokens)
     if math.isfinite(max_seconds_by_size):
         effective_max = min(effective_max, max_seconds_by_size)
     effective_max = max(effective_max, 1.0)

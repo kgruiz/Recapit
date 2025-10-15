@@ -34,6 +34,7 @@ from .utils import ensure_dir, slugify
 from .video import (
     DEFAULT_MAX_CHUNK_BYTES,
     DEFAULT_MAX_CHUNK_SECONDS,
+    DEFAULT_TOKENS_PER_SECOND,
     normalize_video,
     plan_video_chunks,
     probe_video,
@@ -274,6 +275,8 @@ class Pipeline:
         fps_override: float | None = None,
         thinking_budget: int | None = None,
         include_thoughts: bool = False,
+        token_limit: int | None = None,
+        tokens_per_second: float | None = None,
     ):
         videos = list(videos)
         if not videos:
@@ -281,6 +284,11 @@ class Pipeline:
 
         chunk_seconds = max_chunk_seconds or DEFAULT_MAX_CHUNK_SECONDS
         chunk_bytes = max_chunk_bytes or DEFAULT_MAX_CHUNK_BYTES
+        effective_token_limit = token_limit if token_limit and token_limit > 0 else self.cfg.video_token_limit
+        tokens_per_sec = tokens_per_second if tokens_per_second and tokens_per_second > 0 else DEFAULT_TOKENS_PER_SECOND
+
+        if not self.llm.supports(model, "video"):
+            raise ValueError(f"Model {model} does not support video inputs")
 
         bucket = self._bucket_for(model)
         instr, preamble = self._instruction_for_kind(Kind.VIDEO)
@@ -308,6 +316,8 @@ class Pipeline:
                     normalized_path=normalized_path,
                     max_seconds=chunk_seconds,
                     max_bytes=chunk_bytes,
+                    token_limit=effective_token_limit,
+                    tokens_per_second=tokens_per_sec,
                     chunk_dir=chunk_root,
                     manifest_path=manifest_path,
                 )
@@ -321,6 +331,8 @@ class Pipeline:
                     "video_codec": normalized_meta.video_codec,
                     "audio_codec": normalized_meta.audio_codec,
                     "model": model,
+                    "token_limit": effective_token_limit,
+                    "tokens_per_second": tokens_per_sec,
                     "generated_at": datetime.now(timezone.utc).isoformat(),
                     "chunks": [
                         {
