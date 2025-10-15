@@ -25,7 +25,7 @@ from .constants import (
 from .rate_limiter import TokenBucket
 from .templates import TemplateLoader
 from .llm import LLMClient
-from .pdf import pdf_to_png
+from .pdf import pdf_to_png, total_pages
 from .clean import strip_code_fences, clean_latex
 from .utils import ensure_dir, slugify
 
@@ -116,12 +116,18 @@ class Pipeline:
 
         if strategy == PDFMode.PDF:
             texts: list[str] = []
+            try:
+                page_total = total_pages([pdf])
+            except Exception:
+                page_total = 1
+            if page_total <= 0:
+                page_total = 1
             with self._progress() as progress:
-                task = progress.add_task(f"Transcribing {pdf.name}", total=1)
+                task = progress.add_task(f"Transcribing {pdf.name}", total=page_total)
                 bucket.acquire()
                 text = self.llm.transcribe_pdf(model=model, instruction=instr, pdf_path=pdf)
                 texts.append(text)
-                progress.update(task, advance=1)
+                progress.update(task, advance=page_total)
             self._combine_and_write(texts=texts, preamble=preamble, base_dir=base_dir, output_name=output_name)
             return
 
