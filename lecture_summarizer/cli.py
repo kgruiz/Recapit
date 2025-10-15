@@ -11,8 +11,15 @@ from .api import (
 from .pipeline import PDFMode
 
 
-app = typer.Typer(add_completion=False, no_args_is_help=True)
-convert_app = typer.Typer(help="Utilities for converting LaTeX outputs")
+app = typer.Typer(
+    add_completion=False,
+    no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+convert_app = typer.Typer(
+    help="Utilities for converting LaTeX outputs",
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 app.add_typer(convert_app, name="convert")
 
 
@@ -23,17 +30,20 @@ def _run_transcribe(
     model: Optional[str],
     recursive: bool,
     skip_existing: bool,
-    pdf_mode: PDFMode,
+    pdf_mode: PDFMode | str,
     include_images: bool,
     image_pattern: str,
 ):
+    normalized_pdf_mode = pdf_mode
+    if isinstance(pdf_mode, str):
+        normalized_pdf_mode = PDFMode(pdf_mode.lower())
     TranscribeAuto(
         source,
         outputDir=output_dir,
         skipExisting=skip_existing,
         recursive=recursive,
         model=model,
-        pdfMode=pdf_mode,
+        pdfMode=normalized_pdf_mode,
         kind=kind,
         includeImages=include_images,
         imagePattern=image_pattern,
@@ -50,11 +60,37 @@ def default(
     output_dir: Path | None = typer.Option(None, "--output-dir", "-o", help="Override output directory"),
     kind: str = typer.Option("auto", "--kind", "-k", case_sensitive=False, help="auto|slides|lecture|document|image"),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Override the default model"),
-    recursive: bool = typer.Option(False, "--recursive", help="Recurse into directories when scanning for PDFs"),
-    skip_existing: bool = typer.Option(True, "--skip-existing/--no-skip-existing", help="Skip outputs that already exist"),
-    pdf_mode: PDFMode = typer.Option(PDFMode.AUTO, "--pdf-mode", case_sensitive=False, help="How to feed PDFs: images, pdf, or auto"),
-    include_images: bool = typer.Option(False, "--include-images", help="Also process standalone images when scanning directories"),
-    image_pattern: str = typer.Option("*.png", "--image-pattern", help="Glob for supplemental images when --include-images is set"),
+    recursive: bool = typer.Option(
+        False,
+        "--recursive",
+        "-r",
+        help="Recurse into directories when scanning for PDFs",
+    ),
+    skip_existing: bool = typer.Option(
+        True,
+        "--skip-existing/--no-skip-existing",
+        "-s/-S",
+        help="Skip outputs that already exist",
+    ),
+    pdf_mode: str = typer.Option(
+        PDFMode.AUTO.value,
+        "--pdf-mode",
+        "-P",
+        case_sensitive=False,
+        help="How to feed PDFs: images, pdf, or auto",
+    ),
+    include_images: bool = typer.Option(
+        False,
+        "--include-images",
+        "-i",
+        help="Also process standalone images when scanning directories",
+    ),
+    image_pattern: str = typer.Option(
+        "*.png",
+        "--image-pattern",
+        "-p",
+        help="Glob for supplemental images when --include-images is set",
+    ),
 ):
     if ctx.invoked_subcommand:
         return
@@ -80,11 +116,37 @@ def transcribe(
     output_dir: Path | None = None,
     kind: str = typer.Option("auto", "--kind", "-k", case_sensitive=False, help="auto|slides|lecture|document|image"),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Override the default model"),
-    recursive: bool = False,
-    skip_existing: bool = typer.Option(True, "--skip-existing/--no-skip-existing", help="Skip outputs that already exist"),
-    pdf_mode: PDFMode = typer.Option(PDFMode.AUTO, "--pdf-mode", case_sensitive=False, help="How to feed PDFs: images, pdf, or auto"),
-    include_images: bool = typer.Option(False, "--include-images", help="Also process standalone images when scanning directories"),
-    image_pattern: str = typer.Option("*.png", "--image-pattern", help="Glob for supplemental images when --include-images is set"),
+    recursive: bool = typer.Option(
+        False,
+        "--recursive",
+        "-r",
+        help="Recurse into directories when scanning for PDFs",
+    ),
+    skip_existing: bool = typer.Option(
+        True,
+        "--skip-existing/--no-skip-existing",
+        "-s/-S",
+        help="Skip outputs that already exist",
+    ),
+    pdf_mode: str = typer.Option(
+        PDFMode.AUTO.value,
+        "--pdf-mode",
+        "-P",
+        case_sensitive=False,
+        help="How to feed PDFs: images, pdf, or auto",
+    ),
+    include_images: bool = typer.Option(
+        False,
+        "--include-images",
+        "-i",
+        help="Also process standalone images when scanning directories",
+    ),
+    image_pattern: str = typer.Option(
+        "*.png",
+        "--image-pattern",
+        "-p",
+        help="Glob for supplemental images when --include-images is set",
+    ),
 ):
     _run_transcribe(
         source=source,
@@ -102,9 +164,14 @@ def transcribe(
 @convert_app.command("md")
 def latex_md(
     source: Path,
-    output_dir: Path | None = None,
-    pattern: str = "*.tex",
-    skip_existing: bool = True,
+    output_dir: Path | None = typer.Option(None, "--output-dir", "-o", help="Override output directory"),
+    pattern: str = typer.Option("*.tex", "--pattern", "-p", help="Glob pattern for LaTeX sources"),
+    skip_existing: bool = typer.Option(
+        True,
+        "--skip-existing/--no-skip-existing",
+        "-s/-S",
+        help="Skip outputs that already exist",
+    ),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Model for Markdown conversion"),
 ):
     LatexToMarkdown(
@@ -119,10 +186,20 @@ def latex_md(
 @convert_app.command("json")
 def latex_json(
     source: Path,
-    output_dir: Path | None = None,
-    pattern: str = "*.tex",
-    skip_existing: bool = True,
-    recursive: bool = False,
+    output_dir: Path | None = typer.Option(None, "--output-dir", "-o", help="Override output directory"),
+    pattern: str = typer.Option("*.tex", "--pattern", "-p", help="Glob pattern for LaTeX sources"),
+    skip_existing: bool = typer.Option(
+        True,
+        "--skip-existing/--no-skip-existing",
+        "-s/-S",
+        help="Skip outputs that already exist",
+    ),
+    recursive: bool = typer.Option(
+        False,
+        "--recursive",
+        "-r",
+        help="Recurse into subdirectories when scanning for LaTeX files",
+    ),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Model for JSON conversion"),
 ):
     LatexToJson(
