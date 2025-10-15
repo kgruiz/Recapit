@@ -71,12 +71,20 @@ def TranscribeSlides(
 ):
     pl = _mk(outputDir)
     active_model = model or pl.cfg.default_model
+    resolved_root = Path(outputDir).expanduser() if outputDir else None
     paths = _coerce_pdfs(source)
     for p in _filter_by_pattern(paths, lectureNumPattern, excludeLectureNums):
-        out_tex = pl.cfg.output_dir / p.stem / f"{p.stem}-transcribed.tex"
+        out_base = pl.output_base_for(source=p, override_root=resolved_root)
+        out_tex = out_base / f"{p.stem}-transcribed.tex"
         if skipExisting and out_tex.exists():
             continue
-        pl.transcribe_pdf(pdf=p, kind=Kind.SLIDES, model=active_model, mode=pdfMode)
+        pl.transcribe_pdf(
+            pdf=p,
+            kind=Kind.SLIDES,
+            model=active_model,
+            mode=pdfMode,
+            output_root=resolved_root,
+        )
 
 
 def TranscribeLectures(
@@ -90,12 +98,20 @@ def TranscribeLectures(
 ):
     pl = _mk(outputDir)
     active_model = model or pl.cfg.default_model
+    resolved_root = Path(outputDir).expanduser() if outputDir else None
     paths = _coerce_pdfs(source)
     for p in _filter_by_pattern(paths, lectureNumPattern, excludeLectureNums):
-        out_tex = pl.cfg.output_dir / p.stem / f"{p.stem}-transcribed.tex"
+        out_base = pl.output_base_for(source=p, override_root=resolved_root)
+        out_tex = out_base / f"{p.stem}-transcribed.tex"
         if skipExisting and out_tex.exists():
             continue
-        pl.transcribe_pdf(pdf=p, kind=Kind.LECTURE, model=active_model, mode=pdfMode)
+        pl.transcribe_pdf(
+            pdf=p,
+            kind=Kind.LECTURE,
+            model=active_model,
+            mode=pdfMode,
+            output_root=resolved_root,
+        )
 
 
 def TranscribeDocuments(
@@ -109,13 +125,22 @@ def TranscribeDocuments(
 ):
     pl = _mk(outputDir)
     active_model = model or pl.cfg.default_model
+    resolved_root = Path(outputDir).expanduser() if outputDir else None
     paths = _coerce_pdfs(source, recursive=recursive)
     for p in paths:
         out_name = outputName or f"{p.stem}-transcribed"
-        out_tex = pl.cfg.output_dir / p.stem / f"{out_name}.tex"
+        out_base = pl.output_base_for(source=p, override_root=resolved_root)
+        out_tex = out_base / f"{out_name}.tex"
         if skipExisting and out_tex.exists():
             continue
-        pl.transcribe_pdf(pdf=p, kind=Kind.DOCUMENT, model=active_model, output_name=out_name, mode=pdfMode)
+        pl.transcribe_pdf(
+            pdf=p,
+            kind=Kind.DOCUMENT,
+            model=active_model,
+            output_name=out_name,
+            mode=pdfMode,
+            output_root=resolved_root,
+        )
 
 
 def TranscribeImages(
@@ -128,16 +153,17 @@ def TranscribeImages(
 ):
     pl = _mk(outputDir)
     active_model = model or pl.cfg.default_model
+    resolved_root = Path(outputDir).expanduser() if outputDir else None
     imgs = _coerce_images(source, pattern=filePattern)
     if not separateOutputs:
-        pl.transcribe_images(images=imgs, kind=Kind.IMAGE, model=active_model, output_dir=outputDir, bulk=True)
+        pl.transcribe_images(images=imgs, kind=Kind.IMAGE, model=active_model, output_dir=resolved_root, bulk=True)
         return
     for img in imgs:
-        out_dir = (Path(outputDir) if outputDir else pl.cfg.output_dir) / img.stem
+        out_dir = pl.output_base_for(source=img, override_root=resolved_root)
         out_tex = out_dir / f"{img.stem}-transcribed.tex"
         if skipExisting and out_tex.exists():
             continue
-        pl.transcribe_images(images=[img], kind=Kind.IMAGE, model=active_model, output_dir=outputDir, bulk=False)
+        pl.transcribe_images(images=[img], kind=Kind.IMAGE, model=active_model, output_dir=resolved_root, bulk=False)
 
 
 def TranscribeAuto(
@@ -164,6 +190,7 @@ def TranscribeAuto(
     else:
         forced_kind = _resolve_kind(kind)
 
+    resolved_root = Path(outputDir).expanduser() if outputDir else None
     paths = _coerce_pdfs(source, recursive=recursive)
     if paths:
         progress = pl._progress()
@@ -174,7 +201,7 @@ def TranscribeAuto(
             for p in paths:
                 inferred = forced_kind or _resolve_kind(guess_pdf_kind(p))
                 out_name = f"{p.stem}-transcribed"
-                out_dir = pl.cfg.output_dir / slugify(p.stem)
+                out_dir = pl.output_base_for(source=p, override_root=resolved_root)
                 out_tex = out_dir / f"{out_name}.tex"
                 if skipExisting and out_tex.exists():
                     progress.console.print(f"[yellow]Skipping {p.name} (existing outputs). Use --no-skip-existing to regenerate.[/yellow]")
@@ -188,6 +215,7 @@ def TranscribeAuto(
                     output_name=out_name,
                     mode=pdfMode,
                     progress=progress,
+                    output_root=resolved_root,
                     files_task=files_task,
                 )
                 progress.console.print(f"[green]Saved[/green] {out_dir / (out_name + '.tex')}")
@@ -228,13 +256,14 @@ def LatexToMarkdown(
 ):
     pl = _mk(outputDir)
     active_model = model or GEMINI_2_FLASH_THINKING_EXP
+    resolved_root = Path(outputDir).expanduser() if outputDir else None
     tex_files = _coerce_tex(source, pattern=filePattern)
     for t in tex_files:
-        out_dir = (Path(outputDir) if outputDir else pl.cfg.output_dir) / t.stem
+        out_dir = pl.output_base_for(source=t, override_root=resolved_root)
         out_md = out_dir / f"{t.stem}.md"
         if skipExisting and out_md.exists():
             continue
-        pl.latex_to_markdown(tex_file=t, model=active_model, output_dir=out_dir, output_name=t.stem)
+        pl.latex_to_markdown(tex_file=t, model=active_model, output_dir=resolved_root, output_name=t.stem)
 
 
 def LatexToJson(
@@ -247,13 +276,14 @@ def LatexToJson(
 ):
     pl = _mk(outputDir)
     active_model = model or GEMINI_2_FLASH_THINKING_EXP
+    resolved_root = Path(outputDir).expanduser() if outputDir else None
     tex_files = _coerce_tex(source, pattern=filePattern, recursive=recursive)
     for t in tex_files:
-        out_dir = (Path(outputDir) if outputDir else pl.cfg.output_dir) / t.stem
+        out_dir = pl.output_base_for(source=t, override_root=resolved_root)
         out_json = out_dir / f"{t.stem}.json"
         if skipExisting and out_json.exists():
             continue
-        pl.latex_to_json(tex_file=t, model=active_model, output_dir=out_dir, output_name=t.stem)
+        pl.latex_to_json(tex_file=t, model=active_model, output_dir=resolved_root, output_name=t.stem)
 
 
 # ---- helpers ----

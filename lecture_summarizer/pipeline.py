@@ -50,6 +50,17 @@ class Pipeline:
     llm: LLMClient
     templates: TemplateLoader
 
+    def _select_output_root(self, *, override: Path | None, fallback: Path) -> Path:
+        if override is not None:
+            return Path(override)
+        if self.cfg.output_dir is not None:
+            return self.cfg.output_dir
+        return fallback
+
+    def output_base_for(self, *, source: Path, override_root: Path | None = None) -> Path:
+        root = self._select_output_root(override=override_root, fallback=source.parent)
+        return root / slugify(source.stem)
+
     def _progress(self, *, transient: bool = False) -> Progress:
         return Progress(
             SpinnerColumn(),
@@ -100,12 +111,14 @@ class Pipeline:
         model: str,
         output_name: str | None,
         mode: PDFMode,
+        output_root: Path | None,
         files_task: TaskID | None,
     ) -> None:
         bucket = self._bucket_for(model)
         instr, preamble = self._instruction_for_kind(kind)
 
-        base_dir = ensure_dir(self.cfg.output_dir / slugify(pdf.stem))
+        base_dir_path = self.output_base_for(source=pdf, override_root=output_root)
+        base_dir = ensure_dir(base_dir_path)
         output_name = output_name or f"{pdf.stem}-transcribed"
 
         strategy = mode
@@ -161,6 +174,7 @@ class Pipeline:
         output_name: str | None = None,
         mode: PDFMode = PDFMode.AUTO,
         progress: Progress | None = None,
+        output_root: Path | None = None,
         files_task: TaskID | None = None,
     ):
         if progress is None:
@@ -172,6 +186,7 @@ class Pipeline:
                     model=model,
                     output_name=output_name,
                     mode=mode,
+                    output_root=output_root,
                     files_task=files_task,
                 )
         else:
@@ -182,6 +197,7 @@ class Pipeline:
                 model=model,
                 output_name=output_name,
                 mode=mode,
+                output_root=output_root,
                 files_task=files_task,
             )
 
@@ -198,10 +214,17 @@ class Pipeline:
         instr, preamble = self._instruction_for_kind(kind)
 
         images = list(images)
-        base_dir = (output_dir or self.cfg.output_dir)
+        if not images:
+            return
+
         if bulk:
+            resolved_root = self._select_output_root(
+                override=output_dir,
+                fallback=images[0].parent,
+            )
             output_name = "bulk-transcribed"
             texts: list[str] = []
+            base_dir = ensure_dir(resolved_root)
             with self._progress() as progress:
                 task = progress.add_task("Transcribing images", total=len(images))
                 for img in images:
@@ -215,7 +238,7 @@ class Pipeline:
         with self._progress() as progress:
             task = progress.add_task("Transcribing images", total=len(images))
             for img in images:
-                out_dir = ensure_dir(base_dir / slugify(img.stem))
+                out_dir = ensure_dir(self.output_base_for(source=img, override_root=output_dir))
                 output_name = f"{img.stem}-transcribed"
                 bucket.acquire()
                 text = self.llm.transcribe_image(model=model, instruction=instr, image_path=img)
@@ -233,8 +256,8 @@ class Pipeline:
         prompt = self.templates.latex_to_md_prompt()
         latex_text = tex_file.read_text()
         text = self.llm.latex_to_markdown(model=model, prompt=prompt, latex_text=latex_text)
-        out_dir = (output_dir or (self.cfg.output_dir / slugify(tex_file.stem)))
-        ensure_dir(out_dir)
+        resolved_root = self._select_output_root(override=output_dir, fallback=tex_file.parent)
+        out_dir = ensure_dir(resolved_root / slugify(tex_file.stem))
         out_name = (output_name or tex_file.stem) + ".md"
         (out_dir / out_name).write_text(text)
 
@@ -249,7 +272,7 @@ class Pipeline:
         prompt = self.templates.latex_to_json_prompt()
         latex_text = tex_file.read_text()
         text = self.llm.latex_to_json(model=model, prompt=prompt, latex_text=latex_text)
-        out_dir = (output_dir or (self.cfg.output_dir / slugify(tex_file.stem)))
-        ensure_dir(out_dir)
+        resolved_root = self._select_output_root(override=output_dir, fallback=tex_file.parent)
+        out_dir = ensure_dir(resolved_root / slugify(tex_file.stem))
         out_name = (output_name or tex_file.stem) + ".json"
         (out_dir / out_name).write_text(text)
