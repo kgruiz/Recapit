@@ -12,6 +12,7 @@ from rich.progress import (
     MofNCompleteColumn,
     TimeElapsedColumn,
     TimeRemainingColumn,
+    TaskID,
 )
 
 from .config import AppConfig
@@ -49,7 +50,7 @@ class Pipeline:
     llm: LLMClient
     templates: TemplateLoader
 
-    def _progress(self) -> Progress:
+    def _progress(self, *, transient: bool = False) -> Progress:
         return Progress(
             SpinnerColumn(),
             TextColumn("[bold blue]{task.description}", justify="left"),
@@ -61,7 +62,7 @@ class Pipeline:
             TextColumn("•"),
             TimeRemainingColumn(),
             expand=True,
-            transient=True,
+            transient=transient,
         )
 
     def _instruction_for_kind(self, kind: Kind) -> tuple[str, str]:
@@ -90,15 +91,17 @@ class Pipeline:
         cleaned = clean_latex(combined, preamble)
         (base_dir / f"{output_name}.tex").write_text(cleaned)
 
-    def transcribe_pdf(
+    def _transcribe_pdf_with_progress(
         self,
+        progress: Progress,
         *,
         pdf: Path,
         kind: Kind,
         model: str,
-        output_name: str | None = None,
-        mode: PDFMode = PDFMode.AUTO,
-    ):
+        output_name: str | None,
+        mode: PDFMode,
+        files_task: TaskID | None,
+    ) -> None:
         bucket = self._bucket_for(model)
         instr, preamble = self._instruction_for_kind(kind)
 
@@ -122,27 +125,65 @@ class Pipeline:
                 page_total = 1
             if page_total <= 0:
                 page_total = 1
-            with self._progress() as progress:
-                task = progress.add_task(f"Transcribing {pdf.name}", total=page_total)
-                bucket.acquire()
-                text = self.llm.transcribe_pdf(model=model, instruction=instr, pdf_path=pdf)
-                texts.append(text)
-                progress.update(task, advance=page_total)
+            task_label = f"{pdf.name} ({page_total} page{'s' if page_total != 1 else ''})"
+            page_task = progress.add_task(f"Transcribing {task_label}", total=page_total)
+            bucket.acquire()
+            text = self.llm.transcribe_pdf(model=model, instruction=instr, pdf_path=pdf)
+            texts.append(text)
+            progress.update(page_task, advance=page_total)
             self._combine_and_write(texts=texts, preamble=preamble, base_dir=base_dir, output_name=output_name)
+            if files_task is not None:
+                progress.update(files_task, advance=1)
             return
 
         pages_dir = ensure_dir(base_dir / PAGE_IMAGES_DIRNAME)
         images = pdf_to_png(pdf, pages_dir, prefix=output_name)
+        page_total = max(len(images), 1)
+        task_label = f"{pdf.name} ({page_total} page{'s' if page_total != 1 else ''})"
+        page_task = progress.add_task(f"Transcribing {task_label}", total=page_total)
 
         texts: list[str] = []
-        with self._progress() as progress:
-            task = progress.add_task(f"Transcribing {pdf.name}", total=len(images))
-            for img in images:
-                bucket.acquire()
-                text = self.llm.transcribe_image(model=model, instruction=instr, image_path=img)
-                texts.append(text)
-                progress.update(task, advance=1)
+        for img in images:
+            bucket.acquire()
+            text = self.llm.transcribe_image(model=model, instruction=instr, image_path=img)
+            texts.append(text)
+            progress.update(page_task, advance=1)
         self._combine_and_write(texts=texts, preamble=preamble, base_dir=base_dir, output_name=output_name)
+        if files_task is not None:
+            progress.update(files_task, advance=1)
+
+    def transcribe_pdf(
+        self,
+        *,
+        pdf: Path,
+        kind: Kind,
+        model: str,
+        output_name: str | None = None,
+        mode: PDFMode = PDFMode.AUTO,
+        progress: Progress | None = None,
+        files_task: TaskID | None = None,
+    ):
+        if progress is None:
+            with self._progress() as local_progress:
+                self._transcribe_pdf_with_progress(
+                    local_progress,
+                    pdf=pdf,
+                    kind=kind,
+                    model=model,
+                    output_name=output_name,
+                    mode=mode,
+                    files_task=files_task,
+                )
+        else:
+            self._transcribe_pdf_with_progress(
+                progress,
+                pdf=pdf,
+                kind=kind,
+                model=model,
+                output_name=output_name,
+                mode=mode,
+                files_task=files_task,
+            )
 
     def transcribe_images(
         self,

@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Iterable
 
 from natsort import natsorted
+from rich.console import Console
 
 from .config import AppConfig
 from .templates import TemplateLoader
@@ -164,20 +165,34 @@ def TranscribeAuto(
         forced_kind = _resolve_kind(kind)
 
     paths = _coerce_pdfs(source, recursive=recursive)
-    for p in paths:
-        inferred = forced_kind or _resolve_kind(guess_pdf_kind(p))
-        out_name = f"{p.stem}-transcribed"
-        out_dir = pl.cfg.output_dir / slugify(p.stem)
-        out_tex = out_dir / f"{out_name}.tex"
-        if skipExisting and out_tex.exists():
-            continue
-        pl.transcribe_pdf(
-            pdf=p,
-            kind=inferred,
-            model=active_model,
-            output_name=out_name,
-            mode=pdfMode,
-        )
+    if paths:
+        progress = pl._progress()
+        with progress:
+            files_task = None
+            if len(paths) > 1:
+                files_task = progress.add_task("Files", total=len(paths))
+            for p in paths:
+                inferred = forced_kind or _resolve_kind(guess_pdf_kind(p))
+                out_name = f"{p.stem}-transcribed"
+                out_dir = pl.cfg.output_dir / slugify(p.stem)
+                out_tex = out_dir / f"{out_name}.tex"
+                if skipExisting and out_tex.exists():
+                    progress.console.print(f"[yellow]Skipping {p.name} (existing outputs). Use --no-skip-existing to regenerate.[/yellow]")
+                    if files_task is not None:
+                        progress.update(files_task, advance=1)
+                    continue
+                pl.transcribe_pdf(
+                    pdf=p,
+                    kind=inferred,
+                    model=active_model,
+                    output_name=out_name,
+                    mode=pdfMode,
+                    progress=progress,
+                    files_task=files_task,
+                )
+                progress.console.print(f"[green]Saved[/green] {out_dir / (out_name + '.tex')}")
+    else:
+        Console().print("[yellow]No PDF files found to transcribe.[/yellow]")
 
     if includeImages:
         image_sources: list[Path] = []
