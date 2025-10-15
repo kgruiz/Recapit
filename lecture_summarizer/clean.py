@@ -47,4 +47,4 @@ def clean_latex(
     preamble = upsert("author", author, preamble)
     preamble = upsert("date", date, preamble)
 
-    return f"{preamble}\n{combined}\n\\end{document}"
+    return f"{preamble}\n{combined}\n\\end{{document}}"
