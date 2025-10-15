@@ -96,9 +96,10 @@ class Pipeline:
         return TokenBucket(per_minute=per_minute, window_sec=RATE_LIMIT_WINDOW_SEC)
 
     def _combine_and_write(self, *, texts: list[str], preamble: str, base_dir: Path, output_name: str):
-        full_dir = ensure_dir(base_dir / FULL_RESPONSE_DIRNAME)
         combined = "\n".join(strip_code_fences(t) for t in texts if t is not None)
-        (full_dir / f"{output_name}.txt").write_text(combined)
+        if self.cfg.save_full_response:
+            full_dir = ensure_dir(base_dir / FULL_RESPONSE_DIRNAME)
+            (full_dir / f"{output_name}.txt").write_text(combined)
         cleaned = clean_latex(combined, preamble)
         (base_dir / f"{output_name}.tex").write_text(cleaned)
 

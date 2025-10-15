@@ -12,6 +12,7 @@ class AppConfig:
     output_dir: Optional[Path] = None
     templates_dir: Path = TEMPLATES_DIR
     default_model: str = DEFAULT_MODEL
+    save_full_response: bool = False
 
     @staticmethod
     def from_env() -> "AppConfig":
@@ -23,10 +24,13 @@ class AppConfig:
         output_dir = Path(output_dir_raw).expanduser() if output_dir_raw else None
         templates_dir = Path(os.getenv("LECTURE_SUMMARIZER_TEMPLATES_DIR", TEMPLATES_DIR))
         default_model = os.getenv("LECTURE_SUMMARIZER_DEFAULT_MODEL", DEFAULT_MODEL)
+        save_full_raw = os.getenv("LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE", "0").strip().lower()
+        save_full_response = save_full_raw in {"1", "true", "yes", "on"}
 
         return AppConfig(
             api_key=api_key,
             output_dir=output_dir,
             templates_dir=templates_dir,
             default_model=default_model,
+            save_full_response=save_full_response,
         )

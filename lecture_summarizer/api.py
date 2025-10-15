@@ -56,6 +56,7 @@ def _mk(ctx_output_dir: Path | None = None) -> Pipeline:
             output_dir=Path(ctx_output_dir),
             templates_dir=cfg.templates_dir,
             default_model=cfg.default_model,
+            save_full_response=cfg.save_full_response,
         )
     return Pipeline(cfg=cfg, llm=LLMClient(api_key=cfg.api_key), templates=TemplateLoader(cfg.templates_dir))
 

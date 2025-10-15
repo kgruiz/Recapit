@@ -9,7 +9,7 @@ Lecture Summarizer is a modular toolkit for turning slide decks, lecture handout
 - **Smart defaults** – works out of the box with built-in prompts and LaTeX preambles, but you can drop override files in `templates/` when you need fine control.
 - **Auto classification** – invoke the tool without subcommands (or via `transcribe`) and heuristics choose the right prompt for slides, notes, worksheets, or documents.
 - **Drop-in CLI & library** – invoke the Typer CLI from the shell or call the same functionality from Python without global state.
-- **Structured outputs** – every run captures raw model responses and cleaned LaTeX in deterministic directories sitting alongside the source file (unless you override the destination).
+- **Structured outputs** – cleaned LaTeX lands beside the source file by default; flip `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` on if you also want raw model dumps.
 
 ## Requirements
 
@@ -42,6 +42,7 @@ Environment variables:
 | `LECTURE_SUMMARIZER_DEFAULT_MODEL` | Optional. Override the default transcription model (defaults to `gemini-2.5-flash-lite`). |
 | `LECTURE_SUMMARIZER_OUTPUT_DIR` | Optional. Override the base output directory (defaults to each input's parent directory). |
 | `LECTURE_SUMMARIZER_TEMPLATES_DIR` | Optional. Point to an alternate prompt template directory. |
+| `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` | Optional. Set to `1`/`true` to also write raw model text under `full-response/`. |
 
 All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
 
@@ -106,10 +107,10 @@ path/to/slides/
     page-images/
       Lecture01-transcribed-0.png
       ...
-    full-response/
-      Lecture01-transcribed.txt
     Lecture01-transcribed.tex
 ```
+
+If `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` is enabled, you'll also see `full-response/lecture01-transcribed.txt` alongside the cleaned LaTeX.
 
 Markdown (`*.md`) and JSON (`*.json`) files are written alongside the LaTeX when you run the conversion utilities.
 
