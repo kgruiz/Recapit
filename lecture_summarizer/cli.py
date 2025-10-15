@@ -33,6 +33,9 @@ def _run_transcribe(
     pdf_mode: PDFMode | str,
     include_images: bool,
     image_pattern: str,
+    include_video: bool,
+    video_pattern: str,
+    video_model: Optional[str],
 ):
     normalized_pdf_mode = pdf_mode
     if isinstance(pdf_mode, str):
@@ -47,6 +50,9 @@ def _run_transcribe(
         kind=kind,
         includeImages=include_images,
         imagePattern=image_pattern,
+        includeVideo=include_video,
+        videoPattern=video_pattern,
+        videoModel=video_model,
     )
 
 
@@ -91,6 +97,23 @@ def default(
         "-p",
         help="Glob for supplemental images when --include-images is set",
     ),
+    include_video: bool = typer.Option(
+        False,
+        "--include-video",
+        "-V",
+        help="Also process video files when scanning directories",
+    ),
+    video_pattern: str = typer.Option(
+        "*.mp4",
+        "--video-pattern",
+        "-v",
+        help="Glob for supplemental videos when --include-video is set",
+    ),
+    video_model: Optional[str] = typer.Option(
+        None,
+        "--video-model",
+        help="Override the default model specifically for video transcription",
+    ),
 ):
     if ctx.invoked_subcommand:
         return
@@ -107,6 +130,9 @@ def default(
         pdf_mode=pdf_mode,
         include_images=include_images,
         image_pattern=image_pattern,
+        include_video=include_video,
+        video_pattern=video_pattern,
+        video_model=video_model,
     )
 
 
@@ -147,6 +173,23 @@ def transcribe(
         "-p",
         help="Glob for supplemental images when --include-images is set",
     ),
+    include_video: bool = typer.Option(
+        False,
+        "--include-video",
+        "-V",
+        help="Also process video files when scanning directories",
+    ),
+    video_pattern: str = typer.Option(
+        "*.mp4",
+        "--video-pattern",
+        "-v",
+        help="Glob for supplemental videos when --include-video is set",
+    ),
+    video_model: Optional[str] = typer.Option(
+        None,
+        "--video-model",
+        help="Override the default model specifically for video transcription",
+    ),
 ):
     _run_transcribe(
         source=source,
@@ -158,6 +201,9 @@ def transcribe(
         pdf_mode=pdf_mode,
         include_images=include_images,
         image_pattern=image_pattern,
+        include_video=include_video,
+        video_pattern=video_pattern,
+        video_model=video_model,
     )
 
 

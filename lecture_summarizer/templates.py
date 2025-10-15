@@ -84,6 +84,22 @@ DEFAULT_PREAMBLES = {
 """
     ).strip()
     + "\n",
+    "video": dedent(
+        r"""\documentclass{article}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{amsthm}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\begin{document}
+"""
+    ).strip()
+    + "\n",
 }
 
 
@@ -118,6 +134,15 @@ DEFAULT_PROMPTS = {
         "- Use itemize/enumerate for bullet lists.\n"
         "- Replace illustrations with descriptive placeholders if necessary.\n"
         "- Do not include external files or packages beyond the preamble.\n\n"
+        "LaTeX Preamble:\n{{PREAMBLE}}"""
+    ).strip(),
+    "video": dedent(
+        """Watch the lecture video and produce LaTeX notes using the supplied preamble.\n"
+        "- Provide concise paragraphs summarizing spoken content.\n"
+        "- Add `\\textbf{[MM:SS]}` markers at key transitions (speaker changes, slide swaps).\n"
+        "- Capture important equations in LaTeX, otherwise use `[Placeholder: description]` for visuals.\n"
+        "- Include bullet lists (`itemize`) for enumerations mentioned verbally.\n"
+        "- Do not fabricate material; if audio is unclear, note `[inaudible]` with an approximate timestamp.\n\n"
         "LaTeX Preamble:\n{{PREAMBLE}}"""
     ).strip(),
 }
@@ -156,6 +181,10 @@ class TemplateLoader:
     @lru_cache(maxsize=None)
     def image_preamble(self) -> str:
         return self._load_or_default("image-template.txt", DEFAULT_PREAMBLES["image"])
+
+    @lru_cache(maxsize=None)
+    def video_preamble(self) -> str:
+        return self._load_or_default("video-template.txt", DEFAULT_PREAMBLES["video"])
 
     @lru_cache(maxsize=None)
     def latex_to_md_prompt(self) -> str:

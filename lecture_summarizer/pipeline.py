@@ -1,5 +1,7 @@
 from __future__ import annotations
+import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Iterable
@@ -29,6 +31,13 @@ from .llm import LLMClient
 from .pdf import pdf_to_png, total_pages
 from .clean import strip_code_fences, clean_latex
 from .utils import ensure_dir, slugify
+from .video import (
+    DEFAULT_MAX_CHUNK_BYTES,
+    DEFAULT_MAX_CHUNK_SECONDS,
+    normalize_video,
+    plan_video_chunks,
+    probe_video,
+)
 
 
 class Kind(Enum):
@@ -36,6 +45,7 @@ class Kind(Enum):
     LECTURE = "lecture"
     DOCUMENT = "document"
     IMAGE = "image"
+    VIDEO = "video"
 
 
 class PDFMode(Enum):
@@ -85,6 +95,8 @@ class Pipeline:
             pre = self.templates.document_preamble()
         elif kind == Kind.IMAGE:
             pre = self.templates.image_preamble()
+        elif kind == Kind.VIDEO:
+            pre = self.templates.video_preamble()
         else:
             raise ValueError(kind)
         prompt_template = self.templates.prompt(kind.value)
@@ -115,6 +127,9 @@ class Pipeline:
         output_root: Path | None,
         files_task: TaskID | None,
     ) -> None:
+        if not self.llm.supports(model, "video"):
+            raise ValueError(f"Model {model} does not support video inputs")
+
         bucket = self._bucket_for(model)
         instr, preamble = self._instruction_for_kind(kind)
 
@@ -245,6 +260,104 @@ class Pipeline:
                 text = self.llm.transcribe_image(model=model, instruction=instr, image_path=img)
                 self._combine_and_write(texts=[text], preamble=preamble, base_dir=out_dir, output_name=output_name)
                 progress.update(task, advance=1)
+
+    def transcribe_videos(
+        self,
+        *,
+        videos: Iterable[Path],
+        model: str,
+        output_dir: Path | None = None,
+        skip_existing: bool = True,
+        max_chunk_seconds: float | None = None,
+        max_chunk_bytes: int | None = None,
+        media_resolution: str | None = None,
+        fps_override: float | None = None,
+        thinking_budget: int | None = None,
+        include_thoughts: bool = False,
+    ):
+        videos = list(videos)
+        if not videos:
+            return
+
+        chunk_seconds = max_chunk_seconds or DEFAULT_MAX_CHUNK_SECONDS
+        chunk_bytes = max_chunk_bytes or DEFAULT_MAX_CHUNK_BYTES
+
+        bucket = self._bucket_for(model)
+        instr, preamble = self._instruction_for_kind(Kind.VIDEO)
+
+        with self._progress() as progress:
+            files_task = progress.add_task("Videos", total=len(videos))
+            for video_path in videos:
+                base_dir = ensure_dir(self.output_base_for(source=video_path, override_root=output_dir))
+                output_name = f"{video_path.stem}-transcribed"
+                tex_path = base_dir / f"{output_name}.tex"
+                if skip_existing and tex_path.exists():
+                    progress.console.print(
+                        f"[yellow]Skipping {video_path.name} (existing outputs). Use --no-skip-existing to regenerate.[/yellow]"
+                    )
+                    progress.update(files_task, advance=1)
+                    continue
+
+                chunk_root = ensure_dir(base_dir / PICKLES_DIRNAME / "video-chunks")
+                manifest_path = chunk_root / f"{slugify(video_path.stem)}-chunks.json"
+
+                normalized_path = normalize_video(video_path, output_dir=chunk_root)
+                normalized_meta = probe_video(normalized_path)
+                plan = plan_video_chunks(
+                    normalized_meta,
+                    normalized_path=normalized_path,
+                    max_seconds=chunk_seconds,
+                    max_bytes=chunk_bytes,
+                    chunk_dir=chunk_root,
+                    manifest_path=manifest_path,
+                )
+
+                manifest_payload = {
+                    "source": str(video_path),
+                    "normalized": str(normalized_path),
+                    "duration_seconds": normalized_meta.duration_seconds,
+                    "size_bytes": normalized_meta.size_bytes,
+                    "fps": normalized_meta.fps,
+                    "video_codec": normalized_meta.video_codec,
+                    "audio_codec": normalized_meta.audio_codec,
+                    "model": model,
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "chunks": [
+                        {
+                            "index": chunk.index,
+                            "start_seconds": chunk.start_seconds,
+                            "end_seconds": chunk.end_seconds,
+                            "start_iso": chunk.start_iso,
+                            "end_iso": chunk.end_iso,
+                            "path": str(chunk.path),
+                        }
+                        for chunk in plan.chunks
+                    ],
+                }
+                manifest_path.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True))
+
+                chunk_total = max(len(plan.chunks), 1)
+                chunk_task = progress.add_task(f"Transcribing {video_path.name}", total=chunk_total)
+                texts: list[str] = []
+                for chunk in plan.chunks:
+                    bucket.acquire()
+                    response = self.llm.transcribe_video(
+                        model=model,
+                        instruction=instr,
+                        video_path=chunk.path,
+                        start_offset=chunk.start_seconds if plan.requires_splitting() else None,
+                        end_offset=chunk.end_seconds if plan.requires_splitting() else None,
+                        fps=fps_override,
+                        media_resolution=media_resolution,
+                        thinking_budget=thinking_budget,
+                        include_thoughts=include_thoughts,
+                    )
+                    texts.append((response.text or "").strip())
+                    progress.update(chunk_task, advance=1)
+
+                self._combine_and_write(texts=texts, preamble=preamble, base_dir=base_dir, output_name=output_name)
+                progress.console.print(f"[green]Saved[/green] {tex_path}")
+                progress.update(files_task, advance=1)
 
     def latex_to_markdown(
         self,

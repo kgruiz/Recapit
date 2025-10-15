@@ -32,6 +32,8 @@ _KIND_ALIASES: dict[str, Kind] = {
     "form": Kind.DOCUMENT,
     "image": Kind.IMAGE,
     "img": Kind.IMAGE,
+    "video": Kind.VIDEO,
+    "vid": Kind.VIDEO,
 }
 
 
@@ -167,6 +169,22 @@ def TranscribeImages(
         pl.transcribe_images(images=[img], kind=Kind.IMAGE, model=active_model, output_dir=resolved_root, bulk=False)
 
 
+def TranscribeVideos(
+    source,
+    outputDir: Path | None = None,
+    filePattern: str = "*.mp4",
+    skipExisting: bool = True,
+    model: str | None = None,
+):
+    pl = _mk(outputDir)
+    active_model = model or pl.cfg.default_model
+    resolved_root = Path(outputDir).expanduser() if outputDir else None
+    videos = _coerce_videos(source, pattern=filePattern)
+    if not videos:
+        return
+    pl.transcribe_videos(videos=videos, model=active_model, output_dir=resolved_root, skip_existing=skipExisting)
+
+
 def TranscribeAuto(
     source,
     outputDir: Path | None = None,
@@ -177,6 +195,9 @@ def TranscribeAuto(
     kind: Kind | str | None = "auto",
     includeImages: bool = False,
     imagePattern: str = "*.png",
+    includeVideo: bool = False,
+    videoPattern: str = "*.mp4",
+    videoModel: str | None = None,
 ):
     """Transcribe PDFs (and optionally images) with automatic prompt selection."""
 
@@ -190,10 +211,78 @@ def TranscribeAuto(
         forced_kind = None
     else:
         forced_kind = _resolve_kind(kind)
+    if forced_kind == Kind.VIDEO:
+        includeVideo = True
 
     resolved_root = Path(outputDir).expanduser() if outputDir else None
-    paths = _coerce_pdfs(source, recursive=recursive)
+    did_process = False
+
+    def _is_video_file(path: Path) -> bool:
+        return path.is_file() and path.suffix.lower() in _VIDEO_EXTENSIONS
+
+    video_seen: set[Path] = set()
+    video_sources: list[Path] = []
+
+    def _enqueue_video(candidate: Path) -> None:
+        if not _is_video_file(candidate):
+            return
+        try:
+            resolved = candidate.resolve()
+        except FileNotFoundError:
+            resolved = candidate
+        if resolved in video_seen:
+            return
+        video_seen.add(resolved)
+        video_sources.append(resolved)
+
+    direct_video_input = False
+    if isinstance(source, list):
+        list_paths = [Path(item) for item in source]
+        if list_paths and all(_is_video_file(p) for p in list_paths):
+            direct_video_input = True
+        for lp in list_paths:
+            _enqueue_video(lp)
+    elif isinstance(source, (str, Path)):
+        src_path = Path(source)
+        if _is_video_file(src_path):
+            direct_video_input = True
+            _enqueue_video(src_path)
+
+    if direct_video_input:
+        includeVideo = True
+
+    active_video_model = videoModel or active_model
+    pdf_error: Exception | None = None
+    paths: list[Path] = []
+    if not direct_video_input:
+        try:
+            paths = _coerce_pdfs(source, recursive=recursive)
+        except ValueError as exc:
+            pdf_error = exc
+            paths = []
+
+    if pdf_error and not includeVideo and not video_sources:
+        raise pdf_error
+
+    if includeVideo:
+        def _collect_from_directory(target: Path) -> None:
+            for vid in _coerce_videos(target, pattern=videoPattern, recursive=recursive):
+                _enqueue_video(vid)
+
+        if isinstance(source, list):
+            for item in source:
+                item_path = Path(item)
+                if item_path.is_dir():
+                    _collect_from_directory(item_path)
+        elif isinstance(source, (str, Path)):
+            src_path = Path(source)
+            if src_path.is_dir():
+                _collect_from_directory(src_path)
+
+    video_sources = natsorted(video_sources)
+
     if paths:
+        did_process = True
         progress = pl._progress()
         with progress:
             files_task = None
@@ -220,8 +309,6 @@ def TranscribeAuto(
                     files_task=files_task,
                 )
                 progress.console.print(f"[green]Saved[/green] {out_dir / (out_name + '.tex')}")
-    else:
-        Console().print("[yellow]No PDF files found to transcribe.[/yellow]")
 
     if includeImages:
         image_sources: list[Path] = []
@@ -236,8 +323,11 @@ def TranscribeAuto(
                 path = Path(item)
                 if path.is_file() and path.suffix.lower() in _IMAGE_EXTENSIONS:
                     image_sources.append(path)
+                elif path.is_dir():
+                    image_sources.extend(_coerce_images(path, pattern=imagePattern))
 
         if image_sources:
+            image_sources = natsorted(list(dict.fromkeys(image_sources)))
             TranscribeImages(
                 image_sources,
                 outputDir=outputDir,
@@ -246,6 +336,20 @@ def TranscribeAuto(
                 skipExisting=skipExisting,
                 model=model,
             )
+            did_process = True
+
+    if includeVideo and video_sources:
+        TranscribeVideos(
+            video_sources,
+            outputDir=outputDir,
+            filePattern=videoPattern,
+            skipExisting=skipExisting,
+            model=active_video_model,
+        )
+        did_process = True
+
+    if not paths and not did_process:
+        Console().print("[yellow]No PDF files found to transcribe.[/yellow]")
 
 
 def LatexToMarkdown(
@@ -294,6 +398,18 @@ import re
 
 _PDF_EXTENSION = ".pdf"
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}
+_VIDEO_EXTENSIONS = {
+    ".mp4",
+    ".mov",
+    ".m4v",
+    ".mkv",
+    ".webm",
+    ".avi",
+    ".mpg",
+    ".mpeg",
+    ".wmv",
+    ".flv",
+}
 
 
 def _coerce_pdfs(source, recursive: bool = False) -> list[Path]:
@@ -337,6 +453,19 @@ def _coerce_tex(source, pattern: str, recursive: bool = False) -> list[Path]:
         return natsorted(list(globber(pattern)))
     if isinstance(source, list):
         return natsorted([Path(s) for s in source])
+    raise ValueError("source must be Path|str|list")
+
+
+def _coerce_videos(source, pattern: str, recursive: bool = False) -> list[Path]:
+    if isinstance(source, (str, Path)):
+        p = Path(source)
+        if p.is_file():
+            return [p] if p.suffix.lower() in _VIDEO_EXTENSIONS else []
+        globber = p.rglob if recursive else p.glob
+        paths = [x for x in globber(pattern) if x.suffix.lower() in _VIDEO_EXTENSIONS]
+        return natsorted(paths)
+    if isinstance(source, list):
+        return natsorted([Path(s) for s in source if Path(s).suffix.lower() in _VIDEO_EXTENSIONS])
     raise ValueError("source must be Path|str|list")
 
 
