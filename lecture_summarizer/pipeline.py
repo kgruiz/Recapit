@@ -316,7 +316,8 @@ class Pipeline:
         chunk_seconds = max_chunk_seconds or DEFAULT_MAX_CHUNK_SECONDS
         chunk_bytes = max_chunk_bytes or DEFAULT_MAX_CHUNK_BYTES
         effective_token_limit = token_limit if token_limit and token_limit > 0 else self.cfg.video_token_limit
-        tokens_per_sec = tokens_per_second if tokens_per_second and tokens_per_second > 0 else DEFAULT_TOKENS_PER_SECOND
+        configured_tokens_per_sec = tokens_per_second if tokens_per_second and tokens_per_second > 0 else None
+        default_tokens_per_sec = configured_tokens_per_sec or DEFAULT_TOKENS_PER_SECOND
 
         if not self.llm.supports(model, "video"):
             raise ValueError(f"Model {model} does not support video inputs")
@@ -350,6 +351,27 @@ class Pipeline:
 
                 normalized_path = normalize_video(video_path, output_dir=chunk_root)
                 normalized_meta = probe_video(normalized_path)
+                tokens_per_sec = default_tokens_per_sec
+                token_count_response = None
+                if configured_tokens_per_sec is None and normalized_meta.duration_seconds > 0:
+                    try:
+                        token_count_response = self.llm.count_video_tokens(
+                            model=model,
+                            instruction=instr,
+                            video_path=normalized_path,
+                            fps=fps_override,
+                        )
+                        observed_total = getattr(token_count_response, "total_tokens", None)
+                        if observed_total is not None and observed_total > 0:
+                            observed_rate = max(observed_total / max(normalized_meta.duration_seconds, 1e-6), 1.0)
+                            tokens_per_sec = observed_rate
+                    except Exception as exc:
+                        progress.console.print(
+                            f"[yellow]Token counting failed for {video_path.name}: {exc}. Using defaults.[/yellow]"
+                        )
+                elif configured_tokens_per_sec is not None:
+                    tokens_per_sec = configured_tokens_per_sec
+
                 plan = plan_video_chunks(
                     normalized_meta,
                     normalized_path=normalized_path,
@@ -385,6 +407,11 @@ class Pipeline:
                         for chunk in plan.chunks
                     ],
                 }
+                if token_count_response is not None:
+                    manifest_payload["token_count"] = {
+                        "total_tokens": getattr(token_count_response, "total_tokens", None),
+                        "cached_tokens": getattr(token_count_response, "cached_tokens", None),
+                    }
                 manifest_path.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True))
 
                 chunk_total = max(len(plan.chunks), 1)

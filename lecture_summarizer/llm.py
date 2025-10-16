@@ -115,6 +115,44 @@ class LLMClient:
 
         return resp
 
+    def count_video_tokens(
+        self,
+        *,
+        model: str,
+        instruction: str | None,
+        video_path: Path,
+        start_offset: float | None = None,
+        end_offset: float | None = None,
+        fps: float | None = None,
+    ):
+        file_ref = self._upload_and_wait(path=video_path)
+
+        metadata_kwargs: dict[str, object] = {}
+        if start_offset is not None:
+            metadata_kwargs["start_offset"] = seconds_to_iso8601(start_offset)
+        if end_offset is not None:
+            metadata_kwargs["end_offset"] = seconds_to_iso8601(end_offset)
+        if fps is not None:
+            metadata_kwargs["fps"] = fps
+
+        file_uri = getattr(file_ref, "uri", None) or getattr(file_ref, "name", None)
+        mime_type = getattr(file_ref, "mime_type", None)
+        if not mime_type:
+            mime_type, _ = mimetypes.guess_type(str(video_path))
+
+        part_kwargs: dict[str, object] = {
+            "file_data": types.FileData(file_uri=file_uri, mime_type=mime_type or "video/mp4"),
+        }
+        if metadata_kwargs:
+            part_kwargs["video_metadata"] = types.VideoMetadata(**metadata_kwargs)
+
+        parts = [types.Part(**part_kwargs)]
+        if instruction:
+            parts.append(types.Part(text=instruction))
+
+        content = types.Content(parts=parts)
+        return self._client.models.count_tokens(model=model, contents=[content])
+
     def latex_to_markdown(self, *, model: str, prompt: str, latex_text: str) -> str:
         if not latex_text.strip():
             return ""
