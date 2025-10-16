@@ -41,6 +41,7 @@ from .video import (
     normalize_video,
     plan_video_chunks,
     probe_video,
+    sha256sum,
 )
 
 
@@ -356,41 +357,112 @@ class Pipeline:
                     )
                     progress.update(files_task, advance=1)
                     continue
+                progress.console.print(
+                    f"[cyan]DEBUG[/cyan] {video_path.name}: selected base_dir={base_dir} output_name={output_name}"
+                )
                 video_task = progress.add_task(
                     self._format_task_description(f"Transcribing {video_path.name}", level=1),
                     total=1,
                 )
 
                 chunk_root = ensure_dir(base_dir / PICKLES_DIRNAME / "video-chunks")
+                progress.console.print(
+                    f"[cyan]DEBUG[/cyan] {video_path.name}: ensuring chunk cache at {chunk_root}"
+                )
                 manifest_path = chunk_root / f"{slugify(video_path.stem)}-chunks.json"
 
                 normalized_path = chunk_root / f"{video_path.stem}-normalized.mp4"
+                source_hash = sha256sum(video_path)
+                manifest_data: dict[str, object] | None = None
+                if manifest_path.exists():
+                    try:
+                        manifest_data = json.loads(manifest_path.read_text())
+                    except Exception as exc:
+                        progress.console.print(
+                            f"[yellow]Warning[/yellow] {video_path.name}: failed to load {manifest_path.name}: {exc}"
+                        )
+                cached_source_hash = (
+                    manifest_data.get("source_hash") if isinstance(manifest_data, dict) else None
+                )
+                cached_normalized_hash = (
+                    manifest_data.get("normalized_hash") if isinstance(manifest_data, dict) else None
+                )
+                cached_token_info = (
+                    manifest_data.get("token_count") if isinstance(manifest_data, dict) else None
+                )
+
                 acceptable, checks, source_meta = assess_video_normalization(video_path)
                 normalize_task: TaskID | None = None
+                normalized_hash: str | None = None
                 # The quick checks above ensure the bare minimum: readable container, H.264 video, AAC audio,
                 # sensible sample rate, and a fast-start layout. They intentionally do **not** replicate every
                 # invariant the ffmpeg normalize pass enforces (e.g., keyframe cadence, bitrate caps). If any
                 # check fails—or we simply want deterministic behavior—we defer to the full normalization path.
                 if acceptable:
-                    reuse_cached = (
-                        normalized_path.exists() and normalized_path.stat().st_mtime >= video_path.stat().st_mtime
+                    progress.console.print(
+                        f"[cyan]DEBUG[/cyan] {video_path.name}: source passes normalization checks"
                     )
-                    if reuse_cached:
-                        cached_ok, cached_checks, _ = assess_video_normalization(normalized_path)
-                        if not cached_ok:
-                            reuse_cached = False
+                    reuse_cached = False
+                    if (
+                        cached_source_hash == source_hash
+                        and cached_normalized_hash
+                        and normalized_path.exists()
+                    ):
+                        candidate_hash = sha256sum(normalized_path)
+                        if candidate_hash == cached_normalized_hash:
+                            reuse_cached = True
+                            normalized_hash = candidate_hash
+                            progress.console.print(
+                                f"[cyan]DEBUG[/cyan] {video_path.name}: reusing cached normalized asset (hash match)"
+                            )
+                        else:
+                            progress.console.print(
+                                f"[cyan]DEBUG[/cyan] {video_path.name}: cached normalized hash mismatch; regenerating"
+                            )
+                    else:
+                        if cached_source_hash and cached_source_hash != source_hash:
+                            progress.console.print(
+                                f"[cyan]DEBUG[/cyan] {video_path.name}: source hash changed; regenerating normalized asset"
+                            )
+                        elif not normalized_path.exists():
+                            progress.console.print(
+                                f"[cyan]DEBUG[/cyan] {video_path.name}: cached normalized asset missing; regenerating"
+                            )
+                        elif not cached_normalized_hash:
+                            progress.console.print(
+                                f"[cyan]DEBUG[/cyan] {video_path.name}: cached normalized hash missing; regenerating"
+                            )
                     if not reuse_cached:
+                        progress.console.print(
+                            f"[cyan]DEBUG[/cyan] {video_path.name}: mirroring source into normalized cache"
+                        )
                         _mirror_video_source(video_path, normalized_path)
+                        normalized_hash = sha256sum(normalized_path)
                 else:
+                    failing = ", ".join(name for name, ok in checks.items() if not ok) or "unknown"
+                    progress.console.print(
+                        f"[cyan]DEBUG[/cyan] {video_path.name}: normalization required (failing checks: {failing})"
+                    )
                     normalize_task = progress.add_task(
                         self._format_task_description(f"Normalizing {video_path.name}", level=2), total=1
                     )
+                    progress.console.print(f"[cyan]DEBUG[/cyan] {video_path.name}: starting normalization")
                     try:
                         normalized_path = normalize_video(video_path, output_dir=chunk_root)
+                        progress.console.print(
+                            f"[cyan]DEBUG[/cyan] {video_path.name}: finished normalization -> {normalized_path.name}"
+                        )
                         progress.update(normalize_task, advance=1)
                     finally:
                         if normalize_task is not None:
                             progress.remove_task(normalize_task)
+                    normalized_hash = sha256sum(normalized_path)
+
+                if normalized_hash is None:
+                    normalized_hash = sha256sum(normalized_path)
+                progress.console.print(
+                    f"[cyan]DEBUG[/cyan] {video_path.name}: source_hash={source_hash[:12]} normalized_hash={normalized_hash[:12]}"
+                )
 
                 normalized_meta = probe_video(normalized_path)
                 if source_meta and abs(normalized_meta.duration_seconds - source_meta.duration_seconds) > 1.0:
@@ -399,32 +471,111 @@ class Pipeline:
                         f" differs from source {source_meta.duration_seconds:.2f}s"
                     )
                 tokens_per_sec = default_tokens_per_sec
-                token_count_response = None
+                token_count_payload: dict[str, object] | None = None
                 if configured_tokens_per_sec is None and normalized_meta.duration_seconds > 0:
-                    token_task = progress.add_task(
-                        self._format_task_description(f"Counting tokens for {video_path.name}", level=2), total=1
+                    cached_token_valid = (
+                        isinstance(cached_token_info, dict)
+                        and cached_token_info.get("model") == model
+                        and cached_token_info.get("normalized_hash") == normalized_hash
                     )
-                    try:
-                        token_count_response = self.llm.count_video_tokens(
-                            model=model,
-                            instruction=instr,
-                            video_path=normalized_path,
-                            fps=fps_override,
-                        )
-                        observed_total = getattr(token_count_response, "total_tokens", None)
-                        if observed_total is not None and observed_total > 0:
-                            observed_rate = max(observed_total / max(normalized_meta.duration_seconds, 1e-6), 1.0)
-                            tokens_per_sec = observed_rate
-                        progress.update(token_task, advance=1)
-                    except Exception as exc:
+                    if cached_token_valid:
                         progress.console.print(
-                            f"[yellow]Token counting failed for {video_path.name}: {exc}. Using defaults.[/yellow]"
+                            f"[cyan]DEBUG[/cyan] {video_path.name}: using cached token count"
                         )
-                        progress.update(token_task, advance=1)
-                    finally:
-                        progress.remove_task(token_task)
+                        total_tokens_cached = cached_token_info.get("total_tokens")
+                        if total_tokens_cached:
+                            tokens_per_sec = max(
+                                float(total_tokens_cached) / max(normalized_meta.duration_seconds, 1e-6),
+                                1.0,
+                            )
+                        elif cached_token_info.get("tokens_per_second"):
+                            tokens_per_sec = max(float(cached_token_info["tokens_per_second"]), 1.0)
+                        token_count_payload = dict(cached_token_info)
+                        token_count_payload.setdefault("model", model)
+                        token_count_payload["normalized_hash"] = normalized_hash
+                        token_count_payload.setdefault(
+                            "tokens_per_second", tokens_per_sec
+                        )
+                        token_count_payload.setdefault(
+                            "timestamp", datetime.now(timezone.utc).isoformat()
+                        )
+                    else:
+                        token_task = progress.add_task(
+                            self._format_task_description(f"Counting tokens for {video_path.name}", level=2), total=1
+                        )
+                        progress.console.print(f"[cyan]DEBUG[/cyan] {video_path.name}: starting token counting")
+                        try:
+                            token_count_response = self.llm.count_video_tokens(
+                                model=model,
+                                instruction=instr,
+                                video_path=normalized_path,
+                                fps=fps_override,
+                            )
+                            observed_total = getattr(token_count_response, "total_tokens", None)
+                            if observed_total is not None and observed_total > 0:
+                                tokens_per_sec = max(
+                                    float(observed_total) / max(normalized_meta.duration_seconds, 1e-6),
+                                    1.0,
+                                )
+                            token_count_payload = {
+                                "model": model,
+                                "normalized_hash": normalized_hash,
+                                "total_tokens": getattr(token_count_response, "total_tokens", None),
+                                "cached_tokens": getattr(token_count_response, "cached_tokens", None),
+                                "tokens_per_second": tokens_per_sec,
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                            }
+                            progress.console.print(
+                                f"[cyan]DEBUG[/cyan] {video_path.name}: finished token counting with total_tokens={token_count_payload['total_tokens']}"
+                            )
+                            progress.update(token_task, advance=1)
+                        except Exception as exc:
+                            progress.console.print(
+                                f"[yellow]Token counting failed for {video_path.name}: {exc}. Using defaults.[/yellow]"
+                            )
+                            if isinstance(cached_token_info, dict):
+                                progress.console.print(
+                                    f"[cyan]DEBUG[/cyan] {video_path.name}: falling back to cached token count"
+                                )
+                                token_count_payload = dict(cached_token_info)
+                                token_count_payload.setdefault("model", model)
+                                token_count_payload["normalized_hash"] = normalized_hash
+                                total_tokens_cached = token_count_payload.get("total_tokens")
+                                if total_tokens_cached:
+                                    tokens_per_sec = max(
+                                        float(total_tokens_cached) / max(normalized_meta.duration_seconds, 1e-6),
+                                        1.0,
+                                    )
+                                elif token_count_payload.get("tokens_per_second"):
+                                    tokens_per_sec = max(float(token_count_payload["tokens_per_second"]), 1.0)
+                                token_count_payload.setdefault(
+                                    "tokens_per_second", tokens_per_sec
+                                )
+                                token_count_payload.setdefault(
+                                    "timestamp", datetime.now(timezone.utc).isoformat()
+                                )
+                            else:
+                                progress.console.print(
+                                    f"[cyan]DEBUG[/cyan] {video_path.name}: falling back to tokens_per_second={tokens_per_sec:.2f}"
+                                )
+                            progress.update(token_task, advance=1)
+                        finally:
+                            progress.remove_task(token_task)
                 elif configured_tokens_per_sec is not None:
                     tokens_per_sec = configured_tokens_per_sec
+                    progress.console.print(
+                        f"[cyan]DEBUG[/cyan] {video_path.name}: using override tokens_per_second={tokens_per_sec:.2f}"
+                    )
+                else:
+                    progress.console.print(
+                        f"[cyan]DEBUG[/cyan] {video_path.name}: skipping token counting (duration {normalized_meta.duration_seconds:.2f}s)"
+                    )
+
+                progress.console.print(
+                    f"[cyan]DEBUG[/cyan] {video_path.name}: planning with tokens_per_second={tokens_per_sec:.2f} "
+                    f"token_limit={effective_token_limit}"
+                )
+                progress.console.print(f"[cyan]DEBUG[/cyan] {video_path.name}: constructing chunk plan")
 
                 plan = plan_video_chunks(
                     normalized_meta,
@@ -461,14 +612,36 @@ class Pipeline:
                         for chunk in plan.chunks
                     ],
                 }
-                if token_count_response is not None:
-                    manifest_payload["token_count"] = {
-                        "total_tokens": getattr(token_count_response, "total_tokens", None),
-                        "cached_tokens": getattr(token_count_response, "cached_tokens", None),
-                    }
+                if token_count_payload is not None:
+                    manifest_payload["token_count"] = token_count_payload
+                    progress.console.print(
+                        f"[cyan]DEBUG[/cyan] {video_path.name}: total_tokens={token_count_payload.get('total_tokens')} "
+                        f"cached_tokens={token_count_payload.get('cached_tokens')} observed_tokens_per_second={tokens_per_sec:.2f}"
+                    )
+                else:
+                    manifest_payload.pop("token_count", None)
+                    progress.console.print(
+                        f"[cyan]DEBUG[/cyan] {video_path.name}: no token count available; using manifest defaults"
+                    )
+                manifest_payload["source_hash"] = source_hash
+                manifest_payload["normalized_hash"] = normalized_hash
                 manifest_path.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True))
+                progress.console.print(
+                    f"[cyan]DEBUG[/cyan] {video_path.name}: wrote manifest {manifest_path.name} with {len(manifest_payload['chunks'])} chunk entries"
+                )
 
                 chunk_total = max(len(plan.chunks), 1)
+                progress.console.print(
+                    f"[cyan]DEBUG[/cyan] {video_path.name}: chunk_total={chunk_total} "
+                    f"chunk_duration≈{(plan.chunks[0].duration_seconds if plan.chunks else 0):.2f}s"
+                )
+                if chunk_total > 1 and plan.chunks:
+                    progress.console.print(
+                        f"[cyan]DEBUG[/cyan] {video_path.name}: first_chunk={plan.chunks[0].path.name}"
+                    )
+                progress.console.print(
+                    f"[cyan]DEBUG[/cyan] {video_path.name}: starting transcription loop"
+                )
                 chunk_task = progress.add_task(
                     self._format_task_description(f"{video_path.name} chunks", level=2),
                     total=chunk_total,
@@ -476,6 +649,10 @@ class Pipeline:
                 texts: list[str] = []
                 for chunk in plan.chunks:
                     bucket.acquire()
+                    progress.console.print(
+                        f"[cyan]DEBUG[/cyan] {video_path.name}: transcribing chunk {chunk.index} "
+                        f"({chunk.start_seconds:.2f}s→{chunk.end_seconds:.2f}s)"
+                    )
                     response = self.llm.transcribe_video(
                         model=model,
                         instruction=instr,
@@ -491,6 +668,7 @@ class Pipeline:
                     progress.update(chunk_task, advance=1)
 
                 self._combine_and_write(texts=texts, preamble=preamble, base_dir=base_dir, output_name=output_name)
+                progress.console.print(f"[cyan]DEBUG[/cyan] {video_path.name}: finished transcription and writing outputs")
                 progress.console.print(f"[green]Saved[/green] {tex_path}")
                 progress.update(video_task, advance=1)
                 progress.update(files_task, advance=1)

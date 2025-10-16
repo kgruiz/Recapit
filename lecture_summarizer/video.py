@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -178,6 +179,18 @@ def normalize_video(path: Path, *, output_dir: Path) -> Path:
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"ffmpeg failed while normalizing {path}: {exc.stderr}") from exc
     return normalized
+
+
+def sha256sum(path: Path, *, chunk_size: int = 1024 * 1024) -> str:
+    """Compute the SHA-256 hash of *path* using streaming reads."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as fp:
+        while True:
+            chunk = fp.read(chunk_size)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _moov_before_mdat(path: Path) -> bool:
