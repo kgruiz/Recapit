@@ -135,7 +135,15 @@ def normalize_video(path: Path, *, output_dir: Path) -> Path:
     normalized = output_dir / f"{path.stem}-normalized.mp4"
     source_mtime = path.stat().st_mtime
     if normalized.exists() and normalized.stat().st_mtime >= source_mtime:
-        return normalized
+        try:
+            probe_video(normalized)
+            return normalized
+        except RuntimeError:
+            # Previous normalization left a corrupt artifact; re-create it.
+            try:
+                normalized.unlink()
+            except FileNotFoundError:
+                pass
 
     cmd = [
         "ffmpeg",
