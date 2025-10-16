@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,10 @@ DEFAULT_MAX_CHUNK_SECONDS = 7200.0  # 2 hours
 DEFAULT_MAX_CHUNK_BYTES = 500 * 1024 * 1024  # 500 MB safety cap
 DEFAULT_TOKENS_PER_SECOND = float(DEFAULT_VIDEO_TOKENS_PER_SECOND)
 
+_ACCEPTABLE_VIDEO_CODECS = {"h264", "avc1"}
+_ACCEPTABLE_AUDIO_CODECS = {"aac", "mp4a"}
+_ACCEPTABLE_AUDIO_SAMPLE_RATES = {None, 44100, 48000}
+
 
 @dataclass(frozen=True)
 class VideoMetadata:
@@ -25,6 +30,7 @@ class VideoMetadata:
     height: int | None
     video_codec: str | None
     audio_codec: str | None
+    audio_sample_rate: int | None
 
 
 @dataclass(frozen=True)
@@ -97,6 +103,7 @@ def probe_video(path: Path) -> VideoMetadata:
     height = None
     video_codec = None
     audio_codec = None
+    audio_sample_rate: int | None = None
 
     for stream in streams:
         codec_type = stream.get("codec_type")
@@ -110,6 +117,7 @@ def probe_video(path: Path) -> VideoMetadata:
                 duration = _safe_float(stream.get("duration"))
         elif codec_type == "audio":
             audio_codec = stream.get("codec_name")
+            audio_sample_rate = _safe_int(stream.get("sample_rate"))
             if duration is None:
                 duration = _safe_float(stream.get("duration"))
 
@@ -125,6 +133,7 @@ def probe_video(path: Path) -> VideoMetadata:
         height=_safe_int(height),
         video_codec=video_codec,
         audio_codec=audio_codec,
+        audio_sample_rate=audio_sample_rate,
     )
 
 
@@ -169,6 +178,75 @@ def normalize_video(path: Path, *, output_dir: Path) -> Path:
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"ffmpeg failed while normalizing {path}: {exc.stderr}") from exc
     return normalized
+
+
+def _moov_before_mdat(path: Path) -> bool:
+    """Return True if the MP4 structure stores the moov atom before mdat."""
+    try:
+        with path.open("rb") as fp:
+            offset = 0
+            moov_offset: int | None = None
+            mdat_offset: int | None = None
+            while True:
+                header = fp.read(8)
+                if len(header) < 8:
+                    break
+                box_size = int.from_bytes(header[:4], byteorder="big")
+                box_type = header[4:8].decode("latin-1", errors="ignore")
+                header_size = 8
+                if box_size == 1:
+                    extended = fp.read(8)
+                    if len(extended) < 8:
+                        break
+                    box_size = int.from_bytes(extended, byteorder="big")
+                    header_size = 16
+                if box_size < header_size:
+                    break
+                if box_type == "moov":
+                    moov_offset = offset
+                elif box_type == "mdat":
+                    mdat_offset = offset
+                skip = box_size - header_size
+                fp.seek(skip, os.SEEK_CUR)
+                offset += box_size
+                if moov_offset is not None and mdat_offset is not None:
+                    break
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return False
+    if moov_offset is None or mdat_offset is None:
+        return False
+    return moov_offset < mdat_offset
+
+
+def assess_video_normalization(path: Path) -> tuple[bool, dict[str, bool], VideoMetadata | None]:
+    """Check whether a source video already satisfies the *minimal* constraints required to skip normalization.
+
+    Notes
+    -----
+    This only verifies container readability, baseline codec/sample-rate expectations, and that the MP4 places the
+    `moov` atom before `mdat`. It does **not** guarantee secondary properties that the full normalize step enforces
+    (e.g., keyframe cadence, bitrate ceilings, color metadata). Callers should still handle the fallback path when
+    these quick checks fail or whenever downstream processing needs the stricter guarantees from re-encoding.
+    """
+    checks: dict[str, bool] = {}
+    try:
+        meta = probe_video(path)
+    except Exception:
+        checks["probe"] = False
+        return False, checks, None
+
+    checks["probe"] = True
+    video_codec = (meta.video_codec or "").lower()
+    checks["video_codec"] = video_codec in _ACCEPTABLE_VIDEO_CODECS
+    audio_codec = (meta.audio_codec or "").lower()
+    checks["audio_codec"] = (audio_codec in _ACCEPTABLE_AUDIO_CODECS) if audio_codec else True
+    checks["audio_rate"] = meta.audio_sample_rate in _ACCEPTABLE_AUDIO_SAMPLE_RATES
+    checks["faststart"] = _moov_before_mdat(path)
+
+    acceptable = all(checks.values())
+    return acceptable, checks, meta
 
 
 def plan_video_chunks(

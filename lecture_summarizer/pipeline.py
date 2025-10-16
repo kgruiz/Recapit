@@ -1,5 +1,7 @@
 from __future__ import annotations
 import json
+import os
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -35,6 +37,7 @@ from .video import (
     DEFAULT_MAX_CHUNK_BYTES,
     DEFAULT_MAX_CHUNK_SECONDS,
     DEFAULT_TOKENS_PER_SECOND,
+    assess_video_normalization,
     normalize_video,
     plan_video_chunks,
     probe_video,
@@ -43,6 +46,19 @@ from .video import (
 
 _INDENT_STEP = "  "
 _SUBTASK_PREFIX = "|_ "
+
+
+def _mirror_video_source(src: Path, dest: Path) -> None:
+    ensure_dir(dest.parent)
+    if dest.exists():
+        try:
+            dest.unlink()
+        except OSError:
+            pass
+    try:
+        os.link(src, dest)
+    except OSError:
+        shutil.copy2(src, dest)
 
 
 class Kind(Enum):
@@ -340,7 +356,6 @@ class Pipeline:
                     )
                     progress.update(files_task, advance=1)
                     continue
-
                 video_task = progress.add_task(
                     self._format_task_description(f"Transcribing {video_path.name}", level=1),
                     total=1,
@@ -349,11 +364,46 @@ class Pipeline:
                 chunk_root = ensure_dir(base_dir / PICKLES_DIRNAME / "video-chunks")
                 manifest_path = chunk_root / f"{slugify(video_path.stem)}-chunks.json"
 
-                normalized_path = normalize_video(video_path, output_dir=chunk_root)
+                normalized_path = chunk_root / f"{video_path.stem}-normalized.mp4"
+                acceptable, checks, source_meta = assess_video_normalization(video_path)
+                normalize_task: TaskID | None = None
+                # The quick checks above ensure the bare minimum: readable container, H.264 video, AAC audio,
+                # sensible sample rate, and a fast-start layout. They intentionally do **not** replicate every
+                # invariant the ffmpeg normalize pass enforces (e.g., keyframe cadence, bitrate caps). If any
+                # check fails—or we simply want deterministic behavior—we defer to the full normalization path.
+                if acceptable:
+                    reuse_cached = (
+                        normalized_path.exists() and normalized_path.stat().st_mtime >= video_path.stat().st_mtime
+                    )
+                    if reuse_cached:
+                        cached_ok, cached_checks, _ = assess_video_normalization(normalized_path)
+                        if not cached_ok:
+                            reuse_cached = False
+                    if not reuse_cached:
+                        _mirror_video_source(video_path, normalized_path)
+                else:
+                    normalize_task = progress.add_task(
+                        self._format_task_description(f"Normalizing {video_path.name}", level=2), total=1
+                    )
+                    try:
+                        normalized_path = normalize_video(video_path, output_dir=chunk_root)
+                        progress.update(normalize_task, advance=1)
+                    finally:
+                        if normalize_task is not None:
+                            progress.remove_task(normalize_task)
+
                 normalized_meta = probe_video(normalized_path)
+                if source_meta and abs(normalized_meta.duration_seconds - source_meta.duration_seconds) > 1.0:
+                    progress.console.print(
+                        f"[yellow]Warning[/yellow] {video_path.name}: normalized duration {normalized_meta.duration_seconds:.2f}s"
+                        f" differs from source {source_meta.duration_seconds:.2f}s"
+                    )
                 tokens_per_sec = default_tokens_per_sec
                 token_count_response = None
                 if configured_tokens_per_sec is None and normalized_meta.duration_seconds > 0:
+                    token_task = progress.add_task(
+                        self._format_task_description(f"Counting tokens for {video_path.name}", level=2), total=1
+                    )
                     try:
                         token_count_response = self.llm.count_video_tokens(
                             model=model,
@@ -365,10 +415,14 @@ class Pipeline:
                         if observed_total is not None and observed_total > 0:
                             observed_rate = max(observed_total / max(normalized_meta.duration_seconds, 1e-6), 1.0)
                             tokens_per_sec = observed_rate
+                        progress.update(token_task, advance=1)
                     except Exception as exc:
                         progress.console.print(
                             f"[yellow]Token counting failed for {video_path.name}: {exc}. Using defaults.[/yellow]"
                         )
+                        progress.update(token_task, advance=1)
+                    finally:
+                        progress.remove_task(token_task)
                 elif configured_tokens_per_sec is not None:
                     tokens_per_sec = configured_tokens_per_sec
 
