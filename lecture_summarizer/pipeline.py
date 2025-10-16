@@ -41,6 +41,10 @@ from .video import (
 )
 
 
+_INDENT_STEP = "  "
+_SUBTASK_PREFIX = "|_ "
+
+
 class Kind(Enum):
     SLIDES = "slides"
     LECTURE = "lecture"
@@ -60,6 +64,13 @@ class Pipeline:
     cfg: AppConfig
     llm: LLMClient
     templates: TemplateLoader
+
+    def _format_task_description(self, description: str, *, level: int = 0) -> str:
+        prefix_level = max(level, 0)
+        prefix = _INDENT_STEP * prefix_level
+        if prefix_level > 0:
+            prefix += _SUBTASK_PREFIX
+        return f"{prefix}{description}"
 
     def _select_output_root(self, *, override: Path | None, fallback: Path) -> Path:
         if override is not None:
@@ -138,6 +149,12 @@ class Pipeline:
         base_dir = ensure_dir(base_dir_path)
         output_name = output_name or f"{pdf.stem}-transcribed"
 
+        task_level = 1 if files_task is not None else 0
+        file_task = progress.add_task(
+            self._format_task_description(f"Transcribing {pdf.name}", level=task_level),
+            total=1,
+        )
+
         strategy = mode
         if isinstance(strategy, str):
             strategy = PDFMode(strategy)
@@ -156,12 +173,16 @@ class Pipeline:
             if page_total <= 0:
                 page_total = 1
             task_label = f"{pdf.name} ({page_total} page{'s' if page_total != 1 else ''})"
-            page_task = progress.add_task(f"Transcribing {task_label}", total=page_total)
+            page_task = progress.add_task(
+                self._format_task_description(task_label, level=task_level + 1),
+                total=page_total,
+            )
             bucket.acquire()
             text = self.llm.transcribe_pdf(model=model, instruction=instr, pdf_path=pdf)
             texts.append(text)
             progress.update(page_task, advance=page_total)
             self._combine_and_write(texts=texts, preamble=preamble, base_dir=base_dir, output_name=output_name)
+            progress.update(file_task, advance=1)
             if files_task is not None:
                 progress.update(files_task, advance=1)
             return
@@ -170,7 +191,10 @@ class Pipeline:
         images = pdf_to_png(pdf, pages_dir, prefix=output_name)
         page_total = max(len(images), 1)
         task_label = f"{pdf.name} ({page_total} page{'s' if page_total != 1 else ''})"
-        page_task = progress.add_task(f"Transcribing {task_label}", total=page_total)
+        page_task = progress.add_task(
+            self._format_task_description(task_label, level=task_level + 1),
+            total=page_total,
+        )
 
         texts: list[str] = []
         for img in images:
@@ -179,6 +203,7 @@ class Pipeline:
             texts.append(text)
             progress.update(page_task, advance=1)
         self._combine_and_write(texts=texts, preamble=preamble, base_dir=base_dir, output_name=output_name)
+        progress.update(file_task, advance=1)
         if files_task is not None:
             progress.update(files_task, advance=1)
 
@@ -243,7 +268,10 @@ class Pipeline:
             texts: list[str] = []
             base_dir = ensure_dir(resolved_root)
             with self._progress() as progress:
-                task = progress.add_task("Transcribing images", total=len(images))
+                task = progress.add_task(
+                    self._format_task_description("Transcribing images", level=0),
+                    total=len(images),
+                )
                 for img in images:
                     bucket.acquire()
                     text = self.llm.transcribe_image(model=model, instruction=instr, image_path=img)
@@ -253,7 +281,10 @@ class Pipeline:
             return
 
         with self._progress() as progress:
-            task = progress.add_task("Transcribing images", total=len(images))
+            task = progress.add_task(
+                self._format_task_description("Transcribing images", level=0),
+                total=len(images),
+            )
             for img in images:
                 out_dir = ensure_dir(self.output_base_for(source=img, override_root=output_dir))
                 output_name = f"{img.stem}-transcribed"
@@ -294,7 +325,10 @@ class Pipeline:
         instr, preamble = self._instruction_for_kind(Kind.VIDEO)
 
         with self._progress() as progress:
-            files_task = progress.add_task("Videos", total=len(videos))
+            files_task = progress.add_task(
+                self._format_task_description("Videos", level=0),
+                total=len(videos),
+            )
             for video_path in videos:
                 base_dir = ensure_dir(self.output_base_for(source=video_path, override_root=output_dir))
                 output_name = f"{video_path.stem}-transcribed"
@@ -305,6 +339,11 @@ class Pipeline:
                     )
                     progress.update(files_task, advance=1)
                     continue
+
+                video_task = progress.add_task(
+                    self._format_task_description(f"Transcribing {video_path.name}", level=1),
+                    total=1,
+                )
 
                 chunk_root = ensure_dir(base_dir / PICKLES_DIRNAME / "video-chunks")
                 manifest_path = chunk_root / f"{slugify(video_path.stem)}-chunks.json"
@@ -349,7 +388,10 @@ class Pipeline:
                 manifest_path.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True))
 
                 chunk_total = max(len(plan.chunks), 1)
-                chunk_task = progress.add_task(f"Transcribing {video_path.name}", total=chunk_total)
+                chunk_task = progress.add_task(
+                    self._format_task_description(f"{video_path.name} chunks", level=2),
+                    total=chunk_total,
+                )
                 texts: list[str] = []
                 for chunk in plan.chunks:
                     bucket.acquire()
@@ -369,6 +411,7 @@ class Pipeline:
 
                 self._combine_and_write(texts=texts, preamble=preamble, base_dir=base_dir, output_name=output_name)
                 progress.console.print(f"[green]Saved[/green] {tex_path}")
+                progress.update(video_task, advance=1)
                 progress.update(files_task, advance=1)
 
     def latex_to_markdown(
