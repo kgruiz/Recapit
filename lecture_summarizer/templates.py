@@ -137,12 +137,21 @@ DEFAULT_PROMPTS = {
         "LaTeX Preamble:\n{{PREAMBLE}}"""
     ).strip(),
     "video": dedent(
-        """Watch the lecture video and produce LaTeX notes using the supplied preamble.\n"
-        "- Provide concise paragraphs summarizing spoken content.\n"
-        "- Add `\\textbf{[MM:SS]}` markers at key transitions (speaker changes, slide swaps).\n"
-        "- Capture important equations in LaTeX, otherwise use `[Placeholder: description]` for visuals.\n"
-        "- Include bullet lists (`itemize`) for enumerations mentioned verbally.\n"
-        "- Do not fabricate material; if audio is unclear, note `[inaudible]` with an approximate timestamp.\n\n"
+        """Task: Transcribe the video faithfully.\n\n"
+        "Rules:\n"
+        "- Include timestamps and speaker labels when identifiable.\n"
+        "- Preserve wording and meaning; fix grammar/punctuation only for readability.\n"
+        "- Mark unclear audio as <inaudible>, uncertainty as <uncertain>, and gaps as <missing>. Do not guess.\n"
+        "- Do not summarize, interpret, translate, or add commentary.\n\n"
+        "Format:\n"
+        "- Return LaTeX body content only.\n"
+        "- For each utterance output a line like `\\textbf{[HH:MM:SS.mmm]} \\textsc{Speaker}: content`.\n"
+        "- Leave a blank line between utterances belonging to different speakers.\n"
+        "- Non-speech events should appear in angle brackets within the content (e.g., `<laughter>`).\n\n"
+        "Notes:\n"
+        "- Use `Speaker 1`, `Speaker 2`, ... if names are unknown; otherwise use the name.\n"
+        "- Retain the provided angle-bracket annotations verbatim.\n"
+        "- Preserve math using LaTeX where applicable.\n\n"
         "LaTeX Preamble:\n{{PREAMBLE}}"""
     ).strip(),
 }
