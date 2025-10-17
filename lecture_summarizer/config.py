@@ -3,7 +3,13 @@ from pathlib import Path
 from typing import Optional
 import os
 
-from .constants import DEFAULT_MODEL, TEMPLATES_DIR, DEFAULT_VIDEO_TOKEN_LIMIT
+from .constants import (
+    DEFAULT_MODEL,
+    TEMPLATES_DIR,
+    DEFAULT_VIDEO_TOKEN_LIMIT,
+    DEFAULT_MAX_WORKERS,
+    DEFAULT_MAX_VIDEO_WORKERS,
+)
 
 
 @dataclass(frozen=True)
@@ -15,6 +21,8 @@ class AppConfig:
     save_full_response: bool = False
     save_intermediates: bool = False
     video_token_limit: int = DEFAULT_VIDEO_TOKEN_LIMIT
+    max_workers: int = DEFAULT_MAX_WORKERS
+    max_video_workers: int = DEFAULT_MAX_VIDEO_WORKERS
 
     @staticmethod
     def from_env() -> "AppConfig":
@@ -40,6 +48,21 @@ class AppConfig:
                     f"Invalid LECTURE_SUMMARIZER_VIDEO_TOKEN_LIMIT '{video_token_limit_raw}'; expected integer"
                 ) from exc
 
+        def _parse_workers(env_var: str, default: int) -> int:
+            raw = os.getenv(env_var)
+            if not raw:
+                return default
+            try:
+                value = int(raw)
+            except ValueError as exc:
+                raise ValueError(f"Invalid {env_var} '{raw}'; expected integer") from exc
+            if value <= 0:
+                raise ValueError(f"{env_var} must be a positive integer, got {raw}")
+            return value
+
+        max_workers = _parse_workers("LECTURE_SUMMARIZER_MAX_WORKERS", DEFAULT_MAX_WORKERS)
+        max_video_workers = _parse_workers("LECTURE_SUMMARIZER_MAX_VIDEO_WORKERS", DEFAULT_MAX_VIDEO_WORKERS)
+
         return AppConfig(
             api_key=api_key,
             output_dir=output_dir,
@@ -48,4 +71,6 @@ class AppConfig:
             save_full_response=save_full_response,
             save_intermediates=save_intermediates,
             video_token_limit=video_token_limit,
+            max_workers=max_workers,
+            max_video_workers=max_video_workers,
         )

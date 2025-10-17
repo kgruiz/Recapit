@@ -1,6 +1,7 @@
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable, Sequence, TypeVar
 
 from natsort import natsorted
 from rich.console import Console
@@ -12,6 +13,23 @@ from .pipeline import Pipeline, Kind, PDFMode
 from .constants import GEMINI_2_FLASH_THINKING_EXP
 from .pdf import guess_pdf_kind
 from .utils import slugify
+
+
+T = TypeVar("T")
+
+
+def _run_parallel(work_items: Sequence[T], *, max_workers: int, fn: Callable[[T], None]) -> None:
+    if not work_items:
+        return
+    worker_count = min(max_workers, len(work_items))
+    if worker_count <= 1:
+        for item in work_items:
+            fn(item)
+        return
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {executor.submit(fn, item): item for item in work_items}
+        for future in as_completed(futures):
+            future.result()
 
 
 _KIND_ALIASES: dict[str, Kind] = {
@@ -61,6 +79,8 @@ def _mk(ctx_output_dir: Path | None = None, save_intermediates: bool | None = No
             save_full_response=cfg.save_full_response,
             save_intermediates=cfg.save_intermediates if save_intermediates is None else save_intermediates,
             video_token_limit=cfg.video_token_limit,
+            max_workers=cfg.max_workers,
+            max_video_workers=cfg.max_video_workers,
         )
     elif save_intermediates is not None:
         cfg = AppConfig(
@@ -71,6 +91,8 @@ def _mk(ctx_output_dir: Path | None = None, save_intermediates: bool | None = No
             save_full_response=cfg.save_full_response,
             save_intermediates=save_intermediates,
             video_token_limit=cfg.video_token_limit,
+            max_workers=cfg.max_workers,
+            max_video_workers=cfg.max_video_workers,
         )
     return Pipeline(cfg=cfg, llm=LLMClient(api_key=cfg.api_key), templates=TemplateLoader(cfg.templates_dir))
 
@@ -88,18 +110,25 @@ def TranscribeSlides(
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     paths = _coerce_pdfs(source)
+    work_queue: list[Path] = []
+
     for p in _filter_by_pattern(paths, lectureNumPattern, excludeLectureNums):
         out_base = pl.output_base_for(source=p, override_root=resolved_root)
         out_tex = out_base / f"{p.stem}-transcribed.tex"
         if skipExisting and out_tex.exists():
             continue
+        work_queue.append(p)
+
+    def _worker(pdf_path: Path) -> None:
         pl.transcribe_pdf(
-            pdf=p,
+            pdf=pdf_path,
             kind=Kind.SLIDES,
             model=active_model,
             mode=pdfMode,
             output_root=resolved_root,
         )
+
+    _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
 
 
 def TranscribeLectures(
@@ -115,18 +144,25 @@ def TranscribeLectures(
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     paths = _coerce_pdfs(source)
+    work_queue: list[Path] = []
+
     for p in _filter_by_pattern(paths, lectureNumPattern, excludeLectureNums):
         out_base = pl.output_base_for(source=p, override_root=resolved_root)
         out_tex = out_base / f"{p.stem}-transcribed.tex"
         if skipExisting and out_tex.exists():
             continue
+        work_queue.append(p)
+
+    def _worker(pdf_path: Path) -> None:
         pl.transcribe_pdf(
-            pdf=p,
+            pdf=pdf_path,
             kind=Kind.LECTURE,
             model=active_model,
             mode=pdfMode,
             output_root=resolved_root,
         )
+
+    _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
 
 
 def TranscribeDocuments(
@@ -142,20 +178,28 @@ def TranscribeDocuments(
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     paths = _coerce_pdfs(source, recursive=recursive)
+    work_queue: list[tuple[Path, str]] = []
+
     for p in paths:
         out_name = outputName or f"{p.stem}-transcribed"
         out_base = pl.output_base_for(source=p, override_root=resolved_root)
         out_tex = out_base / f"{out_name}.tex"
         if skipExisting and out_tex.exists():
             continue
+        work_queue.append((p, out_name))
+
+    def _worker(item: tuple[Path, str]) -> None:
+        pdf_path, out_name = item
         pl.transcribe_pdf(
-            pdf=p,
+            pdf=pdf_path,
             kind=Kind.DOCUMENT,
             model=active_model,
             output_name=out_name,
             mode=pdfMode,
             output_root=resolved_root,
         )
+
+    _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
 
 
 def TranscribeImages(
@@ -173,12 +217,18 @@ def TranscribeImages(
     if not separateOutputs:
         pl.transcribe_images(images=imgs, kind=Kind.IMAGE, model=active_model, output_dir=resolved_root, bulk=True)
         return
+    work_queue: list[Path] = []
     for img in imgs:
         out_dir = pl.output_base_for(source=img, override_root=resolved_root)
         out_tex = out_dir / f"{img.stem}-transcribed.tex"
         if skipExisting and out_tex.exists():
             continue
-        pl.transcribe_images(images=[img], kind=Kind.IMAGE, model=active_model, output_dir=resolved_root, bulk=False)
+        work_queue.append(img)
+
+    def _worker(image_path: Path) -> None:
+        pl.transcribe_images(images=[image_path], kind=Kind.IMAGE, model=active_model, output_dir=resolved_root, bulk=False)
+
+    _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
 
 
 def TranscribeVideos(
@@ -309,32 +359,54 @@ def TranscribeAuto(
 
     if paths:
         did_process = True
-        progress = pl._progress()
-        with progress:
-            files_task = None
-            if len(paths) > 1:
-                files_task = progress.add_task("Files", total=len(paths))
-            for p in paths:
-                inferred = forced_kind or _resolve_kind(guess_pdf_kind(p))
-                out_name = f"{p.stem}-transcribed"
-                out_dir = pl.output_base_for(source=p, override_root=resolved_root)
-                out_tex = out_dir / f"{out_name}.tex"
-                if skipExisting and out_tex.exists():
-                    progress.console.print(f"[yellow]Skipping {p.name} (existing outputs). Use --no-skip-existing to regenerate.[/yellow]")
-                    if files_task is not None:
-                        progress.update(files_task, advance=1)
-                    continue
-                pl.transcribe_pdf(
-                    pdf=p,
-                    kind=inferred,
-                    model=active_model,
-                    output_name=out_name,
-                    mode=pdfMode,
-                    progress=progress,
-                    output_root=resolved_root,
-                    files_task=files_task,
-                )
-                progress.console.print(f"[green]Saved[/green] {out_dir / (out_name + '.tex')}")
+        console = Console()
+        work_queue: list[tuple[Path, Kind, str, Path]] = []
+        for p in paths:
+            inferred = forced_kind or _resolve_kind(guess_pdf_kind(p))
+            out_name = f"{p.stem}-transcribed"
+            out_dir = pl.output_base_for(source=p, override_root=resolved_root)
+            out_tex = out_dir / f"{out_name}.tex"
+            if skipExisting and out_tex.exists():
+                console.print(f"[yellow]Skipping {p.name} (existing outputs). Use --no-skip-existing to regenerate.[/yellow]")
+                continue
+            work_queue.append((p, inferred, out_name, out_dir))
+
+        if work_queue:
+            worker_count = min(pl.cfg.max_workers, len(work_queue))
+            if worker_count > 1:
+                def _worker(item: tuple[Path, Kind, str, Path]) -> Path:
+                    pdf_path, inferred_kind, out_name, out_dir = item
+                    pl.transcribe_pdf(
+                        pdf=pdf_path,
+                        kind=inferred_kind,
+                        model=active_model,
+                        output_name=out_name,
+                        mode=pdfMode,
+                        output_root=resolved_root,
+                    )
+                    return out_dir / f"{out_name}.tex"
+
+                with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                    futures = {executor.submit(_worker, item): item for item in work_queue}
+                    for future in as_completed(futures):
+                        output_path = future.result()
+                        console.print(f"[green]Saved[/green] {output_path}")
+            else:
+                progress = pl._progress()
+                with progress:
+                    files_task = progress.add_task("Files", total=len(work_queue)) if len(work_queue) > 1 else None
+                    for pdf_path, inferred_kind, out_name, out_dir in work_queue:
+                        pl.transcribe_pdf(
+                            pdf=pdf_path,
+                            kind=inferred_kind,
+                            model=active_model,
+                            output_name=out_name,
+                            mode=pdfMode,
+                            progress=progress,
+                            output_root=resolved_root,
+                            files_task=files_task,
+                        )
+                        progress.console.print(f"[green]Saved[/green] {out_dir / (out_name + '.tex')}")
 
     if includeImages:
         image_sources: list[Path] = []

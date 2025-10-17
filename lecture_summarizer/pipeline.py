@@ -1,10 +1,12 @@
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
+from threading import Lock
 from typing import Iterable
 
 from rich.progress import (
@@ -37,6 +39,7 @@ from .video import (
     DEFAULT_MAX_CHUNK_BYTES,
     DEFAULT_MAX_CHUNK_SECONDS,
     DEFAULT_TOKENS_PER_SECOND,
+    VideoChunk,
     assess_video_normalization,
     normalize_video,
     plan_video_chunks,
@@ -77,6 +80,10 @@ class Pipeline:
     cfg: AppConfig
     llm: LLMClient
     templates: TemplateLoader
+
+    def __post_init__(self):
+        self._bucket_lock = Lock()
+        self._rate_limiters: dict[str, TokenBucket] = {}
 
     def _format_task_description(self, description: str, *, level: int = 0) -> str:
         prefix_level = max(level, 0)
@@ -129,8 +136,13 @@ class Pipeline:
         return instr, pre
 
     def _bucket_for(self, model: str) -> TokenBucket:
-        per_minute = RATE_LIMITS.get(model, 10)
-        return TokenBucket(per_minute=per_minute, window_sec=RATE_LIMIT_WINDOW_SEC)
+        with self._bucket_lock:
+            bucket = self._rate_limiters.get(model)
+            if bucket is None:
+                per_minute = RATE_LIMITS.get(model, 10)
+                bucket = TokenBucket(per_minute=per_minute, window_sec=RATE_LIMIT_WINDOW_SEC)
+                self._rate_limiters[model] = bucket
+            return bucket
 
     def _combine_and_write(
         self,
@@ -717,13 +729,11 @@ class Pipeline:
                     self._format_task_description(chunk_description, level=chunk_level),
                     total=chunk_total,
                 )
-                texts: list[str] = []
-                for chunk in plan.chunks:
+                texts: list[str] = [""] * chunk_total
+
+                def _run_chunk(idx_chunk: tuple[int, VideoChunk]) -> tuple[int, str]:
+                    idx, chunk = idx_chunk
                     bucket.acquire()
-                    progress.console.print(
-                        f"[cyan]DEBUG[/cyan] {video_path.name}: transcribing chunk {chunk.index} "
-                        f"({chunk.start_seconds:.2f}s→{chunk.end_seconds:.2f}s)"
-                    )
                     response = self.llm.transcribe_video(
                         model=model,
                         instruction=instr,
@@ -733,8 +743,31 @@ class Pipeline:
                         thinking_budget=thinking_budget,
                         include_thoughts=include_thoughts,
                     )
-                    texts.append((response.text or "").strip())
-                    progress.update(chunk_task, advance=1)
+                    return idx, (response.text or "").strip()
+
+                chunk_workers = min(self.cfg.max_video_workers, chunk_total)
+                if chunk_workers <= 1:
+                    for idx, chunk in enumerate(plan.chunks):
+                        progress.console.print(
+                            f"[cyan]DEBUG[/cyan] {video_path.name}: transcribing chunk {chunk.index} "
+                            f"({chunk.start_seconds:.2f}s→{chunk.end_seconds:.2f}s)"
+                        )
+                        _, text = _run_chunk((idx, chunk))
+                        texts[idx] = text
+                        progress.update(chunk_task, advance=1)
+                else:
+                    idx_chunks = list(enumerate(plan.chunks))
+                    with ThreadPoolExecutor(max_workers=chunk_workers) as executor:
+                        futures = {executor.submit(_run_chunk, item): item for item in idx_chunks}
+                        for future in as_completed(futures):
+                            idx, text = future.result()
+                            texts[idx] = text
+                            _, chunk = futures[future]
+                            progress.console.print(
+                                f"[cyan]DEBUG[/cyan] {video_path.name}: chunk {chunk.index} complete "
+                                f"({chunk.start_seconds:.2f}s→{chunk.end_seconds:.2f}s)"
+                            )
+                            progress.update(chunk_task, advance=1)
 
                 written_path = self._combine_and_write(
                     texts=texts,
