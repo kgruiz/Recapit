@@ -371,7 +371,8 @@ class Pipeline:
                 )
                 manifest_path = chunk_root / f"{slugify(video_path.stem)}-chunks.json"
 
-                normalized_path = chunk_root / f"{video_path.stem}-normalized.mp4"
+                normalized_cache_path = chunk_root / f"{video_path.stem}-normalized.mp4"
+                normalized_path: Path = normalized_cache_path
                 source_hash = sha256sum(video_path)
                 manifest_data: dict[str, object] | None = None
                 if manifest_path.exists():
@@ -381,12 +382,6 @@ class Pipeline:
                         progress.console.print(
                             f"[yellow]Warning[/yellow] {video_path.name}: failed to load {manifest_path.name}: {exc}"
                         )
-                cached_source_hash = (
-                    manifest_data.get("source_hash") if isinstance(manifest_data, dict) else None
-                )
-                cached_normalized_hash = (
-                    manifest_data.get("normalized_hash") if isinstance(manifest_data, dict) else None
-                )
                 cached_token_info = (
                     manifest_data.get("token_count") if isinstance(manifest_data, dict) else None
                 )
@@ -400,44 +395,20 @@ class Pipeline:
                 # check fails—or we simply want deterministic behavior—we defer to the full normalization path.
                 if acceptable:
                     progress.console.print(
-                        f"[cyan]DEBUG[/cyan] {video_path.name}: source passes normalization checks"
+                        f"[cyan]DEBUG[/cyan] {video_path.name}: source passes normalization checks; using original file"
                     )
-                    reuse_cached = False
-                    if (
-                        cached_source_hash == source_hash
-                        and cached_normalized_hash
-                        and normalized_path.exists()
-                    ):
-                        candidate_hash = sha256sum(normalized_path)
-                        if candidate_hash == cached_normalized_hash:
-                            reuse_cached = True
-                            normalized_hash = candidate_hash
+                    if normalized_cache_path != video_path and normalized_cache_path.exists():
+                        try:
+                            normalized_cache_path.unlink()
                             progress.console.print(
-                                f"[cyan]DEBUG[/cyan] {video_path.name}: reusing cached normalized asset (hash match)"
+                                f"[cyan]DEBUG[/cyan] {video_path.name}: removed cached normalized copy"
                             )
-                        else:
+                        except OSError as exc:
                             progress.console.print(
-                                f"[cyan]DEBUG[/cyan] {video_path.name}: cached normalized hash mismatch; regenerating"
+                                f"[yellow]Warning[/yellow] {video_path.name}: failed to remove cached normalized copy: {exc}"
                             )
-                    else:
-                        if cached_source_hash and cached_source_hash != source_hash:
-                            progress.console.print(
-                                f"[cyan]DEBUG[/cyan] {video_path.name}: source hash changed; regenerating normalized asset"
-                            )
-                        elif not normalized_path.exists():
-                            progress.console.print(
-                                f"[cyan]DEBUG[/cyan] {video_path.name}: cached normalized asset missing; regenerating"
-                            )
-                        elif not cached_normalized_hash:
-                            progress.console.print(
-                                f"[cyan]DEBUG[/cyan] {video_path.name}: cached normalized hash missing; regenerating"
-                            )
-                    if not reuse_cached:
-                        progress.console.print(
-                            f"[cyan]DEBUG[/cyan] {video_path.name}: mirroring source into normalized cache"
-                        )
-                        _mirror_video_source(video_path, normalized_path)
-                        normalized_hash = sha256sum(normalized_path)
+                    normalized_path = video_path
+                    normalized_hash = source_hash
                 else:
                     failing = ", ".join(name for name, ok in checks.items() if not ok) or "unknown"
                     progress.console.print(
