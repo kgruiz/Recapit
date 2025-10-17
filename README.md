@@ -43,6 +43,7 @@ Environment variables:
 | `LECTURE_SUMMARIZER_OUTPUT_DIR` | Optional. Override the base output directory (defaults to each input's parent directory). |
 | `LECTURE_SUMMARIZER_TEMPLATES_DIR` | Optional. Point to an alternate prompt template directory. |
 | `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` | Optional. Set to `1`/`true` to also write raw model text under `full-response/`. |
+| `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES` | Optional. Set to `1`/`true` to retain normalized videos, chunk MP4s, and manifests for debugging/re-use. |
 
 All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
 
@@ -64,6 +65,9 @@ lecture-summarizer transcribe /path/to/notes --kind lecture
 
 # Static images (PNG by default)
 lecture-summarizer transcribe /path/to/imgs --include-images --kind image
+
+# Keep chunk artifacts for inspection (normalized MP4s & manifests)
+lecture-summarizer transcribe input/lectures --include-video --save-intermediates
 
 # Post-processing helpers
 lecture-summarizer convert md /path/to/tex
@@ -113,6 +117,8 @@ path/to/slides/
 If `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` is enabled, you'll also see `full-response/lecture01-transcribed.txt` alongside the cleaned LaTeX.
 
 Markdown (`*.md`) and JSON (`*.json`) files are written alongside the LaTeX when you run the conversion utilities.
+
+Video inputs produce chunk-aware LaTeX: each chunk is emitted as `\section*{Chunk N (HH:MM:SS–HH:MM:SS)}` inside `<stem>-transcribed.tex`. When `--save-full-response` is active, every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you pass `--save-intermediates` (or set `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`).
 
 ## Development
 
