@@ -6,8 +6,6 @@ from pathlib import Path
 from typing import Callable, Iterable, Sequence, TypeVar
 
 from natsort import natsorted
-from rich.console import Console
-
 from .config import AppConfig
 from .templates import TemplateLoader
 from .llm import LLMClient
@@ -419,7 +417,6 @@ def TranscribeAuto(
 
     if paths:
         did_process = True
-        console = Console()
         work_queue: list[tuple[Path, Kind, str, Path]] = []
         for p in paths:
             inferred = forced_kind or _resolve_kind(guess_pdf_kind(p))
@@ -427,7 +424,10 @@ def TranscribeAuto(
             out_dir = pl.output_base_for(source=p, override_root=resolved_root)
             out_tex = out_dir / f"{out_name}.tex"
             if skipExisting and out_tex.exists():
-                console.print(f"[yellow]Skipping {p.name} (existing outputs). Use --no-skip-existing to regenerate.[/yellow]")
+                logger.info(
+                    "Skipping %s (existing outputs). Use --no-skip-existing to regenerate.",
+                    p.name,
+                )
                 continue
             work_queue.append((p, inferred, out_name, out_dir))
 
@@ -450,7 +450,7 @@ def TranscribeAuto(
                     futures = {executor.submit(_worker, item): item for item in work_queue}
                     for future in as_completed(futures):
                         output_path = future.result()
-                        console.print(f"[green]Saved[/green] {output_path}")
+                        logger.info("Saved %s", output_path)
             else:
                 progress = pl._progress()
                 with progress:
@@ -466,7 +466,7 @@ def TranscribeAuto(
                             output_root=resolved_root,
                             files_task=files_task,
                         )
-                        progress.console.print(f"[green]Saved[/green] {out_dir / (out_name + '.tex')}")
+                        logger.info("Saved %s", out_dir / (out_name + '.tex'))
 
     if includeImages:
         image_sources: list[Path] = []
@@ -511,7 +511,7 @@ def TranscribeAuto(
         did_process = True
 
     if not paths and not did_process:
-        Console().print("[yellow]No PDF files found to transcribe.[/yellow]")
+        logger.info("No PDF files found to transcribe.")
 
     return _log_summary(pl, "TranscribeAuto")
 
