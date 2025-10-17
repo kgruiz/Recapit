@@ -19,7 +19,8 @@ class LLMClient:
 
     def __post_init__(self):
         # Increase HTTP timeouts so large media uploads and responses have ample time to complete.
-        self._http_options = types.HttpOptions(timeout=600)
+        self._timeout_ms = 600_000  # Gemini SDK interprets timeout in milliseconds.
+        self._http_options = types.HttpOptions(timeout=self._timeout_ms)
         self._client = genai.Client(api_key=self.api_key, http_options=self._http_options)
         # Ensure the underlying httpx client uses generous timeouts for all requests.
         api_client = getattr(self._client, "_api_client", None)
