@@ -84,14 +84,6 @@ class LLMClient:
     ):
         file_ref = self._upload_and_wait(path=video_path)
 
-        metadata_kwargs: dict[str, object] = {}
-        if start_offset is not None:
-            metadata_kwargs["start_offset"] = seconds_to_iso8601(start_offset)
-        if end_offset is not None:
-            metadata_kwargs["end_offset"] = seconds_to_iso8601(end_offset)
-        if fps is not None:
-            metadata_kwargs["fps"] = fps
-
         file_uri = getattr(file_ref, "uri", None) or getattr(file_ref, "name", None)
         mime_type = getattr(file_ref, "mime_type", None)
         if not mime_type:
@@ -100,8 +92,6 @@ class LLMClient:
         part_kwargs: dict[str, object] = {
             "file_data": types.FileData(file_uri=file_uri, mime_type=mime_type or "video/mp4"),
         }
-        if metadata_kwargs:
-            part_kwargs["video_metadata"] = types.VideoMetadata(**metadata_kwargs)
 
         parts = [
             types.Part(**part_kwargs),
@@ -137,14 +127,6 @@ class LLMClient:
     ):
         file_ref = self._upload_and_wait(path=video_path)
 
-        metadata_kwargs: dict[str, object] = {}
-        if start_offset is not None:
-            metadata_kwargs["start_offset"] = seconds_to_iso8601(start_offset)
-        if end_offset is not None:
-            metadata_kwargs["end_offset"] = seconds_to_iso8601(end_offset)
-        if fps is not None:
-            metadata_kwargs["fps"] = fps
-
         file_uri = getattr(file_ref, "uri", None) or getattr(file_ref, "name", None)
         mime_type = getattr(file_ref, "mime_type", None)
         if not mime_type:
@@ -153,8 +135,6 @@ class LLMClient:
         part_kwargs: dict[str, object] = {
             "file_data": types.FileData(file_uri=file_uri, mime_type=mime_type or "video/mp4"),
         }
-        if metadata_kwargs:
-            part_kwargs["video_metadata"] = types.VideoMetadata(**metadata_kwargs)
 
         parts = [types.Part(**part_kwargs)]
         if instruction:

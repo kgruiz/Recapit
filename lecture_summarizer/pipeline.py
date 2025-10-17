@@ -664,8 +664,6 @@ class Pipeline:
                         model=model,
                         instruction=instr,
                         video_path=chunk.path,
-                        start_offset=chunk.start_seconds if plan.requires_splitting() else None,
-                        end_offset=chunk.end_seconds if plan.requires_splitting() else None,
                         fps=fps_override,
                         media_resolution=media_resolution,
                         thinking_budget=thinking_budget,
