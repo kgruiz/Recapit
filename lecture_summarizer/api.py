@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable, Iterable, Sequence, TypeVar
@@ -14,13 +15,26 @@ from .pipeline import Pipeline, Kind, PDFMode
 from .constants import GEMINI_2_FLASH_THINKING_EXP
 from .pdf import guess_pdf_kind
 from .utils import slugify
-from .telemetry import RunMonitor
+from .telemetry import RunMonitor, RunSummary
+from .costs import CostSummary
 
 
 T = TypeVar("T")
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RunReport:
+    summary: RunSummary
+    costs: CostSummary
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "summary": self.summary.to_dict(),
+            "costs": self.costs.to_dict(),
+        }
 
 
 def _run_parallel(work_items: Sequence[T], *, max_workers: int, fn: Callable[[T], None]) -> None:
@@ -37,10 +51,12 @@ def _run_parallel(work_items: Sequence[T], *, max_workers: int, fn: Callable[[T]
             future.result()
 
 
-def _log_summary(pipeline: Pipeline, context: str) -> None:
+def _log_summary(pipeline: Pipeline, context: str) -> RunReport:
     summary = pipeline.monitor.summarize()
     if summary.total_requests == 0:
-        return
+        costs = pipeline.monitor.costs()
+        setattr(pipeline, "last_cost_summary", costs)
+        return RunReport(summary=summary, costs=costs)
     cost_summary = pipeline.monitor.costs()
     setattr(pipeline, "last_cost_summary", cost_summary)
     payload = {
@@ -49,6 +65,7 @@ def _log_summary(pipeline: Pipeline, context: str) -> None:
         "costs": cost_summary.to_dict(),
     }
     logger.info("run_summary %s", payload)
+    return RunReport(summary=summary, costs=cost_summary)
 
 
 _KIND_ALIASES: dict[str, Kind] = {
@@ -157,7 +174,8 @@ def TranscribeSlides(
 
     _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
     if monitor is None:
-        _log_summary(pl, "TranscribeSlides")
+        return _log_summary(pl, "TranscribeSlides")
+    return None
 
 
 def TranscribeLectures(
@@ -195,7 +213,8 @@ def TranscribeLectures(
 
     _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
     if monitor is None:
-        _log_summary(pl, "TranscribeLectures")
+        return _log_summary(pl, "TranscribeLectures")
+    return None
 
 
 def TranscribeDocuments(
@@ -236,7 +255,8 @@ def TranscribeDocuments(
 
     _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
     if monitor is None:
-        _log_summary(pl, "TranscribeDocuments")
+        return _log_summary(pl, "TranscribeDocuments")
+    return None
 
 
 def TranscribeImages(
@@ -269,7 +289,8 @@ def TranscribeImages(
 
     _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
     if monitor is None:
-        _log_summary(pl, "TranscribeImages")
+        return _log_summary(pl, "TranscribeImages")
+    return None
 
 
 def TranscribeVideos(
@@ -298,7 +319,8 @@ def TranscribeVideos(
         token_limit=effective_limit,
     )
     if monitor is None:
-        _log_summary(pl, "TranscribeVideos")
+        return _log_summary(pl, "TranscribeVideos")
+    return None
 
 
 def TranscribeAuto(
@@ -497,7 +519,7 @@ def TranscribeAuto(
     if not paths and not did_process:
         Console().print("[yellow]No PDF files found to transcribe.[/yellow]")
 
-    _log_summary(pl, "TranscribeAuto")
+    return _log_summary(pl, "TranscribeAuto")
 
 
 def LatexToMarkdown(

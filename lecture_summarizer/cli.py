@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -7,8 +8,10 @@ from .api import (
     LatexToMarkdown,
     LatexToJson,
     TranscribeAuto,
+    RunReport,
 )
 from .pipeline import PDFMode
+from .constants import OUTPUT_DIR
 
 
 _CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"], "allow_interspersed_args": True}
@@ -23,6 +26,58 @@ convert_app = typer.Typer(
     context_settings=_CONTEXT_SETTINGS,
 )
 app.add_typer(convert_app, name="convert")
+
+
+def _default_summary_path(output_dir: Path | None) -> Path:
+    base = (output_dir or OUTPUT_DIR).expanduser()
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "run-summary.json"
+
+
+def _write_summary(report: RunReport, path: Path) -> None:
+    target = path.expanduser()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+
+
+def _print_summary(report: RunReport, *, detailed: bool) -> None:
+    summary = report.summary
+    costs = report.costs
+    typer.echo("Run Summary:")
+    typer.echo(f"  Requests: {summary.total_requests}")
+    typer.echo(f"  Input tokens: {summary.total_input_tokens:,}")
+    typer.echo(f"  Output tokens: {summary.total_output_tokens:,}")
+    typer.echo(
+        f"  Cost: ${costs.total_cost:.2f} (input ${costs.total_input_cost:.2f}, output ${costs.total_output_cost:.2f})"
+    )
+    if costs.estimated:
+        typer.echo("  Note: costs include estimated values for some requests.")
+    if detailed and costs.per_model:
+        typer.echo("  Per-model breakdown:")
+        for model, data in sorted(costs.per_model.items()):
+            typer.echo(
+                f"    {model}: ${data['total_cost']:.2f} (input ${data['input_cost']:.2f}, "
+                f"output ${data['output_cost']:.2f}) tokens in {data['input_tokens']:,}, out {data['output_tokens']:,}"
+            )
+
+
+def _handle_report(
+    report: RunReport | None,
+    *,
+    show_summary: bool,
+    detailed_costs: bool,
+    summary_path: Path | None,
+    fallback_output_dir: Path | None,
+) -> None:
+    if report is None:
+        return
+    if show_summary:
+        _print_summary(report, detailed=detailed_costs)
+    path = summary_path or _default_summary_path(fallback_output_dir)
+    try:
+        _write_summary(report, path)
+    except OSError as exc:  # noqa: BLE001
+        typer.echo(f"Warning: failed to write summary to {path}: {exc}")
 
 
 def _run_transcribe(
@@ -40,11 +95,14 @@ def _run_transcribe(
     video_model: Optional[str],
     video_token_limit: Optional[int],
     save_intermediates: bool,
+    show_summary: bool,
+    detailed_costs: bool,
+    summary_path: Path | None,
 ):
     normalized_pdf_mode = pdf_mode
     if isinstance(pdf_mode, str):
         normalized_pdf_mode = PDFMode(pdf_mode.lower())
-    TranscribeAuto(
+    report = TranscribeAuto(
         source,
         outputDir=output_dir,
         skipExisting=skip_existing,
@@ -59,6 +117,13 @@ def _run_transcribe(
         videoModel=video_model,
         videoTokenLimit=video_token_limit,
         saveIntermediates=save_intermediates,
+    )
+    _handle_report(
+        report,
+        show_summary=show_summary,
+        detailed_costs=detailed_costs,
+        summary_path=summary_path,
+        fallback_output_dir=output_dir,
     )
 
 
@@ -129,6 +194,21 @@ def default(
         "--save-intermediates/--no-save-intermediates",
         help="Persist normalized videos and chunk files for reuse/debugging",
     ),
+    show_summary: bool = typer.Option(
+        True,
+        "--show-summary/--hide-summary",
+        help="Display token and cost summary after processing",
+    ),
+    detailed_costs: bool = typer.Option(
+        False,
+        "--detailed-costs",
+        help="Include per-model cost breakdown in the summary output",
+    ),
+    summary_path: Optional[Path] = typer.Option(
+        None,
+        "--summary-path",
+        help="Write the run summary JSON to this path",
+    ),
 ):
     if ctx.invoked_subcommand:
         return
@@ -150,6 +230,9 @@ def default(
         video_model=video_model,
         video_token_limit=video_token_limit,
         save_intermediates=save_intermediates,
+        show_summary=show_summary,
+        detailed_costs=detailed_costs,
+        summary_path=summary_path,
     )
 
 
@@ -216,6 +299,21 @@ def transcribe(
         "--save-intermediates/--no-save-intermediates",
         help="Persist normalized videos and chunk files for reuse/debugging",
     ),
+    show_summary: bool = typer.Option(
+        True,
+        "--show-summary/--hide-summary",
+        help="Display token and cost summary after processing",
+    ),
+    detailed_costs: bool = typer.Option(
+        False,
+        "--detailed-costs",
+        help="Include per-model cost breakdown in the summary output",
+    ),
+    summary_path: Optional[Path] = typer.Option(
+        None,
+        "--summary-path",
+        help="Write the run summary JSON to this path",
+    ),
 ):
     _run_transcribe(
         source=source,
@@ -231,6 +329,10 @@ def transcribe(
         video_pattern=video_pattern,
         video_model=video_model,
         video_token_limit=video_token_limit,
+        save_intermediates=save_intermediates,
+        show_summary=show_summary,
+        detailed_costs=detailed_costs,
+        summary_path=summary_path,
     )
 
 
