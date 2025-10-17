@@ -48,6 +48,7 @@ Environment variables:
 | `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES` | Optional. Set to `1`/`true` to retain normalized videos, chunk MP4s, and manifests for debugging/re-use. |
 | `LECTURE_SUMMARIZER_MAX_WORKERS` | Optional. Control the maximum number of parallel document/image workers (defaults to `4`). |
 | `LECTURE_SUMMARIZER_MAX_VIDEO_WORKERS` | Optional. Control the maximum number of parallel video chunk workers (defaults to `3`). |
+| `LECTURE_SUMMARIZER_VIDEO_ENCODER` | Optional. Override the encoder used for video normalization (`auto`, `cpu`, `nvenc`, `videotoolbox`, `qsv`, `amf`). `auto` probes available FFmpeg hardware encoders and prefers GPU paths when they work. |
 
 All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
 
@@ -72,6 +73,9 @@ lecture-summarizer transcribe /path/to/imgs --include-images --kind image
 
 # Keep chunk artifacts for inspection (normalized MP4s & manifests)
 lecture-summarizer transcribe input/lectures --include-video --save-intermediates
+
+# Force a specific encoder if auto-detect picks the wrong one
+lecture-summarizer transcribe input/lectures --include-video --video-encoder nvenc
 
 # Post-processing helpers
 lecture-summarizer convert md /path/to/tex
@@ -129,6 +133,7 @@ If `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` is enabled, you'll also see `full-res
 Markdown (`*.md`) and JSON (`*.json`) files are written alongside the LaTeX when you run the conversion utilities.
 
 Video inputs produce chunk-aware LaTeX: each chunk is emitted as `\section*{Chunk N (HH:MM:SS–HH:MM:SS)}` inside `<stem>-transcribed.tex`. When `--save-full-response` is active, every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you pass `--save-intermediates` (or set `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`).
+Hardware acceleration is enabled automatically when FFmpeg exposes GPU encoders; fall back to `--video-encoder cpu` if you run into driver issues.
 
 Every CLI run additionally writes a JSON telemetry report (default `run-summary.json`). The report contains:
 
