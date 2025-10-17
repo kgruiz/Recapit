@@ -7,6 +7,16 @@
 - [x] Prototype a dedicated `video.py` utility module that wraps ffmpeg (or `ffmpeg-python`) to normalize codecs, extract duration, and split videos exceeding Gemini limits (≤20 MB inline uploads or ≈2 h per Files API call) while producing ISO-8601 `start_offset`/`end_offset` pairs.
 - [x] Spike the Files API workflow: staged upload, polling `files.get` until `state == "ACTIVE"`, then `models.generate_content` requests that place the video part before instructions and thread through `videoMetadata`, `mediaResolution`, `thinking_budget`, and `include_thoughts` flags.
 
+## Concurrency, Quotas & Cost Tracking
+- [x] Refactor `TokenBucket` with thread-safe primitives (lock + condition) and expose async-compatible wrappers so parallel workers share accurate quota accounting across PDF, image, and video flows.
+- [ ] Introduce a concurrency controller (thread pool / task group) in `pipeline` and API entrypoints to parallelize per-file work and per-chunk video transcription when chunking is already required, with configuration knobs for worker counts.
+- [ ] Instrument every Gemini call to capture request metadata (model, modality, start/end timestamps, tokens, chunk identifiers) and surface it via structured logging plus an aggregated run report.
+- [ ] Build a quota monitor that tracks per-model RPM/TPM and concurrent upload caps using the published limits (≤2 GB per file, ≤20 GB storage, ≤100 concurrent batch jobs); emit pre-emptive sleeps or warnings before hitting 80% utilization and handle `429`/quota errors with exponential backoff.
+- [ ] Add cost estimation by multiplying observed input/output tokens (or chunk durations) against the pricing table in `gemini-api-docs.md`, storing per-run totals and cumulative spend summaries.
+- [ ] Surface monitoring output to the CLI (`--show-quota`, `--cost-summary`) and persist to JSON in the run directory so downstream automation can react (alerts, budgeting dashboards).
+- [ ] Enrich command outputs with token usage, estimated spend, and related stats by default, while exposing flags (e.g., `--summary`, `--detailed-costs`, `--quota-metrics`) to retrieve the relevant subsets on demand.
+- [ ] Write unit/integration tests that simulate quota exhaustion, cost calculations, and threaded chunk execution to ensure monitoring remains accurate under parallel load.
+
 ## Chunk Assembly & Outputs
 - [ ] Specify how chunk-level responses (transcripts, visual summaries, Q&A) are stitched—define merge order, timestamp normalization to `MM:SS`, and LaTeX cleanup rules for multimodal cues like “[Slide]”.
 - [ ] Plan storage layout for per-chunk artifacts: raw JSON/text, optional SRT/VTT, combined LaTeX/Markdown/JSON, and a machine-readable manifest capturing model, fps, duration, and file URIs.
