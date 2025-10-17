@@ -367,9 +367,9 @@ class Pipeline:
                 cache_key = f"{slugify(video_path.stem)}-{source_hash[:12]}"
                 cache_dir = VIDEO_CACHE_DIR / cache_key
                 manifest_path = cache_dir / "chunks.json"
-                normalized_cache_path = cache_dir / "normalized.mp4"
                 chunk_output_dir = base_dir / PICKLES_DIRNAME / "video-chunks"
-                normalized_path: Path = normalized_cache_path
+                normalized_output_path = base_dir / PICKLES_DIRNAME / f"{video_path.stem}-normalized.mp4"
+                normalized_path: Path = video_path
                 progress.console.print(
                     f"[cyan]DEBUG[/cyan] {video_path.name}: cache location {cache_dir}"
                 )
@@ -381,6 +381,12 @@ class Pipeline:
                         progress.console.print(
                             f"[yellow]Warning[/yellow] {video_path.name}: failed to load {manifest_path.name}: {exc}"
                         )
+                cached_source_hash = (
+                    manifest_data.get("source_hash") if isinstance(manifest_data, dict) else None
+                )
+                cached_normalized_hash = (
+                    manifest_data.get("normalized_hash") if isinstance(manifest_data, dict) else None
+                )
                 cached_token_info = (
                     manifest_data.get("token_count") if isinstance(manifest_data, dict) else None
                 )
@@ -396,38 +402,52 @@ class Pipeline:
                     progress.console.print(
                         f"[cyan]DEBUG[/cyan] {video_path.name}: source passes normalization checks; using original file"
                     )
-                    if normalized_cache_path != video_path and normalized_cache_path.exists():
+                    if normalized_output_path.exists():
                         try:
-                            normalized_cache_path.unlink()
+                            normalized_output_path.unlink()
                             progress.console.print(
-                                f"[cyan]DEBUG[/cyan] {video_path.name}: removed cached normalized copy"
+                                f"[cyan]DEBUG[/cyan] {video_path.name}: removed normalized copy (no longer needed)"
                             )
                         except OSError as exc:
                             progress.console.print(
-                                f"[yellow]Warning[/yellow] {video_path.name}: failed to remove cached normalized copy: {exc}"
+                                f"[yellow]Warning[/yellow] {video_path.name}: failed to remove normalized copy: {exc}"
                             )
-                    normalized_path = video_path
                     normalized_hash = source_hash
                 else:
                     failing = ", ".join(name for name, ok in checks.items() if not ok) or "unknown"
                     progress.console.print(
                         f"[cyan]DEBUG[/cyan] {video_path.name}: normalization required (failing checks: {failing})"
                     )
-                    normalize_task = progress.add_task(
-                        self._format_task_description(f"Normalizing {video_path.name}", level=2), total=1
-                    )
-                    progress.console.print(f"[cyan]DEBUG[/cyan] {video_path.name}: starting normalization")
-                    try:
-                        ensure_dir(cache_dir)
-                        normalized_path = normalize_video(video_path, output_dir=cache_dir)
-                        progress.console.print(
-                            f"[cyan]DEBUG[/cyan] {video_path.name}: finished normalization -> {normalized_path.name}"
+                    reuse_normalized = False
+                    if (
+                        cached_source_hash == source_hash
+                        and cached_normalized_hash
+                        and normalized_output_path.exists()
+                    ):
+                        candidate_hash = sha256sum(normalized_output_path)
+                        if candidate_hash == cached_normalized_hash:
+                            reuse_normalized = True
+                            normalized_path = normalized_output_path
+                            normalized_hash = candidate_hash
+                            progress.console.print(
+                                f"[cyan]DEBUG[/cyan] {video_path.name}: reusing normalized file ({normalized_path.name})"
+                            )
+                    if not reuse_normalized:
+                        normalize_task = progress.add_task(
+                            self._format_task_description(f"Normalizing {video_path.name}", level=2), total=1
                         )
-                        progress.update(normalize_task, advance=1)
-                    finally:
-                        if normalize_task is not None:
-                            progress.remove_task(normalize_task)
-                    normalized_hash = sha256sum(normalized_path)
+                        progress.console.print(f"[cyan]DEBUG[/cyan] {video_path.name}: starting normalization")
+                        try:
+                            ensure_dir(normalized_output_path.parent)
+                            normalized_path = normalize_video(video_path, output_dir=normalized_output_path.parent)
+                            progress.console.print(
+                                f"[cyan]DEBUG[/cyan] {video_path.name}: finished normalization -> {normalized_path.name}"
+                            )
+                            progress.update(normalize_task, advance=1)
+                        finally:
+                            if normalize_task is not None:
+                                progress.remove_task(normalize_task)
+                        normalized_hash = sha256sum(normalized_path)
 
                 if normalized_hash is None:
                     normalized_hash = sha256sum(normalized_path)
