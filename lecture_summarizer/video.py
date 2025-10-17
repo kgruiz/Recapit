@@ -274,7 +274,7 @@ def plan_video_chunks(
     manifest_path: Path | None = None,
 ) -> VideoChunkPlan:
     """Compute chunk boundaries and optionally prepare file paths."""
-    chunk_dir = ensure_dir(Path(chunk_dir or normalized_path.parent))
+    chunk_dir_path = Path(chunk_dir) if chunk_dir else normalized_path.parent
     boundaries = _compute_chunk_boundaries(
         metadata,
         max_seconds=max_seconds,
@@ -293,10 +293,11 @@ def plan_video_chunks(
             manifest_path=manifest_path,
         )
 
+    chunk_dir_path = ensure_dir(chunk_dir_path)
     chunks: list[VideoChunk] = []
     for idx, (start, end) in enumerate(boundaries):
         chunk_name = f"{normalized_path.stem}-chunk{idx:02d}.mp4"
-        chunk_path = chunk_dir / chunk_name
+        chunk_path = chunk_dir_path / chunk_name
         _extract_segment(normalized_path, chunk_path, start, end)
         chunks.append(VideoChunk(index=idx, start_seconds=start, end_seconds=end, path=chunk_path, source=metadata.path))
 

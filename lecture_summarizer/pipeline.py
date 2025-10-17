@@ -1,7 +1,6 @@
 from __future__ import annotations
 import json
 import os
-import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -20,13 +19,7 @@ from rich.progress import (
 )
 
 from .config import AppConfig
-from .constants import (
-    RATE_LIMITS,
-    RATE_LIMIT_WINDOW_SEC,
-    FULL_RESPONSE_DIRNAME,
-    PAGE_IMAGES_DIRNAME,
-    PICKLES_DIRNAME,
-)
+from .constants import RATE_LIMITS, RATE_LIMIT_WINDOW_SEC, FULL_RESPONSE_DIRNAME, PAGE_IMAGES_DIRNAME, VIDEO_CACHE_DIR
 from .rate_limiter import TokenBucket
 from .templates import TemplateLoader
 from .llm import LLMClient
@@ -47,19 +40,6 @@ from .video import (
 
 _INDENT_STEP = "  "
 _SUBTASK_PREFIX = "|_ "
-
-
-def _mirror_video_source(src: Path, dest: Path) -> None:
-    ensure_dir(dest.parent)
-    if dest.exists():
-        try:
-            dest.unlink()
-        except OSError:
-            pass
-    try:
-        os.link(src, dest)
-    except OSError:
-        shutil.copy2(src, dest)
 
 
 class Kind(Enum):
@@ -365,15 +345,16 @@ class Pipeline:
                     total=1,
                 )
 
-                chunk_root = ensure_dir(base_dir / PICKLES_DIRNAME / "video-chunks")
-                progress.console.print(
-                    f"[cyan]DEBUG[/cyan] {video_path.name}: ensuring chunk cache at {chunk_root}"
-                )
-                manifest_path = chunk_root / f"{slugify(video_path.stem)}-chunks.json"
-
-                normalized_cache_path = chunk_root / f"{video_path.stem}-normalized.mp4"
-                normalized_path: Path = normalized_cache_path
                 source_hash = sha256sum(video_path)
+                cache_key = f"{slugify(video_path.stem)}-{source_hash[:12]}"
+                cache_dir = VIDEO_CACHE_DIR / cache_key
+                manifest_path = cache_dir / "chunks.json"
+                normalized_cache_path = cache_dir / "normalized.mp4"
+                chunk_cache_dir = cache_dir / "chunks"
+                normalized_path: Path = normalized_cache_path
+                progress.console.print(
+                    f"[cyan]DEBUG[/cyan] {video_path.name}: cache location {cache_dir}"
+                )
                 manifest_data: dict[str, object] | None = None
                 if manifest_path.exists():
                     try:
@@ -419,7 +400,8 @@ class Pipeline:
                     )
                     progress.console.print(f"[cyan]DEBUG[/cyan] {video_path.name}: starting normalization")
                     try:
-                        normalized_path = normalize_video(video_path, output_dir=chunk_root)
+                        ensure_dir(cache_dir)
+                        normalized_path = normalize_video(video_path, output_dir=cache_dir)
                         progress.console.print(
                             f"[cyan]DEBUG[/cyan] {video_path.name}: finished normalization -> {normalized_path.name}"
                         )
@@ -555,7 +537,7 @@ class Pipeline:
                     max_bytes=chunk_bytes,
                     token_limit=effective_token_limit,
                     tokens_per_second=tokens_per_sec,
-                    chunk_dir=chunk_root,
+                    chunk_dir=chunk_cache_dir,
                     manifest_path=manifest_path,
                 )
 
@@ -596,6 +578,7 @@ class Pipeline:
                     )
                 manifest_payload["source_hash"] = source_hash
                 manifest_payload["normalized_hash"] = normalized_hash
+                ensure_dir(cache_dir)
                 manifest_path.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True))
                 progress.console.print(
                     f"[cyan]DEBUG[/cyan] {video_path.name}: wrote manifest {manifest_path.name} with {len(manifest_payload['chunks'])} chunk entries"
