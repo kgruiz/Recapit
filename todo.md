@@ -10,7 +10,7 @@
 ## Concurrency, Quotas & Cost Tracking
 - [x] Refactor `TokenBucket` with thread-safe primitives (lock + condition) and expose async-compatible wrappers so parallel workers share accurate quota accounting across PDF, image, and video flows.
 - [x] Introduce a concurrency controller (thread pool / task group) in `pipeline` and API entrypoints to parallelize per-file work and per-chunk video transcription when chunking is already required, with configuration knobs for worker counts.
-- [ ] Instrument every Gemini call to capture request metadata (model, modality, start/end timestamps, tokens, chunk identifiers) and surface it via structured logging plus an aggregated run report.
+- [x] Instrument every Gemini call to capture request metadata (model, modality, start/end timestamps, tokens, chunk identifiers) and surface it via structured logging plus an aggregated run report.
 - [ ] Build a quota monitor that tracks per-model RPM/TPM and concurrent upload caps using the published limits (≤2 GB per file, ≤20 GB storage, ≤100 concurrent batch jobs); emit pre-emptive sleeps or warnings before hitting 80% utilization and handle `429`/quota errors with exponential backoff.
 - [ ] Add cost estimation by multiplying observed input/output tokens (or chunk durations) against the pricing table in `gemini-api-docs.md`, storing per-run totals and cumulative spend summaries.
 - [ ] Surface monitoring output to the CLI (`--show-quota`, `--cost-summary`) and persist to JSON in the run directory so downstream automation can react (alerts, budgeting dashboards).

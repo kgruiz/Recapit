@@ -34,6 +34,7 @@ from .templates import TemplateLoader
 from .llm import LLMClient
 from .pdf import pdf_to_png, total_pages
 from .clean import strip_code_fences, clean_latex
+from .telemetry import RunMonitor
 from .utils import ensure_dir, slugify
 from .video import (
     DEFAULT_MAX_CHUNK_BYTES,
@@ -84,6 +85,12 @@ class Pipeline:
     def __post_init__(self):
         self._bucket_lock = Lock()
         self._rate_limiters: dict[str, TokenBucket] = {}
+        existing_monitor = getattr(self.llm, "_recorder", None)
+        if isinstance(existing_monitor, RunMonitor):
+            self.monitor = existing_monitor
+        else:
+            self.monitor = RunMonitor()
+            self.llm.set_recorder(self.monitor)
 
     def _format_task_description(self, description: str, *, level: int = 0) -> str:
         prefix_level = max(level, 0)
@@ -243,7 +250,13 @@ class Pipeline:
                 total=page_total,
             )
             bucket.acquire()
-            text = self.llm.transcribe_pdf(model=model, instruction=instr, pdf_path=pdf)
+            metadata = {
+                "kind": kind.value,
+                "mode": "pdf",
+                "output_name": output_name,
+                "page_total": page_total,
+            }
+            text = self.llm.transcribe_pdf(model=model, instruction=instr, pdf_path=pdf, metadata=metadata)
             texts.append(text)
             progress.update(page_task, advance=page_total)
             self._combine_and_write(texts=texts, preamble=preamble, base_dir=base_dir, output_name=output_name)
@@ -262,9 +275,17 @@ class Pipeline:
         )
 
         texts: list[str] = []
-        for img in images:
+        for idx, img in enumerate(images):
             bucket.acquire()
-            text = self.llm.transcribe_image(model=model, instruction=instr, image_path=img)
+            metadata = {
+                "kind": kind.value,
+                "mode": "image",
+                "page_index": idx,
+                "page_total": page_total,
+                "output_name": output_name,
+                "source_pdf": str(pdf),
+            }
+            text = self.llm.transcribe_image(model=model, instruction=instr, image_path=img, metadata=metadata)
             texts.append(text)
             progress.update(page_task, advance=1)
         self._combine_and_write(texts=texts, preamble=preamble, base_dir=base_dir, output_name=output_name)
@@ -337,9 +358,21 @@ class Pipeline:
                     self._format_task_description("Transcribing images", level=0),
                     total=len(images),
                 )
-                for img in images:
+                for idx, img in enumerate(images):
                     bucket.acquire()
-                    text = self.llm.transcribe_image(model=model, instruction=instr, image_path=img)
+                    metadata = {
+                        "kind": kind.value,
+                        "bulk": True,
+                        "index": idx,
+                        "total": len(images),
+                        "output_name": output_name,
+                    }
+                    text = self.llm.transcribe_image(
+                        model=model,
+                        instruction=instr,
+                        image_path=img,
+                        metadata=metadata,
+                    )
                     texts.append(text)
                     progress.update(task, advance=1)
             self._combine_and_write(texts=texts, preamble=preamble, base_dir=base_dir, output_name=output_name)
@@ -350,11 +383,23 @@ class Pipeline:
                 self._format_task_description("Transcribing images", level=0),
                 total=len(images),
             )
-            for img in images:
+            for idx, img in enumerate(images):
                 out_dir = ensure_dir(self.output_base_for(source=img, override_root=output_dir))
                 output_name = f"{img.stem}-transcribed"
                 bucket.acquire()
-                text = self.llm.transcribe_image(model=model, instruction=instr, image_path=img)
+                metadata = {
+                    "kind": kind.value,
+                    "bulk": False,
+                    "output_name": output_name,
+                    "index": idx,
+                    "total": len(images),
+                }
+                text = self.llm.transcribe_image(
+                    model=model,
+                    instruction=instr,
+                    image_path=img,
+                    metadata=metadata,
+                )
                 self._combine_and_write(texts=[text], preamble=preamble, base_dir=out_dir, output_name=output_name)
                 progress.update(task, advance=1)
 
@@ -575,6 +620,11 @@ class Pipeline:
                                 instruction=instr,
                                 video_path=normalized_path,
                                 fps=fps_override,
+                                metadata={
+                                    "video_path": str(video_path),
+                                    "normalized_path": str(normalized_path),
+                                    "cache_key": cache_key,
+                                },
                             )
                             observed_total = getattr(token_count_response, "total_tokens", None)
                             if observed_total is not None and observed_total > 0:
@@ -734,6 +784,16 @@ class Pipeline:
                 def _run_chunk(idx_chunk: tuple[int, VideoChunk]) -> tuple[int, str]:
                     idx, chunk = idx_chunk
                     bucket.acquire()
+                    metadata = {
+                        "video_path": str(video_path),
+                        "chunk_path": str(chunk.path),
+                        "chunk_index": idx,
+                        "chunk_count": chunk_total,
+                        "chunk_start_seconds": chunk.start_seconds,
+                        "chunk_end_seconds": chunk.end_seconds,
+                        "normalized_path": str(normalized_path),
+                        "cache_key": cache_key,
+                    }
                     response = self.llm.transcribe_video(
                         model=model,
                         instruction=instr,
@@ -742,6 +802,7 @@ class Pipeline:
                         media_resolution=media_resolution,
                         thinking_budget=thinking_budget,
                         include_thoughts=include_thoughts,
+                        metadata=metadata,
                     )
                     return idx, (response.text or "").strip()
 
@@ -813,7 +874,11 @@ class Pipeline:
     ):
         prompt = self.templates.latex_to_md_prompt()
         latex_text = tex_file.read_text()
-        text = self.llm.latex_to_markdown(model=model, prompt=prompt, latex_text=latex_text)
+        metadata = {
+            "source_path": str(tex_file),
+            "output_name": output_name or tex_file.stem,
+        }
+        text = self.llm.latex_to_markdown(model=model, prompt=prompt, latex_text=latex_text, metadata=metadata)
         resolved_root = self._select_output_root(override=output_dir, fallback=tex_file.parent)
         out_dir = ensure_dir(resolved_root / slugify(tex_file.stem))
         out_name = (output_name or tex_file.stem) + ".md"
@@ -829,7 +894,11 @@ class Pipeline:
     ):
         prompt = self.templates.latex_to_json_prompt()
         latex_text = tex_file.read_text()
-        text = self.llm.latex_to_json(model=model, prompt=prompt, latex_text=latex_text)
+        metadata = {
+            "source_path": str(tex_file),
+            "output_name": output_name or tex_file.stem,
+        }
+        text = self.llm.latex_to_json(model=model, prompt=prompt, latex_text=latex_text, metadata=metadata)
         resolved_root = self._select_output_root(override=output_dir, fallback=tex_file.parent)
         out_dir = ensure_dir(resolved_root / slugify(tex_file.stem))
         out_name = (output_name or tex_file.stem) + ".json"

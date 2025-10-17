@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable, Iterable, Sequence, TypeVar
@@ -13,9 +14,13 @@ from .pipeline import Pipeline, Kind, PDFMode
 from .constants import GEMINI_2_FLASH_THINKING_EXP
 from .pdf import guess_pdf_kind
 from .utils import slugify
+from .telemetry import RunMonitor
 
 
 T = TypeVar("T")
+
+
+logger = logging.getLogger(__name__)
 
 
 def _run_parallel(work_items: Sequence[T], *, max_workers: int, fn: Callable[[T], None]) -> None:
@@ -30,6 +35,14 @@ def _run_parallel(work_items: Sequence[T], *, max_workers: int, fn: Callable[[T]
         futures = {executor.submit(fn, item): item for item in work_items}
         for future in as_completed(futures):
             future.result()
+
+
+def _log_summary(pipeline: Pipeline, context: str) -> None:
+    summary = pipeline.monitor.summarize()
+    if summary.total_requests == 0:
+        return
+    payload = {"context": context, **summary.to_dict()}
+    logger.info("run_summary %s", payload)
 
 
 _KIND_ALIASES: dict[str, Kind] = {
@@ -68,7 +81,11 @@ def _resolve_kind(value: Kind | str | None) -> Kind:
     raise ValueError(f"Unknown kind '{value}'. Expected one of: {', '.join(sorted(_KIND_ALIASES))} or 'auto'")
 
 
-def _mk(ctx_output_dir: Path | None = None, save_intermediates: bool | None = None) -> Pipeline:
+def _mk(
+    ctx_output_dir: Path | None = None,
+    save_intermediates: bool | None = None,
+    monitor: RunMonitor | None = None,
+) -> Pipeline:
     cfg = AppConfig.from_env()
     if ctx_output_dir:
         cfg = AppConfig(
@@ -94,7 +111,8 @@ def _mk(ctx_output_dir: Path | None = None, save_intermediates: bool | None = No
             max_workers=cfg.max_workers,
             max_video_workers=cfg.max_video_workers,
         )
-    return Pipeline(cfg=cfg, llm=LLMClient(api_key=cfg.api_key), templates=TemplateLoader(cfg.templates_dir))
+    llm = LLMClient(api_key=cfg.api_key, recorder=monitor)
+    return Pipeline(cfg=cfg, llm=llm, templates=TemplateLoader(cfg.templates_dir))
 
 
 def TranscribeSlides(
@@ -105,8 +123,9 @@ def TranscribeSlides(
     skipExisting: bool = True,
     model: str | None = None,
     pdfMode: PDFMode = PDFMode.IMAGES,
+    monitor: RunMonitor | None = None,
 ):
-    pl = _mk(outputDir)
+    pl = _mk(outputDir, monitor=monitor)
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     paths = _coerce_pdfs(source)
@@ -129,6 +148,8 @@ def TranscribeSlides(
         )
 
     _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
+    if monitor is None:
+        _log_summary(pl, "TranscribeSlides")
 
 
 def TranscribeLectures(
@@ -139,8 +160,9 @@ def TranscribeLectures(
     skipExisting: bool = True,
     model: str | None = None,
     pdfMode: PDFMode = PDFMode.IMAGES,
+    monitor: RunMonitor | None = None,
 ):
-    pl = _mk(outputDir)
+    pl = _mk(outputDir, monitor=monitor)
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     paths = _coerce_pdfs(source)
@@ -163,6 +185,8 @@ def TranscribeLectures(
         )
 
     _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
+    if monitor is None:
+        _log_summary(pl, "TranscribeLectures")
 
 
 def TranscribeDocuments(
@@ -173,8 +197,9 @@ def TranscribeDocuments(
     recursive: bool = False,
     model: str | None = None,
     pdfMode: PDFMode = PDFMode.AUTO,
+    monitor: RunMonitor | None = None,
 ):
-    pl = _mk(outputDir)
+    pl = _mk(outputDir, monitor=monitor)
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     paths = _coerce_pdfs(source, recursive=recursive)
@@ -200,6 +225,8 @@ def TranscribeDocuments(
         )
 
     _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
+    if monitor is None:
+        _log_summary(pl, "TranscribeDocuments")
 
 
 def TranscribeImages(
@@ -209,8 +236,9 @@ def TranscribeImages(
     separateOutputs: bool = True,
     skipExisting: bool = True,
     model: str | None = None,
+    monitor: RunMonitor | None = None,
 ):
-    pl = _mk(outputDir)
+    pl = _mk(outputDir, monitor=monitor)
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     imgs = _coerce_images(source, pattern=filePattern)
@@ -229,6 +257,8 @@ def TranscribeImages(
         pl.transcribe_images(images=[image_path], kind=Kind.IMAGE, model=active_model, output_dir=resolved_root, bulk=False)
 
     _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
+    if monitor is None:
+        _log_summary(pl, "TranscribeImages")
 
 
 def TranscribeVideos(
@@ -239,8 +269,9 @@ def TranscribeVideos(
     model: str | None = None,
     tokenLimit: int | None = None,
     saveIntermediates: bool | None = None,
+    monitor: RunMonitor | None = None,
 ):
-    pl = _mk(outputDir, save_intermediates=saveIntermediates)
+    pl = _mk(outputDir, save_intermediates=saveIntermediates, monitor=monitor)
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     videos = _coerce_videos(source, pattern=filePattern)
@@ -254,6 +285,8 @@ def TranscribeVideos(
         skip_existing=skipExisting,
         token_limit=effective_limit,
     )
+    if monitor is None:
+        _log_summary(pl, "TranscribeVideos")
 
 
 def TranscribeAuto(
@@ -433,6 +466,7 @@ def TranscribeAuto(
                 separateOutputs=True,
                 skipExisting=skipExisting,
                 model=model,
+                monitor=pl.monitor,
             )
             did_process = True
 
@@ -444,11 +478,14 @@ def TranscribeAuto(
             skipExisting=skipExisting,
             model=active_video_model,
             tokenLimit=active_video_token_limit,
+            monitor=pl.monitor,
         )
         did_process = True
 
     if not paths and not did_process:
         Console().print("[yellow]No PDF files found to transcribe.[/yellow]")
+
+    _log_summary(pl, "TranscribeAuto")
 
 
 def LatexToMarkdown(
