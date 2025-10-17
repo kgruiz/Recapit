@@ -19,7 +19,14 @@ from rich.progress import (
 )
 
 from .config import AppConfig
-from .constants import RATE_LIMITS, RATE_LIMIT_WINDOW_SEC, FULL_RESPONSE_DIRNAME, PAGE_IMAGES_DIRNAME, VIDEO_CACHE_DIR
+from .constants import (
+    RATE_LIMITS,
+    RATE_LIMIT_WINDOW_SEC,
+    FULL_RESPONSE_DIRNAME,
+    PAGE_IMAGES_DIRNAME,
+    PICKLES_DIRNAME,
+    VIDEO_CACHE_DIR,
+)
 from .rate_limiter import TokenBucket
 from .templates import TemplateLoader
 from .llm import LLMClient
@@ -361,7 +368,7 @@ class Pipeline:
                 cache_dir = VIDEO_CACHE_DIR / cache_key
                 manifest_path = cache_dir / "chunks.json"
                 normalized_cache_path = cache_dir / "normalized.mp4"
-                chunk_cache_dir = cache_dir / "chunks"
+                chunk_output_dir = base_dir / PICKLES_DIRNAME / "video-chunks"
                 normalized_path: Path = normalized_cache_path
                 progress.console.print(
                     f"[cyan]DEBUG[/cyan] {video_path.name}: cache location {cache_dir}"
@@ -559,7 +566,7 @@ class Pipeline:
                     max_bytes=chunk_bytes,
                     token_limit=effective_token_limit,
                     tokens_per_second=tokens_per_sec,
-                    chunk_dir=chunk_cache_dir,
+                    chunk_dir=chunk_output_dir,
                     manifest_path=manifest_path,
                 )
 
