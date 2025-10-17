@@ -5,7 +5,9 @@ Lecture Summarizer is a modular toolkit for turning slide decks, lecture handout
 ## Highlights
 
 - **Unified pipelines** – one orchestration layer handles PDF-to-image fan out, direct PDF ingestion, LLM interactions, and LaTeX cleanup for slides, lectures, documents, and ad-hoc images.
-- **Per-model throttling** – built-in token bucket rate limiter respects conservative RPM caps for current Gemini models.
+- **Parallel processing** – document/image transcription and video chunk uploads run across configurable worker pools to shrink wall-clock time on larger batches.
+- **Quota-aware throttling** – shared token buckets and a quota monitor keep per-model RPM/TPM and upload concurrency within Gemini’s published limits, automatically backing off when 429s appear.
+- **Telemetry & cost tracking** – every request records tokens, duration, and metadata; CLI runs print a summary (with optional per-model breakdowns) and persist a JSON report with token usage and estimated spend.
 - **Smart defaults** – works out of the box with built-in prompts and LaTeX preambles, but you can drop override files in `templates/` when you need fine control.
 - **Auto classification** – invoke the tool without subcommands (or via `transcribe`) and heuristics choose the right prompt for slides, notes, worksheets, or documents.
 - **Drop-in CLI & library** – invoke the Typer CLI from the shell or call the same functionality from Python without global state.
@@ -44,6 +46,8 @@ Environment variables:
 | `LECTURE_SUMMARIZER_TEMPLATES_DIR` | Optional. Point to an alternate prompt template directory. |
 | `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` | Optional. Set to `1`/`true` to also write raw model text under `full-response/`. |
 | `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES` | Optional. Set to `1`/`true` to retain normalized videos, chunk MP4s, and manifests for debugging/re-use. |
+| `LECTURE_SUMMARIZER_MAX_WORKERS` | Optional. Control the maximum number of parallel document/image workers (defaults to `4`). |
+| `LECTURE_SUMMARIZER_MAX_VIDEO_WORKERS` | Optional. Control the maximum number of parallel video chunk workers (defaults to `3`). |
 
 All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
 
@@ -74,6 +78,12 @@ lecture-summarizer convert md /path/to/tex
 lecture-summarizer convert json /path/to/tex --recursive
 
 ```
+
+By default the CLI prints a token/cost summary when a run finishes and writes `run-summary.json` (containing telemetry, per-model totals, and estimated spend) to the chosen output directory. Control this behaviour with:
+
+- `--hide-summary` to suppress console output.
+- `--detailed-costs` to include a per-model cost breakdown in the summary.
+- `--summary-path /custom/path.json` to override where the JSON report is written.
 
 Run `lecture-summarizer --help` or `lecture-summarizer <command> --help` for parameter details.
 
@@ -119,6 +129,12 @@ If `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` is enabled, you'll also see `full-res
 Markdown (`*.md`) and JSON (`*.json`) files are written alongside the LaTeX when you run the conversion utilities.
 
 Video inputs produce chunk-aware LaTeX: each chunk is emitted as `\section*{Chunk N (HH:MM:SS–HH:MM:SS)}` inside `<stem>-transcribed.tex`. When `--save-full-response` is active, every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you pass `--save-intermediates` (or set `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`).
+
+Every CLI run additionally writes a JSON telemetry report (default `run-summary.json`). The report contains:
+
+- Aggregate token counts (input/output/total) and request durations.
+- Per-model breakdowns covering requests, tokens, and estimated cost.
+- A flag noting whether any costs were estimated (e.g., when the API omits token usage and the tool infers values from video duration).
 
 ## Development
 
