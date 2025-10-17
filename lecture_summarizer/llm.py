@@ -6,6 +6,7 @@ import time
 
 import PIL.Image
 import pillow_avif  # noqa: F401
+import httpx
 from google import genai
 from google.genai import types
 
@@ -20,14 +21,17 @@ class LLMClient:
         # Increase HTTP timeouts so large media uploads and responses have ample time to complete.
         self._http_options = types.HttpOptions(timeout=600)
         self._client = genai.Client(api_key=self.api_key, http_options=self._http_options)
+        # Ensure the underlying httpx client uses generous timeouts for all requests.
+        api_client = getattr(self._client, "_api_client", None)
+        if api_client and hasattr(api_client, "_httpx_client"):
+            timeout = httpx.Timeout(timeout=600.0, connect=30.0)
+            api_client._httpx_client.timeout = timeout
 
     def _upload_and_wait(self, *, path: Path) -> types.File:
         mime_type, _ = mimetypes.guess_type(str(path))
         upload_kwargs: dict[str, object] = {"file": path}
-        config_kwargs: dict[str, object] = {"httpOptions": self._http_options}
         if mime_type:
-            config_kwargs["mimeType"] = mime_type
-        upload_kwargs["config"] = types.UploadFileConfig(**config_kwargs)
+            upload_kwargs["config"] = types.UploadFileConfig(mimeType=mime_type)
         file_ref = self._client.files.upload(**upload_kwargs)
         return self._await_active_file(file_ref)
 
