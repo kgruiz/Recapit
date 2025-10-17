@@ -85,6 +85,7 @@ def _mk(
     ctx_output_dir: Path | None = None,
     save_intermediates: bool | None = None,
     monitor: RunMonitor | None = None,
+    quota: QuotaMonitor | None = None,
 ) -> Pipeline:
     cfg = AppConfig.from_env()
     if ctx_output_dir:
@@ -111,7 +112,7 @@ def _mk(
             max_workers=cfg.max_workers,
             max_video_workers=cfg.max_video_workers,
         )
-    llm = LLMClient(api_key=cfg.api_key, recorder=monitor)
+    llm = LLMClient(api_key=cfg.api_key, recorder=monitor, quota=quota)
     return Pipeline(cfg=cfg, llm=llm, templates=TemplateLoader(cfg.templates_dir))
 
 
@@ -124,8 +125,9 @@ def TranscribeSlides(
     model: str | None = None,
     pdfMode: PDFMode = PDFMode.IMAGES,
     monitor: RunMonitor | None = None,
+    quota: QuotaMonitor | None = None,
 ):
-    pl = _mk(outputDir, monitor=monitor)
+    pl = _mk(outputDir, monitor=monitor, quota=quota)
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     paths = _coerce_pdfs(source)
@@ -161,8 +163,9 @@ def TranscribeLectures(
     model: str | None = None,
     pdfMode: PDFMode = PDFMode.IMAGES,
     monitor: RunMonitor | None = None,
+    quota: QuotaMonitor | None = None,
 ):
-    pl = _mk(outputDir, monitor=monitor)
+    pl = _mk(outputDir, monitor=monitor, quota=quota)
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     paths = _coerce_pdfs(source)
@@ -198,8 +201,9 @@ def TranscribeDocuments(
     model: str | None = None,
     pdfMode: PDFMode = PDFMode.AUTO,
     monitor: RunMonitor | None = None,
+    quota: QuotaMonitor | None = None,
 ):
-    pl = _mk(outputDir, monitor=monitor)
+    pl = _mk(outputDir, monitor=monitor, quota=quota)
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     paths = _coerce_pdfs(source, recursive=recursive)
@@ -237,8 +241,9 @@ def TranscribeImages(
     skipExisting: bool = True,
     model: str | None = None,
     monitor: RunMonitor | None = None,
+    quota: QuotaMonitor | None = None,
 ):
-    pl = _mk(outputDir, monitor=monitor)
+    pl = _mk(outputDir, monitor=monitor, quota=quota)
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     imgs = _coerce_images(source, pattern=filePattern)
@@ -270,8 +275,9 @@ def TranscribeVideos(
     tokenLimit: int | None = None,
     saveIntermediates: bool | None = None,
     monitor: RunMonitor | None = None,
+    quota: QuotaMonitor | None = None,
 ):
-    pl = _mk(outputDir, save_intermediates=saveIntermediates, monitor=monitor)
+    pl = _mk(outputDir, save_intermediates=saveIntermediates, monitor=monitor, quota=quota)
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     videos = _coerce_videos(source, pattern=filePattern)

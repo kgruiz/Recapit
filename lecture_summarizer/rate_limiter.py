@@ -10,6 +10,7 @@ from threading import Condition, Lock
 class TokenBucket:
     per_minute: int
     window_sec: int = 60
+    label: str | None = None
 
     def __post_init__(self):
         if self.per_minute <= 0:
@@ -19,6 +20,7 @@ class TokenBucket:
         self._times: deque[float] = deque()
         self._lock = Lock()
         self._cond = Condition(self._lock)
+        self._last_warning = 0.0
 
     def _prune(self, now: float) -> None:
         """Drop timestamps that fall outside the current window."""
@@ -58,3 +60,11 @@ class TokenBucket:
                 await asyncio.sleep(0)
             else:
                 await asyncio.sleep(min(wait_for, 0.5))
+
+    def utilization(self) -> float:
+        with self._lock:
+            now = time.monotonic()
+            self._prune(now)
+            if self.per_minute <= 0:
+                return 0.0
+            return min(len(self._times) / self.per_minute, 1.0)

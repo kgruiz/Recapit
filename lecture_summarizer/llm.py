@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import mimetypes
 import logging
 import time
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 import PIL.Image
 import pillow_avif  # noqa: F401
@@ -15,6 +15,7 @@ from google.genai import types
 
 from .constants import MODEL_CAPABILITIES
 from .telemetry import RunMonitor, RequestEvent
+from .quota import QuotaMonitor
 from .video import seconds_to_iso8601
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 class LLMClient:
     api_key: str
     recorder: RunMonitor | None = field(default=None, repr=False)
+    quota: QuotaMonitor | None = field(default=None, repr=False)
 
     def __post_init__(self):
         # Increase HTTP timeouts so large media uploads and responses have ample time to complete.
@@ -35,9 +37,16 @@ class LLMClient:
             timeout = httpx.Timeout(timeout=600.0, connect=30.0)
             api_client._httpx_client.timeout = timeout
         self._recorder = self.recorder
+        self._quota = self.quota
+        self._max_retries = 3
+        self._backoff_base = 1.0
+        self._backoff_cap = 8.0
 
     def set_recorder(self, recorder: RunMonitor | None) -> None:
         self._recorder = recorder
+
+    def set_quota_monitor(self, quota: QuotaMonitor | None) -> None:
+        self._quota = quota
 
     @staticmethod
     def _merge_metadata(
@@ -98,14 +107,88 @@ class LLMClient:
         )
         self._recorder.record(event)
         logger.debug("gemini_request %s", event.to_dict())
+        if self._quota is not None:
+            self._quota.register_event(
+                model=model,
+                timestamp=event.finished_at.timestamp(),
+                total_tokens=event.total_tokens,
+            )
+
+    def _execute_with_retries(
+        self,
+        func: Callable[[], Any],
+        *,
+        model: str,
+        modality: str,
+        metadata: Dict[str, object],
+    ) -> Any:
+        attempt = 0
+        while True:
+            try:
+                return func()
+            except Exception as exc:  # noqa: BLE001
+                if attempt >= self._max_retries or not self._should_retry(exc):
+                    raise
+                wait_for = min(self._backoff_base * (2**attempt), self._backoff_cap)
+                source = metadata.get("source_path") if metadata else None
+                if source:
+                    logger.warning(
+                        "Retrying %s request for %s (%s) in %.2fs due to %s",
+                        modality,
+                        model,
+                        source,
+                        wait_for,
+                        exc,
+                    )
+                else:
+                    logger.warning(
+                        "Retrying %s request for %s in %.2fs due to %s",
+                        modality,
+                        model,
+                        wait_for,
+                        exc,
+                    )
+                time.sleep(wait_for)
+                attempt += 1
+
+    @staticmethod
+    def _should_retry(exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None)
+        if status_code == 429:
+            return True
+        response = getattr(exc, "response", None)
+        if response is not None and getattr(response, "status_code", None) == 429:
+            return True
+        code = getattr(exc, "code", None)
+        if code == 429:
+            return True
+        message = str(exc).lower()
+        return "rate limit" in message or "quota" in message or "429" in message
 
     def _upload_and_wait(self, *, path: Path) -> types.File:
         mime_type, _ = mimetypes.guess_type(str(path))
         upload_kwargs: dict[str, object] = {"file": path}
         if mime_type:
             upload_kwargs["config"] = types.UploadFileConfig(mimeType=mime_type)
-        file_ref = self._client.files.upload(**upload_kwargs)
-        return self._await_active_file(file_ref)
+        size_bytes = 0
+        try:
+            size_bytes = path.stat().st_size
+        except OSError:
+            size_bytes = 0
+
+        def _perform_upload() -> types.File:
+            reference = self._execute_with_retries(
+                lambda: self._client.files.upload(**upload_kwargs),
+                model="files",
+                modality="upload",
+                metadata={"source_path": str(path)},
+            )
+            return self._await_active_file(reference)
+
+        if self._quota is not None:
+            with self._quota.track_upload(path=str(path), size_bytes=size_bytes):
+                return _perform_upload()
+        return _perform_upload()
 
     def _await_active_file(self, file_ref: types.File, *, timeout: float = 600.0, poll_interval: float = 2.0) -> types.File:
         deadline = time.monotonic() + timeout
@@ -131,19 +214,34 @@ class LLMClient:
         image_path: Path,
         metadata: Dict[str, object] | None = None,
     ) -> str:
+        metadata_payload = self._merge_metadata(metadata, {"source_path": str(image_path)})
         started = time.time()
-        img = PIL.Image.open(image_path)
-        resp = self._client.models.generate_content(
+
+        def _invoke() -> types.GenerateContentResponse:
+            img = PIL.Image.open(image_path)
+            try:
+                return self._client.models.generate_content(
+                    model=model,
+                    contents=[(instruction, img)],
+                    config=types.GenerateContentConfig(httpOptions=self._http_options),
+                )
+            finally:
+                try:
+                    img.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        resp = self._execute_with_retries(
+            _invoke,
             model=model,
-            contents=[(instruction, img)],
-            config=types.GenerateContentConfig(httpOptions=self._http_options),
+            modality="image",
+            metadata=metadata_payload,
         )
         finished = time.time()
-        merged_meta = self._merge_metadata(metadata, {"source_path": str(image_path)})
         self._record_event(
             model=model,
             modality="image",
-            metadata=merged_meta,
+            metadata=metadata_payload,
             started_at=started,
             finished_at=finished,
             usage=getattr(resp, "usage_metadata", None),
@@ -158,19 +256,28 @@ class LLMClient:
         pdf_path: Path,
         metadata: Dict[str, object] | None = None,
     ) -> str:
+        metadata_payload = self._merge_metadata(metadata, {"source_path": str(pdf_path)})
         started = time.time()
-        upload = self._client.files.upload(file=pdf_path)
-        resp = self._client.models.generate_content(
+        upload = self._upload_and_wait(path=pdf_path)
+
+        def _invoke() -> types.GenerateContentResponse:
+            return self._client.models.generate_content(
+                model=model,
+                contents=[instruction, upload],
+                config=types.GenerateContentConfig(httpOptions=self._http_options),
+            )
+
+        resp = self._execute_with_retries(
+            _invoke,
             model=model,
-            contents=[instruction, upload],
-            config=types.GenerateContentConfig(httpOptions=self._http_options),
+            modality="pdf",
+            metadata=metadata_payload,
         )
         finished = time.time()
-        merged_meta = self._merge_metadata(metadata, {"source_path": str(pdf_path)})
         self._record_event(
             model=model,
             modality="pdf",
-            metadata=merged_meta,
+            metadata=metadata_payload,
             started_at=started,
             finished_at=finished,
             usage=getattr(resp, "usage_metadata", None),
@@ -191,6 +298,18 @@ class LLMClient:
         include_thoughts: bool = False,
         metadata: Dict[str, object] | None = None,
     ):
+        metadata_payload = self._merge_metadata(
+            metadata,
+            {
+                "source_path": str(video_path),
+                "start_offset": start_offset,
+                "end_offset": end_offset,
+                "fps": fps,
+                "media_resolution": media_resolution,
+                "thinking_budget": thinking_budget,
+                "include_thoughts": include_thoughts,
+            },
+        )
         started = time.time()
         file_ref = self._upload_and_wait(path=video_path)
 
@@ -221,25 +340,22 @@ class LLMClient:
             config_kwargs["thinking_config"] = types.ThinkingConfig(**thinking_kwargs)
 
         config = types.GenerateContentConfig(**config_kwargs)
-        resp = self._client.models.generate_content(model=model, contents=content, config=config)
+
+        def _invoke() -> types.GenerateContentResponse:
+            return self._client.models.generate_content(model=model, contents=content, config=config)
+
+        resp = self._execute_with_retries(
+            _invoke,
+            model=model,
+            modality="video",
+            metadata=metadata_payload,
+        )
 
         finished = time.time()
-        merged_meta = self._merge_metadata(
-            metadata,
-            {
-                "source_path": str(video_path),
-                "start_offset": start_offset,
-                "end_offset": end_offset,
-                "fps": fps,
-                "media_resolution": media_resolution,
-                "thinking_budget": thinking_budget,
-                "include_thoughts": include_thoughts,
-            },
-        )
         self._record_event(
             model=model,
             modality="video",
-            metadata=merged_meta,
+            metadata=metadata_payload,
             started_at=started,
             finished_at=finished,
             usage=getattr(resp, "usage_metadata", None),
@@ -275,9 +391,7 @@ class LLMClient:
 
         content = types.Content(parts=parts)
         count_config = types.CountTokensConfig(httpOptions=self._http_options)
-        resp = self._client.models.count_tokens(model=model, contents=[content], config=count_config)
-        finished = time.time()
-        merged_meta = self._merge_metadata(
+        metadata_payload = self._merge_metadata(
             metadata,
             {
                 "source_path": str(video_path),
@@ -286,6 +400,17 @@ class LLMClient:
                 "fps": fps,
             },
         )
+
+        def _invoke() -> types.CountTokensResponse:
+            return self._client.models.count_tokens(model=model, contents=[content], config=count_config)
+
+        resp = self._execute_with_retries(
+            _invoke,
+            model=model,
+            modality="video_token_count",
+            metadata=metadata_payload,
+        )
+        finished = time.time()
         usage_payload: Dict[str, object] | None = None
         total_tokens = getattr(resp, "total_tokens", None)
         if total_tokens is not None:
@@ -293,7 +418,7 @@ class LLMClient:
         self._record_event(
             model=model,
             modality="video_token_count",
-            metadata=merged_meta,
+            metadata=metadata_payload,
             started_at=started,
             finished_at=finished,
             usage=usage_payload or getattr(resp, "usage_metadata", None),
@@ -311,17 +436,26 @@ class LLMClient:
         if not latex_text.strip():
             return ""
         started = time.time()
-        resp = self._client.models.generate_content(
+        metadata_payload = self._merge_metadata(metadata, {"operation": "latex_to_markdown"})
+
+        def _invoke() -> types.GenerateContentResponse:
+            return self._client.models.generate_content(
+                model=model,
+                contents=[f"Instructions:\n{prompt}\n\nLaTeX:\n{latex_text}"],
+                config=types.GenerateContentConfig(httpOptions=self._http_options),
+            )
+
+        resp = self._execute_with_retries(
+            _invoke,
             model=model,
-            contents=[f"Instructions:\n{prompt}\n\nLaTeX:\n{latex_text}"],
-            config=types.GenerateContentConfig(httpOptions=self._http_options),
+            modality="latex_to_markdown",
+            metadata=metadata_payload,
         )
         finished = time.time()
-        merged_meta = self._merge_metadata(metadata, {"operation": "latex_to_markdown"})
         self._record_event(
             model=model,
             modality="latex_to_markdown",
-            metadata=merged_meta,
+            metadata=metadata_payload,
             started_at=started,
             finished_at=finished,
             usage=getattr(resp, "usage_metadata", None),
@@ -339,17 +473,26 @@ class LLMClient:
         if not latex_text.strip():
             return "[]"
         started = time.time()
-        resp = self._client.models.generate_content(
+        metadata_payload = self._merge_metadata(metadata, {"operation": "latex_to_json"})
+
+        def _invoke() -> types.GenerateContentResponse:
+            return self._client.models.generate_content(
+                model=model,
+                contents=[f"Instructions:\n{prompt}\n\n```\n{latex_text}\n```"],
+                config=types.GenerateContentConfig(httpOptions=self._http_options),
+            )
+
+        resp = self._execute_with_retries(
+            _invoke,
             model=model,
-            contents=[f"Instructions:\n{prompt}\n\n```\n{latex_text}\n```"],
-            config=types.GenerateContentConfig(httpOptions=self._http_options),
+            modality="latex_to_json",
+            metadata=metadata_payload,
         )
         finished = time.time()
-        merged_meta = self._merge_metadata(metadata, {"operation": "latex_to_json"})
         self._record_event(
             model=model,
             modality="latex_to_json",
-            metadata=merged_meta,
+            metadata=metadata_payload,
             started_at=started,
             finished_at=finished,
             usage=getattr(resp, "usage_metadata", None),

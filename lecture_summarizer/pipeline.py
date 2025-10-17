@@ -24,6 +24,7 @@ from .config import AppConfig
 from .constants import (
     RATE_LIMITS,
     RATE_LIMIT_WINDOW_SEC,
+    TOKEN_LIMITS_PER_MINUTE,
     FULL_RESPONSE_DIRNAME,
     PAGE_IMAGES_DIRNAME,
     PICKLES_DIRNAME,
@@ -35,6 +36,7 @@ from .llm import LLMClient
 from .pdf import pdf_to_png, total_pages
 from .clean import strip_code_fences, clean_latex
 from .telemetry import RunMonitor
+from .quota import QuotaMonitor, QuotaConfig
 from .utils import ensure_dir, slugify
 from .video import (
     DEFAULT_MAX_CHUNK_BYTES,
@@ -92,6 +94,17 @@ class Pipeline:
             self.monitor = RunMonitor()
             self.llm.set_recorder(self.monitor)
 
+        existing_quota = getattr(self.llm, "_quota", None)
+        if isinstance(existing_quota, QuotaMonitor):
+            self.quota = existing_quota
+        else:
+            quota_config = QuotaConfig(
+                request_limits=RATE_LIMITS,
+                token_limits=TOKEN_LIMITS_PER_MINUTE,
+            )
+            self.quota = QuotaMonitor(quota_config)
+            self.llm.set_quota_monitor(self.quota)
+
     def _format_task_description(self, description: str, *, level: int = 0) -> str:
         prefix_level = max(level, 0)
         prefix = _INDENT_STEP * prefix_level
@@ -147,9 +160,15 @@ class Pipeline:
             bucket = self._rate_limiters.get(model)
             if bucket is None:
                 per_minute = RATE_LIMITS.get(model, 10)
-                bucket = TokenBucket(per_minute=per_minute, window_sec=RATE_LIMIT_WINDOW_SEC)
+                bucket = TokenBucket(per_minute=per_minute, window_sec=RATE_LIMIT_WINDOW_SEC, label=model)
                 self._rate_limiters[model] = bucket
             return bucket
+
+    def _acquire_token(self, bucket: TokenBucket, model: str) -> None:
+        if hasattr(self, "quota") and self.quota is not None:
+            utilization = bucket.utilization()
+            self.quota.check_rpm(model, utilization, bucket.per_minute, bucket.window_sec)
+        bucket.acquire()
 
     def _combine_and_write(
         self,
@@ -249,7 +268,7 @@ class Pipeline:
                 self._format_task_description(task_label, level=task_level + 1),
                 total=page_total,
             )
-            bucket.acquire()
+            self._acquire_token(bucket, model)
             metadata = {
                 "kind": kind.value,
                 "mode": "pdf",
@@ -276,7 +295,7 @@ class Pipeline:
 
         texts: list[str] = []
         for idx, img in enumerate(images):
-            bucket.acquire()
+            self._acquire_token(bucket, model)
             metadata = {
                 "kind": kind.value,
                 "mode": "image",
@@ -359,7 +378,7 @@ class Pipeline:
                     total=len(images),
                 )
                 for idx, img in enumerate(images):
-                    bucket.acquire()
+                    self._acquire_token(bucket, model)
                     metadata = {
                         "kind": kind.value,
                         "bulk": True,
@@ -386,7 +405,7 @@ class Pipeline:
             for idx, img in enumerate(images):
                 out_dir = ensure_dir(self.output_base_for(source=img, override_root=output_dir))
                 output_name = f"{img.stem}-transcribed"
-                bucket.acquire()
+                self._acquire_token(bucket, model)
                 metadata = {
                     "kind": kind.value,
                     "bulk": False,
@@ -783,7 +802,7 @@ class Pipeline:
 
                 def _run_chunk(idx_chunk: tuple[int, VideoChunk]) -> tuple[int, str]:
                     idx, chunk = idx_chunk
-                    bucket.acquire()
+                    self._acquire_token(bucket, model)
                     metadata = {
                         "video_path": str(video_path),
                         "chunk_path": str(chunk.path),
