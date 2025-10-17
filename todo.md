@@ -15,7 +15,7 @@
 - [x] Add cost estimation by multiplying observed input/output tokens (or chunk durations) against the pricing table in `gemini-api-docs.md`, storing per-run totals and cumulative spend summaries.
 - [x] Surface monitoring output to the CLI (`--show-quota`, `--cost-summary`) and persist to JSON in the run directory so downstream automation can react (alerts, budgeting dashboards).
 - [ ] Enrich command outputs with token usage, estimated spend, and related stats by default, while exposing flags (e.g., `--summary`, `--detailed-costs`, `--quota-metrics`) to retrieve the relevant subsets on demand.
-- [ ] Write unit/integration tests that simulate quota exhaustion, cost calculations, and threaded chunk execution to ensure monitoring remains accurate under parallel load.
+- [x] Write unit/integration tests that simulate quota exhaustion, cost calculations, and threaded chunk execution to ensure monitoring remains accurate under parallel load.
 
 ## Chunk Assembly & Outputs
 - [ ] Specify how chunk-level responses (transcripts, visual summaries, Q&A) are stitched—define merge order, timestamp normalization to `MM:SS`, and LaTeX cleanup rules for multimodal cues like “[Slide]”.
