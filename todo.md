@@ -14,7 +14,7 @@
 - [x] Build a quota monitor that tracks per-model RPM/TPM and concurrent upload caps using the published limits (≤2 GB per file, ≤20 GB storage, ≤100 concurrent batch jobs); emit pre-emptive sleeps or warnings before hitting 80% utilization and handle `429`/quota errors with exponential backoff.
 - [x] Add cost estimation by multiplying observed input/output tokens (or chunk durations) against the pricing table in `gemini-api-docs.md`, storing per-run totals and cumulative spend summaries.
 - [x] Surface monitoring output to the CLI (`--show-quota`, `--cost-summary`) and persist to JSON in the run directory so downstream automation can react (alerts, budgeting dashboards).
-- [ ] Enrich command outputs with token usage, estimated spend, and related stats by default, while exposing flags (e.g., `--summary`, `--detailed-costs`, `--quota-metrics`) to retrieve the relevant subsets on demand.
+- [x] Enrich command outputs with token usage, estimated spend, and related stats by default, with flags (`--show-summary/--hide-summary`, `--detailed-costs`, `--summary-path`) to adjust the level of detail or persistence.
 - [x] Write unit/integration tests that simulate quota exhaustion, cost calculations, and threaded chunk execution to ensure monitoring remains accurate under parallel load.
 
 ## Chunk Assembly & Outputs
