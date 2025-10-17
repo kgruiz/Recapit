@@ -12,7 +12,7 @@
 - [x] Introduce a concurrency controller (thread pool / task group) in `pipeline` and API entrypoints to parallelize per-file work and per-chunk video transcription when chunking is already required, with configuration knobs for worker counts.
 - [x] Instrument every Gemini call to capture request metadata (model, modality, start/end timestamps, tokens, chunk identifiers) and surface it via structured logging plus an aggregated run report.
 - [x] Build a quota monitor that tracks per-model RPM/TPM and concurrent upload caps using the published limits (≤2 GB per file, ≤20 GB storage, ≤100 concurrent batch jobs); emit pre-emptive sleeps or warnings before hitting 80% utilization and handle `429`/quota errors with exponential backoff.
-- [ ] Add cost estimation by multiplying observed input/output tokens (or chunk durations) against the pricing table in `gemini-api-docs.md`, storing per-run totals and cumulative spend summaries.
+- [x] Add cost estimation by multiplying observed input/output tokens (or chunk durations) against the pricing table in `gemini-api-docs.md`, storing per-run totals and cumulative spend summaries.
 - [ ] Surface monitoring output to the CLI (`--show-quota`, `--cost-summary`) and persist to JSON in the run directory so downstream automation can react (alerts, budgeting dashboards).
 - [ ] Enrich command outputs with token usage, estimated spend, and related stats by default, while exposing flags (e.g., `--summary`, `--detailed-costs`, `--quota-metrics`) to retrieve the relevant subsets on demand.
 - [ ] Write unit/integration tests that simulate quota exhaustion, cost calculations, and threaded chunk execution to ensure monitoring remains accurate under parallel load.

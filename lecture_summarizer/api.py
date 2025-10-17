@@ -41,7 +41,13 @@ def _log_summary(pipeline: Pipeline, context: str) -> None:
     summary = pipeline.monitor.summarize()
     if summary.total_requests == 0:
         return
-    payload = {"context": context, **summary.to_dict()}
+    cost_summary = pipeline.monitor.costs()
+    setattr(pipeline, "last_cost_summary", cost_summary)
+    payload = {
+        "context": context,
+        **summary.to_dict(),
+        "costs": cost_summary.to_dict(),
+    }
     logger.info("run_summary %s", payload)
 
 

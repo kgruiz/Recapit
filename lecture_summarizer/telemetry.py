@@ -115,3 +115,8 @@ class RunMonitor:
             by_model=by_model,
             by_modality=by_modality,
         )
+
+    def costs(self) -> "CostSummary":
+        from .costs import estimate_costs
+
+        return estimate_costs(self.events())

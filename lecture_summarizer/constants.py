@@ -43,6 +43,33 @@ TOKEN_LIMITS_PER_MINUTE = {
     GEMINI_2_FLASH_THINKING_EXP: 400_000,
 }
 
+MODEL_PRICING = {
+    GEMINI_2_5_PRO: {
+        "text": {"input": 3.50, "output": 10.00},
+        "audio_video": {"input": 3.00, "output": 15.00},
+    },
+    GEMINI_2_5_FLASH: {
+        "text": {"input": 0.35, "output": 1.05},
+        "audio_video": {"input": 0.70, "output": 2.10},
+    },
+    GEMINI_2_5_FLASH_LITE: {
+        "text": {"input": 0.10, "output": 0.40},
+        "audio_video": {"input": 0.30, "output": 1.20},
+    },
+    GEMINI_2_FLASH: {
+        "text": {"input": 0.10, "output": 0.40},
+        "audio_video": {"input": 0.70, "output": 2.80},
+    },
+    GEMINI_2_FLASH_THINKING_EXP: {
+        "text": {"input": 0.15, "output": 0.50},
+        "audio_video": {"input": 0.70, "output": 2.80},
+    },
+    "default": {
+        "text": {"input": 0.0, "output": 0.0},
+        "audio_video": {"input": 0.0, "output": 0.0},
+    },
+}
+
 # Defaults
 DEFAULT_MODEL: Final = GEMINI_2_5_FLASH_LITE
 OUTPUT_DIR = Path("output")
