@@ -11,14 +11,16 @@ from .api import (
 from .pipeline import PDFMode
 
 
+_CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"], "allow_interspersed_args": True}
+
 app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
-    context_settings={"help_option_names": ["-h", "--help"]},
+    context_settings=_CONTEXT_SETTINGS,
 )
 convert_app = typer.Typer(
     help="Utilities for converting LaTeX outputs",
-    context_settings={"help_option_names": ["-h", "--help"]},
+    context_settings=_CONTEXT_SETTINGS,
 )
 app.add_typer(convert_app, name="convert")
 
