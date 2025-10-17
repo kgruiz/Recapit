@@ -324,7 +324,7 @@ class Pipeline:
         kind: Kind,
         model: str,
         output_name: str | None = None,
-        mode: PDFMode = PDFMode.AUTO,
+        mode: PDFMode = PDFMode.IMAGES,
         progress: Progress | None = None,
         output_root: Path | None = None,
         files_task: TaskID | None = None,

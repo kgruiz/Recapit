@@ -207,7 +207,7 @@ def TranscribeDocuments(
     outputName: str | None = None,
     recursive: bool = False,
     model: str | None = None,
-    pdfMode: PDFMode = PDFMode.AUTO,
+    pdfMode: PDFMode = PDFMode.IMAGES,
     monitor: RunMonitor | None = None,
     quota: QuotaMonitor | None = None,
 ):
@@ -319,7 +319,7 @@ def TranscribeAuto(
     skipExisting: bool = True,
     recursive: bool = False,
     model: str | None = None,
-    pdfMode: PDFMode = PDFMode.AUTO,
+    pdfMode: PDFMode = PDFMode.IMAGES,
     kind: Kind | str | None = "auto",
     includeImages: bool = False,
     imagePattern: str = "*.png",

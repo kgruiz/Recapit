@@ -4,12 +4,13 @@ Lecture Summarizer is a modular toolkit for turning slide decks, lecture handout
 
 ## Highlights
 
-- **Unified pipelines** – one orchestration layer handles PDF-to-image fan out, direct PDF ingestion, LLM interactions, and LaTeX cleanup for slides, lectures, documents, and ad-hoc images.
+- **Unified pipelines** – one orchestration layer handles PDF-to-image fan out, optional direct PDF ingestion, LLM interactions, and LaTeX cleanup for slides, lectures, documents, and ad-hoc images.
 - **Parallel processing** – document/image transcription and video chunk uploads run across configurable worker pools to shrink wall-clock time on larger batches.
 - **Quota-aware throttling** – shared token buckets and a quota monitor keep per-model RPM/TPM and upload concurrency within Gemini’s published limits, automatically backing off when 429s appear.
 - **Telemetry & cost tracking** – every request records tokens, duration, and metadata; CLI runs print a summary (with optional per-model breakdowns) and persist a JSON report with token usage and estimated spend.
 - **Smart defaults** – works out of the box with built-in prompts and LaTeX preambles, but you can drop override files in `templates/` when you need fine control.
 - **Auto classification** – invoke the tool without subcommands (or via `transcribe`) and heuristics choose the right prompt for slides, notes, worksheets, or documents.
+- **Image-first PDF handling** – every PDF is rasterized to per-page PNGs by default for consistent transcription; opt into direct PDF ingestion with `--pdf-mode pdf` or `PDFMode.PDF` when your chosen model supports it.
 - **Drop-in CLI & library** – invoke the Typer CLI from the shell or call the same functionality from Python without global state.
 - **Structured outputs** – cleaned LaTeX lands beside the source file by default; flip `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` on if you also want raw model dumps.
 
@@ -17,7 +18,7 @@ Lecture Summarizer is a modular toolkit for turning slide decks, lecture handout
 
 - Python 3.10+
 - Google Gemini access and a `GEMINI_API_KEY` with permissions for the latest models (e.g. `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-pro`).
-- Poppler (needed by `pdf2image` when using image-based PDF transcription)
+- Poppler (required because PDFs are rasterized to images by default)
 
 ## Installation
 
@@ -113,7 +114,7 @@ TranscribeAuto("/path/to/mixed", recursive=True, includeImages=True)
 An API call automatically:
 1. Loads configuration from the environment.
 2. Applies per-model rate limits.
-3. Chooses between direct PDF ingestion (if the selected model supports it) or PDF-to-image fan out.
+3. Rasterizes PDFs to per-page images by default, with optional direct PDF ingestion when you pass `PDFMode.PDF` or `PDFMode.AUTO` and your model supports native PDFs.
 4. Writes combined raw output (`full-response/{name}.txt`) and cleaned LaTeX (`{name}.tex`).
 
 ## Output Structure

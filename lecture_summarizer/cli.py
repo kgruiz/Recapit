@@ -157,7 +157,7 @@ def default(
         help="Skip outputs that already exist",
     ),
     pdf_mode: str = typer.Option(
-        PDFMode.AUTO.value,
+        PDFMode.IMAGES.value,
         "--pdf-mode",
         "-P",
         case_sensitive=False,
@@ -268,7 +268,7 @@ def transcribe(
         help="Skip outputs that already exist",
     ),
     pdf_mode: str = typer.Option(
-        PDFMode.AUTO.value,
+        PDFMode.IMAGES.value,
         "--pdf-mode",
         "-P",
         case_sensitive=False,
