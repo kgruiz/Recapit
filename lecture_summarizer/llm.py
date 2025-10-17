@@ -24,8 +24,10 @@ class LLMClient:
     def _upload_and_wait(self, *, path: Path) -> types.File:
         mime_type, _ = mimetypes.guess_type(str(path))
         upload_kwargs: dict[str, object] = {"file": path}
+        config_kwargs: dict[str, object] = {"httpOptions": self._http_options}
         if mime_type:
-            upload_kwargs["config"] = {"mime_type": mime_type}
+            config_kwargs["mimeType"] = mime_type
+        upload_kwargs["config"] = types.UploadFileConfig(**config_kwargs)
         file_ref = self._client.files.upload(**upload_kwargs)
         return self._await_active_file(file_ref)
 
@@ -36,7 +38,10 @@ class LLMClient:
             if time.monotonic() > deadline:
                 raise TimeoutError(f"Timed out waiting for {file_ref.name} to become ACTIVE")
             time.sleep(poll_interval)
-            file_ref = self._client.files.get(name=file_ref.name)
+            file_ref = self._client.files.get(
+                name=file_ref.name,
+                config=types.GetFileConfig(httpOptions=self._http_options),
+            )
             state_name = getattr(getattr(file_ref, "state", None), "name", "ACTIVE")
         if state_name != "ACTIVE":
             raise RuntimeError(f"File upload failed with state '{state_name}' for {file_ref.name}")
