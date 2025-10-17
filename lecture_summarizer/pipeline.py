@@ -322,11 +322,14 @@ class Pipeline:
         bucket = self._bucket_for(model)
         instr, preamble = self._instruction_for_kind(Kind.VIDEO)
 
+        single_video = len(videos) == 1
         with self._progress() as progress:
-            files_task = progress.add_task(
-                self._format_task_description("Videos", level=0),
-                total=len(videos),
-            )
+            files_task: TaskID | None = None
+            if not single_video:
+                files_task = progress.add_task(
+                    self._format_task_description("Videos", level=0),
+                    total=len(videos),
+                )
             for video_path in videos:
                 base_dir = ensure_dir(self.output_base_for(source=video_path, override_root=output_dir))
                 output_name = f"{video_path.stem}-transcribed"
@@ -335,15 +338,23 @@ class Pipeline:
                     progress.console.print(
                         f"[yellow]Skipping {video_path.name} (existing outputs). Use --no-skip-existing to regenerate.[/yellow]"
                     )
-                    progress.update(files_task, advance=1)
+                    if files_task is not None:
+                        progress.update(files_task, advance=1)
                     continue
                 progress.console.print(
                     f"[cyan]DEBUG[/cyan] {video_path.name}: selected base_dir={base_dir} output_name={output_name}"
                 )
-                video_task = progress.add_task(
-                    self._format_task_description(f"Transcribing {video_path.name}", level=1),
-                    total=1,
-                )
+                video_task: TaskID | None = None
+                if not single_video:
+                    video_task = progress.add_task(
+                        self._format_task_description(f"Transcribing {video_path.name}", level=1),
+                        total=1,
+                    )
+                else:
+                    video_task = progress.add_task(
+                        self._format_task_description(f"Transcribing {video_path.name}", level=0),
+                        total=1,
+                    )
 
                 source_hash = sha256sum(video_path)
                 cache_key = f"{slugify(video_path.stem)}-{source_hash[:12]}"
@@ -453,9 +464,13 @@ class Pipeline:
                             "timestamp", datetime.now(timezone.utc).isoformat()
                         )
                     else:
-                        token_task = progress.add_task(
-                            self._format_task_description(f"Counting tokens for {video_path.name}", level=2), total=1
-                        )
+                        token_task: TaskID | None = None
+                        if single_video:
+                            progress.update(video_task, description=self._format_task_description("Counting tokens", level=0))
+                        else:
+                            token_task = progress.add_task(
+                                self._format_task_description(f"Counting tokens for {video_path.name}", level=2), total=1
+                            )
                         progress.console.print(f"[cyan]DEBUG[/cyan] {video_path.name}: starting token counting")
                         try:
                             token_count_response = self.llm.count_video_tokens(
@@ -481,7 +496,10 @@ class Pipeline:
                             progress.console.print(
                                 f"[cyan]DEBUG[/cyan] {video_path.name}: finished token counting with total_tokens={token_count_payload['total_tokens']}"
                             )
-                            progress.update(token_task, advance=1)
+                            if single_video:
+                                progress.update(video_task, description=self._format_task_description(f"Transcribing {video_path.name}", level=0))
+                            elif token_task is not None:
+                                progress.update(token_task, advance=1)
                         except Exception as exc:
                             progress.console.print(
                                 f"[yellow]Token counting failed for {video_path.name}: {exc}. Using defaults.[/yellow]"
@@ -511,9 +529,13 @@ class Pipeline:
                                 progress.console.print(
                                     f"[cyan]DEBUG[/cyan] {video_path.name}: falling back to tokens_per_second={tokens_per_sec:.2f}"
                                 )
-                            progress.update(token_task, advance=1)
+                            if token_task is not None:
+                                progress.update(token_task, advance=1)
                         finally:
-                            progress.remove_task(token_task)
+                            if single_video:
+                                progress.update(video_task, description=self._format_task_description(f"Transcribing {video_path.name}", level=0))
+                            elif token_task is not None:
+                                progress.remove_task(token_task)
                 elif configured_tokens_per_sec is not None:
                     tokens_per_sec = configured_tokens_per_sec
                     progress.console.print(
@@ -596,8 +618,12 @@ class Pipeline:
                 progress.console.print(
                     f"[cyan]DEBUG[/cyan] {video_path.name}: starting transcription loop"
                 )
+                chunk_level = 1 if single_video else 2
+                chunk_description = (
+                    f"{video_path.name} chunks" if not single_video else "Chunks"
+                )
                 chunk_task = progress.add_task(
-                    self._format_task_description(f"{video_path.name} chunks", level=2),
+                    self._format_task_description(chunk_description, level=chunk_level),
                     total=chunk_total,
                 )
                 texts: list[str] = []
@@ -624,8 +650,10 @@ class Pipeline:
                 self._combine_and_write(texts=texts, preamble=preamble, base_dir=base_dir, output_name=output_name)
                 progress.console.print(f"[cyan]DEBUG[/cyan] {video_path.name}: finished transcription and writing outputs")
                 progress.console.print(f"[green]Saved[/green] {tex_path}")
-                progress.update(video_task, advance=1)
-                progress.update(files_task, advance=1)
+                if video_task is not None:
+                    progress.update(video_task, advance=1)
+                if files_task is not None:
+                    progress.update(files_task, advance=1)
 
     def latex_to_markdown(
         self,
