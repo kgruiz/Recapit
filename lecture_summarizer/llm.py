@@ -17,7 +17,10 @@ class LLMClient:
     api_key: str
 
     def __post_init__(self):
-        self._client = genai.Client(api_key=self.api_key)
+        # Increase HTTP write timeout so large media uploads have longer than the
+        # default ~5s httpx window to complete.
+        http_options = types.HttpOptions(timeout=600)
+        self._client = genai.Client(api_key=self.api_key, http_options=http_options)
 
     def _upload_and_wait(self, *, path: Path) -> types.File:
         mime_type, _ = mimetypes.guess_type(str(path))
