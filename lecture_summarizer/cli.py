@@ -37,6 +37,7 @@ def _run_transcribe(
     video_pattern: str,
     video_model: Optional[str],
     video_token_limit: Optional[int],
+    save_intermediates: bool,
 ):
     normalized_pdf_mode = pdf_mode
     if isinstance(pdf_mode, str):
@@ -55,6 +56,7 @@ def _run_transcribe(
         videoPattern=video_pattern,
         videoModel=video_model,
         videoTokenLimit=video_token_limit,
+        saveIntermediates=save_intermediates,
     )
 
 
@@ -120,6 +122,11 @@ def default(
         "--video-token-limit",
         help="Maximum tokens allowed per video chunk before splitting (default 300000)",
     ),
+    save_intermediates: bool = typer.Option(
+        False,
+        "--save-intermediates/--no-save-intermediates",
+        help="Persist normalized videos and chunk files for reuse/debugging",
+    ),
 ):
     if ctx.invoked_subcommand:
         return
@@ -140,6 +147,7 @@ def default(
         video_pattern=video_pattern,
         video_model=video_model,
         video_token_limit=video_token_limit,
+        save_intermediates=save_intermediates,
     )
 
 
@@ -200,6 +208,11 @@ def transcribe(
         None,
         "--video-token-limit",
         help="Maximum tokens allowed per video chunk before splitting (default 300000)",
+    ),
+    save_intermediates: bool = typer.Option(
+        False,
+        "--save-intermediates/--no-save-intermediates",
+        help="Persist normalized videos and chunk files for reuse/debugging",
     ),
 ):
     _run_transcribe(

@@ -144,6 +144,7 @@ class Pipeline:
     ) -> Path:
         cleaned_texts = [strip_code_fences(t or "") for t in texts]
         combined = "\n".join(t for t in cleaned_texts if t)
+        full_dir: Path | None = None
         if self.cfg.save_full_response:
             full_dir = ensure_dir(base_dir / FULL_RESPONSE_DIRNAME)
             (full_dir / f"{output_name}.txt").write_text(combined)
@@ -166,6 +167,17 @@ class Pipeline:
         cleaned = clean_latex(combined, preamble)
         output_path = base_dir / f"{output_name}.tex"
         output_path.write_text(cleaned)
+        if media_kind == Kind.VIDEO and full_dir is not None:
+            chunks = chunk_metadata or []
+            chunk_dir = ensure_dir(full_dir / "chunks")
+            for idx, text in enumerate(cleaned_texts):
+                chunk = chunks[idx] if idx < len(chunks) else None
+                if chunk is None:
+                    start_label = "unknown"
+                else:
+                    start_label = _format_timestamp(chunk.start_seconds)
+                chunk_path = chunk_dir / f"{output_name}-chunk{idx:02d}.txt"
+                chunk_path.write_text(text.strip() + "\n")
         return output_path
 
     def _transcribe_pdf_with_progress(
@@ -407,11 +419,19 @@ class Pipeline:
                 chunk_output_dir = base_dir / PICKLES_DIRNAME / "video-chunks"
                 normalized_output_path = base_dir / PICKLES_DIRNAME / f"{video_path.stem}-normalized.mp4"
                 normalized_path: Path = video_path
+                keep_intermediates = self.cfg.save_intermediates
                 progress.console.print(
                     f"[cyan]DEBUG[/cyan] {video_path.name}: cache location {cache_dir}"
                 )
                 manifest_data: dict[str, object] | None = None
-                if manifest_path.exists():
+                if not keep_intermediates and manifest_path.exists():
+                    try:
+                        manifest_path.unlink()
+                    except OSError as exc:
+                        progress.console.print(
+                            f"[yellow]Warning[/yellow] {video_path.name}: failed to remove stale manifest: {exc}"
+                        )
+                if keep_intermediates and manifest_path.exists():
                     try:
                         manifest_data = json.loads(manifest_path.read_text())
                     except Exception as exc:
@@ -426,7 +446,7 @@ class Pipeline:
                 )
                 cached_token_info = (
                     manifest_data.get("token_count") if isinstance(manifest_data, dict) else None
-                )
+                ) if keep_intermediates else None
 
                 acceptable, checks, source_meta = assess_video_normalization(video_path)
                 normalize_task: TaskID | None = None
@@ -457,7 +477,8 @@ class Pipeline:
                     )
                     reuse_normalized = False
                     if (
-                        cached_source_hash == source_hash
+                        keep_intermediates
+                        and cached_source_hash == source_hash
                         and cached_normalized_hash
                         and normalized_output_path.exists()
                     ):
@@ -664,8 +685,14 @@ class Pipeline:
                     )
                 manifest_payload["source_hash"] = source_hash
                 manifest_payload["normalized_hash"] = normalized_hash
-                ensure_dir(cache_dir)
-                manifest_path.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True))
+                if keep_intermediates:
+                    ensure_dir(cache_dir)
+                    manifest_path.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True))
+                elif manifest_path.exists():
+                    try:
+                        manifest_path.unlink()
+                    except OSError:
+                        pass
                 progress.console.print(
                     f"[cyan]DEBUG[/cyan] {video_path.name}: wrote manifest {manifest_path.name} with {len(manifest_payload['chunks'])} chunk entries"
                 )
@@ -719,6 +746,25 @@ class Pipeline:
                 )
                 progress.console.print(f"[cyan]DEBUG[/cyan] {video_path.name}: finished transcription and writing outputs")
                 progress.console.print(f"[green]Saved[/green] {written_path}")
+                if not keep_intermediates:
+                    if normalized_output_path.exists() and normalized_output_path != video_path:
+                        try:
+                            normalized_output_path.unlink()
+                        except OSError:
+                            pass
+                    for chunk in plan.chunks:
+                        if chunk.path == normalized_path:
+                            continue
+                        try:
+                            if chunk.path.exists():
+                                chunk.path.unlink()
+                        except OSError:
+                            pass
+                    if chunk_output_dir.exists() and not any(chunk_output_dir.iterdir()):
+                        try:
+                            chunk_output_dir.rmdir()
+                        except OSError:
+                            pass
                 if video_task is not None:
                     progress.update(video_task, advance=1)
                 if files_task is not None:

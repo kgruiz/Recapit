@@ -50,7 +50,7 @@ def _resolve_kind(value: Kind | str | None) -> Kind:
     raise ValueError(f"Unknown kind '{value}'. Expected one of: {', '.join(sorted(_KIND_ALIASES))} or 'auto'")
 
 
-def _mk(ctx_output_dir: Path | None = None) -> Pipeline:
+def _mk(ctx_output_dir: Path | None = None, save_intermediates: bool | None = None) -> Pipeline:
     cfg = AppConfig.from_env()
     if ctx_output_dir:
         cfg = AppConfig(
@@ -59,6 +59,17 @@ def _mk(ctx_output_dir: Path | None = None) -> Pipeline:
             templates_dir=cfg.templates_dir,
             default_model=cfg.default_model,
             save_full_response=cfg.save_full_response,
+            save_intermediates=cfg.save_intermediates if save_intermediates is None else save_intermediates,
+            video_token_limit=cfg.video_token_limit,
+        )
+    elif save_intermediates is not None:
+        cfg = AppConfig(
+            api_key=cfg.api_key,
+            output_dir=cfg.output_dir,
+            templates_dir=cfg.templates_dir,
+            default_model=cfg.default_model,
+            save_full_response=cfg.save_full_response,
+            save_intermediates=save_intermediates,
             video_token_limit=cfg.video_token_limit,
         )
     return Pipeline(cfg=cfg, llm=LLMClient(api_key=cfg.api_key), templates=TemplateLoader(cfg.templates_dir))
@@ -177,8 +188,9 @@ def TranscribeVideos(
     skipExisting: bool = True,
     model: str | None = None,
     tokenLimit: int | None = None,
+    saveIntermediates: bool | None = None,
 ):
-    pl = _mk(outputDir)
+    pl = _mk(outputDir, save_intermediates=saveIntermediates)
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     videos = _coerce_videos(source, pattern=filePattern)
@@ -208,10 +220,11 @@ def TranscribeAuto(
     videoPattern: str = "*.mp4",
     videoModel: str | None = None,
     videoTokenLimit: int | None = None,
+    saveIntermediates: bool | None = None,
 ):
     """Transcribe PDFs (and optionally images) with automatic prompt selection."""
 
-    pl = _mk(outputDir)
+    pl = _mk(outputDir, save_intermediates=saveIntermediates)
     active_model = model or pl.cfg.default_model
 
     forced_kind: Kind | None

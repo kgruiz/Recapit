@@ -13,6 +13,7 @@ class AppConfig:
     templates_dir: Path = TEMPLATES_DIR
     default_model: str = DEFAULT_MODEL
     save_full_response: bool = False
+    save_intermediates: bool = False
     video_token_limit: int = DEFAULT_VIDEO_TOKEN_LIMIT
 
     @staticmethod
@@ -27,6 +28,8 @@ class AppConfig:
         default_model = os.getenv("LECTURE_SUMMARIZER_DEFAULT_MODEL", DEFAULT_MODEL)
         save_full_raw = os.getenv("LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE", "0").strip().lower()
         save_full_response = save_full_raw in {"1", "true", "yes", "on"}
+        save_intermediate_raw = os.getenv("LECTURE_SUMMARIZER_SAVE_INTERMEDIATES", "0").strip().lower()
+        save_intermediates = save_intermediate_raw in {"1", "true", "yes", "on"}
         video_token_limit_raw = os.getenv("LECTURE_SUMMARIZER_VIDEO_TOKEN_LIMIT")
         video_token_limit = DEFAULT_VIDEO_TOKEN_LIMIT
         if video_token_limit_raw:
@@ -43,5 +46,6 @@ class AppConfig:
             templates_dir=templates_dir,
             default_model=default_model,
             save_full_response=save_full_response,
+            save_intermediates=save_intermediates,
             video_token_limit=video_token_limit,
         )
