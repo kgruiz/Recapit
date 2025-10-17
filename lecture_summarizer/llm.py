@@ -17,10 +17,9 @@ class LLMClient:
     api_key: str
 
     def __post_init__(self):
-        # Increase HTTP write timeout so large media uploads have longer than the
-        # default ~5s httpx window to complete.
-        http_options = types.HttpOptions(timeout=600)
-        self._client = genai.Client(api_key=self.api_key, http_options=http_options)
+        # Increase HTTP timeouts so large media uploads and responses have ample time to complete.
+        self._http_options = types.HttpOptions(timeout=600)
+        self._client = genai.Client(api_key=self.api_key, http_options=self._http_options)
 
     def _upload_and_wait(self, *, path: Path) -> types.File:
         mime_type, _ = mimetypes.guess_type(str(path))
@@ -48,6 +47,7 @@ class LLMClient:
         resp = self._client.models.generate_content(
             model=model,
             contents=[(instruction, img)],
+            config=types.GenerateContentConfig(httpOptions=self._http_options),
         )
         return (resp.text or "").strip()
 
@@ -56,6 +56,7 @@ class LLMClient:
         resp = self._client.models.generate_content(
             model=model,
             contents=[instruction, upload],
+            config=types.GenerateContentConfig(httpOptions=self._http_options),
         )
         return (resp.text or "").strip()
 
@@ -99,7 +100,7 @@ class LLMClient:
         ]
         content = types.Content(parts=parts)
 
-        config_kwargs: dict[str, object] = {}
+        config_kwargs: dict[str, object] = {"httpOptions": self._http_options}
         if media_resolution:
             config_kwargs["media_resolution"] = media_resolution
         if thinking_budget is not None or include_thoughts:
@@ -110,11 +111,8 @@ class LLMClient:
                 thinking_kwargs["include_thoughts"] = True
             config_kwargs["thinking_config"] = types.ThinkingConfig(**thinking_kwargs)
 
-        if config_kwargs:
-            config = types.GenerateContentConfig(**config_kwargs)
-            resp = self._client.models.generate_content(model=model, contents=content, config=config)
-        else:
-            resp = self._client.models.generate_content(model=model, contents=content)
+        config = types.GenerateContentConfig(**config_kwargs)
+        resp = self._client.models.generate_content(model=model, contents=content, config=config)
 
         return resp
 
@@ -154,7 +152,8 @@ class LLMClient:
             parts.append(types.Part(text=instruction))
 
         content = types.Content(parts=parts)
-        return self._client.models.count_tokens(model=model, contents=[content])
+        count_config = types.CountTokensConfig(httpOptions=self._http_options)
+        return self._client.models.count_tokens(model=model, contents=[content], config=count_config)
 
     def latex_to_markdown(self, *, model: str, prompt: str, latex_text: str) -> str:
         if not latex_text.strip():
@@ -162,6 +161,7 @@ class LLMClient:
         resp = self._client.models.generate_content(
             model=model,
             contents=[f"Instructions:\n{prompt}\n\nLaTeX:\n{latex_text}"],
+            config=types.GenerateContentConfig(httpOptions=self._http_options),
         )
         return (resp.text or "").strip()
 
@@ -171,6 +171,7 @@ class LLMClient:
         resp = self._client.models.generate_content(
             model=model,
             contents=[f"Instructions:\n{prompt}\n\n```\n{latex_text}\n```"],
+            config=types.GenerateContentConfig(httpOptions=self._http_options),
         )
         return (resp.text or "").strip()
 
