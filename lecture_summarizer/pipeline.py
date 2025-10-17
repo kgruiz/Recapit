@@ -47,6 +47,7 @@ from .video import (
     normalize_video,
     plan_video_chunks,
     probe_video,
+    select_encoder_chain,
     sha256sum,
 )
 
@@ -451,11 +452,15 @@ class Pipeline:
         if not self.llm.supports(model, "video"):
             raise ValueError(f"Model {model} does not support video inputs")
 
+        encoder_chain, encoder_messages = select_encoder_chain(self.cfg.video_encoder_preference)
+
         bucket = self._bucket_for(model)
         instr, preamble = self._instruction_for_kind(Kind.VIDEO)
 
         single_video = len(videos) == 1
         with self._progress() as progress:
+            for message in encoder_messages:
+                progress.console.print(f"[cyan]DEBUG[/cyan] video-encoder: {message}")
             files_task: TaskID | None = None
             if not single_video:
                 files_task = progress.add_task(
@@ -523,10 +528,27 @@ class Pipeline:
                 cached_token_info = (
                     manifest_data.get("token_count") if isinstance(manifest_data, dict) else None
                 ) if keep_intermediates else None
+                cached_encoder_effective = (
+                    manifest_data.get("encoder_effective") if isinstance(manifest_data, dict) else None
+                )
+                cached_encoder_codec = (
+                    manifest_data.get("encoder_codec") if isinstance(manifest_data, dict) else None
+                )
+                cached_encoder_accelerated = (
+                    manifest_data.get("encoder_accelerated") if isinstance(manifest_data, dict) else None
+                )
+                cached_encoder_known = (
+                    manifest_data.get("encoder_known") if isinstance(manifest_data, dict) else None
+                )
 
                 acceptable, checks, source_meta = assess_video_normalization(video_path)
                 normalize_task: TaskID | None = None
                 normalized_hash: str | None = None
+                encoder_effective_pref: str | None = None
+                encoder_effective_codec: str | None = None
+                encoder_accelerated = False
+                encoder_known = False
+                encoder_diag: list[str] = []
                 # The quick checks above ensure the bare minimum: readable container, H.264 video, AAC audio,
                 # sensible sample rate, and a fast-start layout. They intentionally do **not** replicate every
                 # invariant the ffmpeg normalize pass enforces (e.g., keyframe cadence, bitrate caps). If any
@@ -546,6 +568,10 @@ class Pipeline:
                                 f"[yellow]Warning[/yellow] {video_path.name}: failed to remove normalized copy: {exc}"
                             )
                     normalized_hash = source_hash
+                    encoder_effective_pref = "source"
+                    encoder_effective_codec = (source_meta.video_codec if source_meta else None) or "unknown"
+                    encoder_accelerated = False
+                    encoder_known = True
                 else:
                     failing = ", ".join(name for name, ok in checks.items() if not ok) or "unknown"
                     progress.console.print(
@@ -566,6 +592,15 @@ class Pipeline:
                             progress.console.print(
                                 f"[cyan]DEBUG[/cyan] {video_path.name}: reusing normalized file ({normalized_path.name})"
                             )
+                            encoder_effective_pref = (
+                                str(cached_encoder_effective) if cached_encoder_effective else "unknown"
+                            )
+                            encoder_effective_codec = (
+                                str(cached_encoder_codec) if cached_encoder_codec else "unknown"
+                            )
+                            encoder_accelerated = bool(cached_encoder_accelerated) if cached_encoder_accelerated is not None else False
+                            encoder_known = bool(cached_encoder_known) if cached_encoder_known is not None else False
+                            encoder_diag.append("Reused cached normalized artifact (hash match)")
                     if not reuse_normalized:
                         normalize_task = progress.add_task(
                             self._format_task_description(f"Normalizing {video_path.name}", level=2), total=1
@@ -573,7 +608,21 @@ class Pipeline:
                         progress.console.print(f"[cyan]DEBUG[/cyan] {video_path.name}: starting normalization")
                         try:
                             ensure_dir(normalized_output_path.parent)
-                            normalized_path = normalize_video(video_path, output_dir=normalized_output_path.parent)
+                            result = normalize_video(
+                                video_path,
+                                output_dir=normalized_output_path.parent,
+                                encoder_chain=encoder_chain,
+                            )
+                            normalized_path = result.path
+                            encoder_effective_pref = result.encoder.preference.value
+                            encoder_effective_codec = result.encoder.codec
+                            encoder_accelerated = result.encoder.accelerated
+                            encoder_known = result.encoder_known
+                            encoder_diag.extend(result.diagnostics)
+                            for message in result.diagnostics:
+                                progress.console.print(
+                                    f"[cyan]DEBUG[/cyan] {video_path.name}: {message}"
+                                )
                             progress.console.print(
                                 f"[cyan]DEBUG[/cyan] {video_path.name}: finished normalization -> {normalized_path.name}"
                             )
@@ -588,8 +637,18 @@ class Pipeline:
                 progress.console.print(
                     f"[cyan]DEBUG[/cyan] {video_path.name}: source_hash={source_hash[:12]} normalized_hash={normalized_hash[:12]}"
                 )
+                if encoder_effective_pref is None:
+                    encoder_effective_pref = "unknown"
+                if encoder_effective_codec is None:
+                    encoder_effective_codec = "unknown"
 
                 normalized_meta = probe_video(normalized_path)
+                if not encoder_effective_codec or encoder_effective_codec == "unknown":
+                    encoder_effective_codec = (normalized_meta.video_codec or "unknown")
+                progress.console.print(
+                    f"[cyan]DEBUG[/cyan] {video_path.name}: encoder_effective={encoder_effective_pref} "
+                    f"codec={encoder_effective_codec} accelerated={encoder_accelerated} known={encoder_known}"
+                )
                 if source_meta and abs(normalized_meta.duration_seconds - source_meta.duration_seconds) > 1.0:
                     progress.console.print(
                         f"[yellow]Warning[/yellow] {video_path.name}: normalized duration {normalized_meta.duration_seconds:.2f}s"
@@ -737,6 +796,11 @@ class Pipeline:
                     "fps": normalized_meta.fps,
                     "video_codec": normalized_meta.video_codec,
                     "audio_codec": normalized_meta.audio_codec,
+                    "encoder_requested": self.cfg.video_encoder_preference.value,
+                    "encoder_effective": encoder_effective_pref,
+                    "encoder_codec": encoder_effective_codec,
+                    "encoder_accelerated": bool(encoder_accelerated),
+                    "encoder_known": bool(encoder_known),
                     "model": model,
                     "token_limit": effective_token_limit,
                     "tokens_per_second": tokens_per_sec,
@@ -766,6 +830,8 @@ class Pipeline:
                     )
                 manifest_payload["source_hash"] = source_hash
                 manifest_payload["normalized_hash"] = normalized_hash
+                if encoder_diag:
+                    manifest_payload["encoder_diagnostics"] = encoder_diag
                 if keep_intermediates:
                     ensure_dir(cache_dir)
                     manifest_path.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True))

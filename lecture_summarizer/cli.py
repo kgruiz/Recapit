@@ -12,6 +12,7 @@ from .api import (
 )
 from .pipeline import PDFMode
 from .constants import OUTPUT_DIR
+from .video import VideoEncoderPreference
 
 
 _CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"], "allow_interspersed_args": True}
@@ -98,7 +99,12 @@ def _run_transcribe(
     show_summary: bool,
     detailed_costs: bool,
     summary_path: Path | None,
+    video_encoder: str,
 ):
+    try:
+        encoder_pref = VideoEncoderPreference.parse(video_encoder)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--video-encoder") from exc
     normalized_pdf_mode = pdf_mode
     if isinstance(pdf_mode, str):
         normalized_pdf_mode = PDFMode(pdf_mode.lower())
@@ -117,6 +123,7 @@ def _run_transcribe(
         videoModel=video_model,
         videoTokenLimit=video_token_limit,
         saveIntermediates=save_intermediates,
+        videoEncoder=encoder_pref,
     )
     _handle_report(
         report,
@@ -209,6 +216,11 @@ def default(
         "--summary-path",
         help="Write the run summary JSON to this path",
     ),
+    video_encoder: str = typer.Option(
+        VideoEncoderPreference.AUTO.value,
+        "--video-encoder",
+        help="Preferred video encoder (auto, cpu, nvenc, videotoolbox, qsv, vaapi, amf)",
+    ),
 ):
     if ctx.invoked_subcommand:
         return
@@ -233,6 +245,7 @@ def default(
         show_summary=show_summary,
         detailed_costs=detailed_costs,
         summary_path=summary_path,
+        video_encoder=video_encoder,
     )
 
 
@@ -314,6 +327,11 @@ def transcribe(
         "--summary-path",
         help="Write the run summary JSON to this path",
     ),
+    video_encoder: str = typer.Option(
+        VideoEncoderPreference.AUTO.value,
+        "--video-encoder",
+        help="Preferred video encoder (auto, cpu, nvenc, videotoolbox, qsv, vaapi, amf)",
+    ),
 ):
     _run_transcribe(
         source=source,
@@ -333,6 +351,7 @@ def transcribe(
         show_summary=show_summary,
         detailed_costs=detailed_costs,
         summary_path=summary_path,
+        video_encoder=video_encoder,
     )
 
 

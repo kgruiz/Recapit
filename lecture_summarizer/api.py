@@ -1,6 +1,6 @@
 from __future__ import annotations
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable, Iterable, Sequence, TypeVar
@@ -17,6 +17,7 @@ from .pdf import guess_pdf_kind
 from .utils import slugify
 from .telemetry import RunMonitor, RunSummary
 from .costs import CostSummary
+from .video import VideoEncoderPreference
 
 
 T = TypeVar("T")
@@ -109,32 +110,16 @@ def _mk(
     save_intermediates: bool | None = None,
     monitor: RunMonitor | None = None,
     quota: QuotaMonitor | None = None,
+    video_encoder: VideoEncoderPreference | str | None = None,
 ) -> Pipeline:
     cfg = AppConfig.from_env()
     if ctx_output_dir:
-        cfg = AppConfig(
-            api_key=cfg.api_key,
-            output_dir=Path(ctx_output_dir),
-            templates_dir=cfg.templates_dir,
-            default_model=cfg.default_model,
-            save_full_response=cfg.save_full_response,
-            save_intermediates=cfg.save_intermediates if save_intermediates is None else save_intermediates,
-            video_token_limit=cfg.video_token_limit,
-            max_workers=cfg.max_workers,
-            max_video_workers=cfg.max_video_workers,
-        )
-    elif save_intermediates is not None:
-        cfg = AppConfig(
-            api_key=cfg.api_key,
-            output_dir=cfg.output_dir,
-            templates_dir=cfg.templates_dir,
-            default_model=cfg.default_model,
-            save_full_response=cfg.save_full_response,
-            save_intermediates=save_intermediates,
-            video_token_limit=cfg.video_token_limit,
-            max_workers=cfg.max_workers,
-            max_video_workers=cfg.max_video_workers,
-        )
+        cfg = replace(cfg, output_dir=Path(ctx_output_dir))
+    if save_intermediates is not None:
+        cfg = replace(cfg, save_intermediates=save_intermediates)
+    if video_encoder is not None:
+        requested_encoder = VideoEncoderPreference.parse(video_encoder)
+        cfg = replace(cfg, video_encoder_preference=requested_encoder)
     llm = LLMClient(api_key=cfg.api_key, recorder=monitor, quota=quota)
     return Pipeline(cfg=cfg, llm=llm, templates=TemplateLoader(cfg.templates_dir))
 
@@ -303,8 +288,15 @@ def TranscribeVideos(
     saveIntermediates: bool | None = None,
     monitor: RunMonitor | None = None,
     quota: QuotaMonitor | None = None,
+    videoEncoder: VideoEncoderPreference | str | None = None,
 ):
-    pl = _mk(outputDir, save_intermediates=saveIntermediates, monitor=monitor, quota=quota)
+    pl = _mk(
+        outputDir,
+        save_intermediates=saveIntermediates,
+        monitor=monitor,
+        quota=quota,
+        video_encoder=videoEncoder,
+    )
     active_model = model or pl.cfg.default_model
     resolved_root = Path(outputDir).expanduser() if outputDir else None
     videos = _coerce_videos(source, pattern=filePattern)
@@ -338,10 +330,11 @@ def TranscribeAuto(
     videoModel: str | None = None,
     videoTokenLimit: int | None = None,
     saveIntermediates: bool | None = None,
+    videoEncoder: VideoEncoderPreference | str | None = None,
 ):
     """Transcribe PDFs (and optionally images) with automatic prompt selection."""
 
-    pl = _mk(outputDir, save_intermediates=saveIntermediates)
+    pl = _mk(outputDir, save_intermediates=saveIntermediates, video_encoder=videoEncoder)
     active_model = model or pl.cfg.default_model
 
     forced_kind: Kind | None
@@ -513,6 +506,7 @@ def TranscribeAuto(
             model=active_video_model,
             tokenLimit=active_video_token_limit,
             monitor=pl.monitor,
+            videoEncoder=videoEncoder,
         )
         did_process = True
 

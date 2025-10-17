@@ -4,9 +4,13 @@ import hashlib
 import json
 import math
 import os
+import re
 import subprocess
+import sys
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
+from typing import Iterable, Sequence
 
 from .constants import DEFAULT_VIDEO_TOKENS_PER_SECOND
 from .utils import ensure_dir
@@ -20,6 +24,272 @@ _ACCEPTABLE_VIDEO_CODECS = {"h264", "avc1"}
 _ACCEPTABLE_AUDIO_CODECS = {"aac", "mp4a"}
 _ACCEPTABLE_AUDIO_SAMPLE_RATES = {None, 44100, 48000}
 
+_ENCODER_NAME_CACHE: set[str] | None = None
+
+
+def _ffmpeg_encoder_names() -> set[str]:
+    global _ENCODER_NAME_CACHE
+    if _ENCODER_NAME_CACHE is not None:
+        return _ENCODER_NAME_CACHE
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        _ENCODER_NAME_CACHE = set()
+        return _ENCODER_NAME_CACHE
+    except subprocess.CalledProcessError:
+        _ENCODER_NAME_CACHE = set()
+        return _ENCODER_NAME_CACHE
+
+    names: set[str] = set()
+    pattern = re.compile(r"^\s*[A-Z\.]{6}\s+(\S+)")
+    for line in (result.stdout or "").splitlines():
+        match = pattern.match(line)
+        if match:
+            names.add(match.group(1))
+    _ENCODER_NAME_CACHE = names
+    return _ENCODER_NAME_CACHE
+
+
+def _auto_encoder_priority() -> tuple[VideoEncoderPreference, ...]:
+    if sys.platform == "darwin":
+        return (
+            VideoEncoderPreference.VIDEOTOOLBOX,
+            VideoEncoderPreference.NVENC,
+            VideoEncoderPreference.QSV,
+            VideoEncoderPreference.AMF,
+        )
+    if sys.platform.startswith("win"):
+        return (
+            VideoEncoderPreference.NVENC,
+            VideoEncoderPreference.AMF,
+            VideoEncoderPreference.QSV,
+            VideoEncoderPreference.VIDEOTOOLBOX,
+        )
+    return (
+        VideoEncoderPreference.NVENC,
+        VideoEncoderPreference.QSV,
+        VideoEncoderPreference.AMF,
+        VideoEncoderPreference.VIDEOTOOLBOX,
+    )
+
+
+def select_encoder_chain(preference: VideoEncoderPreference) -> tuple[list[EncoderSpec], list[str]]:
+    available = _ffmpeg_encoder_names()
+    diagnostics: list[str] = []
+    chain: list[EncoderSpec] = []
+    cpu_spec = _ENCODER_SPECS[VideoEncoderPreference.CPU]
+
+    def _supports(pref: VideoEncoderPreference) -> bool:
+        spec = _ENCODER_SPECS.get(pref)
+        if spec is None:
+            return False
+        return spec.codec in available
+
+    if preference == VideoEncoderPreference.AUTO:
+        for candidate in _auto_encoder_priority():
+            spec = _ENCODER_SPECS.get(candidate)
+            if spec is None:
+                continue
+            if _supports(candidate):
+                chain.append(spec)
+                diagnostics.append(
+                    f"auto: detected FFmpeg encoder '{spec.codec}' for preference '{candidate.value}'"
+                )
+                break
+            diagnostics.append(f"auto: FFmpeg encoder for '{candidate.value}' not available")
+        if not chain:
+            diagnostics.append("auto: no hardware encoder detected; falling back to libx264")
+        if cpu_spec not in chain:
+            chain.append(cpu_spec)
+        return chain, diagnostics
+
+    if preference == VideoEncoderPreference.CPU:
+        diagnostics.append("cpu: using libx264 software encoder")
+        return [cpu_spec], diagnostics
+
+    spec = _ENCODER_SPECS.get(preference)
+    if spec is None:
+        diagnostics.append(
+            f"{preference.value}: unsupported encoder preference; defaulting to libx264"
+        )
+        return [cpu_spec], diagnostics
+
+    if _supports(preference):
+        chain.append(spec)
+        diagnostics.append(f"{preference.value}: FFmpeg encoder '{spec.codec}' available")
+    else:
+        diagnostics.append(
+            f"{preference.value}: FFmpeg encoder '{spec.codec}' not available; using libx264"
+        )
+    if cpu_spec not in chain:
+        chain.append(cpu_spec)
+    return chain, diagnostics
+
+
+class VideoEncoderPreference(str, Enum):
+    """User-facing preference for which FFmpeg encoder to try."""
+
+    AUTO = "auto"
+    CPU = "cpu"
+    NVENC = "nvenc"
+    VIDEOTOOLBOX = "videotoolbox"
+    QSV = "qsv"
+    VAAPI = "vaapi"
+    AMF = "amf"
+
+    @classmethod
+    def parse(cls, value: str | "VideoEncoderPreference" | None) -> "VideoEncoderPreference":
+        if isinstance(value, cls):
+            return value
+        if value is None:
+            return cls.AUTO
+        normalized = value.strip().lower()
+        for member in cls:
+            if member.value == normalized:
+                return member
+        raise ValueError(
+            f"Unknown video encoder preference '{value}'. Expected one of: "
+            + ", ".join(member.value for member in cls)
+        )
+
+
+@dataclass(frozen=True)
+class EncoderSpec:
+    preference: VideoEncoderPreference
+    codec: str
+    args: tuple[str, ...]
+    accelerated: bool
+
+    @property
+    def label(self) -> str:
+        if self.accelerated:
+            return f"{self.preference.value}:{self.codec}"
+        return self.codec
+
+
+@dataclass(frozen=True)
+class NormalizationResult:
+    path: Path
+    encoder: EncoderSpec
+    reused_existing: bool
+    diagnostics: tuple[str, ...] = ()
+    encoder_known: bool = True
+
+
+_ENCODER_SPECS: dict[VideoEncoderPreference, EncoderSpec] = {
+    VideoEncoderPreference.CPU: EncoderSpec(
+        preference=VideoEncoderPreference.CPU,
+        codec="libx264",
+        args=(
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-profile:v",
+            "high",
+            "-bf",
+            "2",
+        ),
+        accelerated=False,
+    ),
+    VideoEncoderPreference.NVENC: EncoderSpec(
+        preference=VideoEncoderPreference.NVENC,
+        codec="h264_nvenc",
+        args=(
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p5",
+            "-rc:v",
+            "vbr_hq",
+            "-cq",
+            "19",
+            "-b:v",
+            "6M",
+            "-maxrate",
+            "12M",
+            "-bufsize",
+            "24M",
+            "-g",
+            "240",
+            "-bf",
+            "3",
+            "-profile:v",
+            "high",
+        ),
+        accelerated=True,
+    ),
+    VideoEncoderPreference.VIDEOTOOLBOX: EncoderSpec(
+        preference=VideoEncoderPreference.VIDEOTOOLBOX,
+        codec="h264_videotoolbox",
+        args=(
+            "-c:v",
+            "h264_videotoolbox",
+            "-allow_sw",
+            "1",
+            "-b:v",
+            "6M",
+            "-maxrate",
+            "12M",
+            "-bufsize",
+            "24M",
+            "-g",
+            "240",
+            "-profile:v",
+            "high",
+        ),
+        accelerated=True,
+    ),
+    VideoEncoderPreference.QSV: EncoderSpec(
+        preference=VideoEncoderPreference.QSV,
+        codec="h264_qsv",
+        args=(
+            "-c:v",
+            "h264_qsv",
+            "-preset",
+            "medium",
+            "-profile:v",
+            "high",
+            "-global_quality",
+            "23",
+            "-look_ahead",
+            "1",
+            "-g",
+            "240",
+        ),
+        accelerated=True,
+    ),
+    VideoEncoderPreference.AMF: EncoderSpec(
+        preference=VideoEncoderPreference.AMF,
+        codec="h264_amf",
+        args=(
+            "-c:v",
+            "h264_amf",
+            "-quality",
+            "quality",
+            "-usage",
+            "transcoding",
+            "-profile:v",
+            "high",
+            "-level",
+            "4.1",
+            "-rc",
+            "cqp",
+            "-qp_i",
+            "20",
+            "-qp_p",
+            "23",
+            "-qp_b",
+            "25",
+        ),
+        accelerated=True,
+    ),
+}
 
 @dataclass(frozen=True)
 class VideoMetadata:
@@ -138,16 +408,30 @@ def probe_video(path: Path) -> VideoMetadata:
     )
 
 
-def normalize_video(path: Path, *, output_dir: Path) -> Path:
-    """Normalize to H.264/AAC MP4 for consistent Gemini ingestion."""
+def normalize_video(
+    path: Path,
+    *,
+    output_dir: Path,
+    encoder_chain: Sequence[EncoderSpec] | None = None,
+) -> NormalizationResult:
+    """Normalize to MP4 using the fastest available encoder preference."""
     path = Path(path)
     output_dir = ensure_dir(Path(output_dir))
     normalized = output_dir / f"{path.stem}-normalized.mp4"
     source_mtime = path.stat().st_mtime
+    chain = list(encoder_chain or [_ENCODER_SPECS[VideoEncoderPreference.CPU]])
+    diagnostics: list[str] = []
     if normalized.exists() and normalized.stat().st_mtime >= source_mtime:
         try:
             probe_video(normalized)
-            return normalized
+            diagnostics.append("Reusing existing normalized file; skipping re-encode")
+            return NormalizationResult(
+                path=normalized,
+                encoder=chain[0],
+                reused_existing=True,
+                diagnostics=tuple(diagnostics),
+                encoder_known=False,
+            )
         except RuntimeError:
             # Previous normalization left a corrupt artifact; re-create it.
             try:
@@ -155,30 +439,49 @@ def normalize_video(path: Path, *, output_dir: Path) -> Path:
             except FileNotFoundError:
                 pass
 
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        str(path),
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-movflags",
-        "+faststart",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        str(normalized),
-    ]
-    try:
-        subprocess.run(cmd, check=True, capture_output=True)
-    except FileNotFoundError as exc:
-        raise RuntimeError("ffmpeg executable not found; install ffmpeg to process videos.") from exc
-    except subprocess.CalledProcessError as exc:
-        raise RuntimeError(f"ffmpeg failed while normalizing {path}: {exc.stderr}") from exc
-    return normalized
+    last_error: subprocess.CalledProcessError | None = None
+    for spec in chain:
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(path),
+            *spec.args,
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            str(normalized),
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+            diagnostics.append(f"Encoded with {spec.codec} ({spec.preference.value})")
+            return NormalizationResult(
+                path=normalized,
+                encoder=spec,
+                reused_existing=False,
+                diagnostics=tuple(diagnostics),
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError("ffmpeg executable not found; install ffmpeg to process videos.") from exc
+        except subprocess.CalledProcessError as exc:
+            last_error = exc
+            message = (exc.stderr or exc.stdout or str(exc)).strip()
+            snippet = message.splitlines()[-1] if message else "ffmpeg reported an error"
+            diagnostics.append(f"{spec.preference.value}: ffmpeg failed ({spec.codec}): {snippet}")
+            try:
+                normalized.unlink()
+            except FileNotFoundError:
+                pass
+
+    error_reason = diagnostics[-1] if diagnostics else "Unknown ffmpeg failure"
+    if last_error is not None:
+        raise RuntimeError(f"ffmpeg failed while normalizing {path}: {error_reason}") from last_error
+    raise RuntimeError(f"ffmpeg failed while normalizing {path}: {error_reason}")
 
 
 def sha256sum(path: Path, *, chunk_size: int = 1024 * 1024) -> str:

@@ -10,6 +10,7 @@ from .constants import (
     DEFAULT_MAX_WORKERS,
     DEFAULT_MAX_VIDEO_WORKERS,
 )
+from .video import VideoEncoderPreference
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class AppConfig:
     video_token_limit: int = DEFAULT_VIDEO_TOKEN_LIMIT
     max_workers: int = DEFAULT_MAX_WORKERS
     max_video_workers: int = DEFAULT_MAX_VIDEO_WORKERS
+    video_encoder_preference: VideoEncoderPreference = VideoEncoderPreference.AUTO
 
     @staticmethod
     def from_env() -> "AppConfig":
@@ -62,6 +64,8 @@ class AppConfig:
 
         max_workers = _parse_workers("LECTURE_SUMMARIZER_MAX_WORKERS", DEFAULT_MAX_WORKERS)
         max_video_workers = _parse_workers("LECTURE_SUMMARIZER_MAX_VIDEO_WORKERS", DEFAULT_MAX_VIDEO_WORKERS)
+        video_encoder_pref_raw = os.getenv("LECTURE_SUMMARIZER_VIDEO_ENCODER")
+        video_encoder_preference = VideoEncoderPreference.parse(video_encoder_pref_raw)
 
         return AppConfig(
             api_key=api_key,
@@ -73,4 +77,5 @@ class AppConfig:
             video_token_limit=video_token_limit,
             max_workers=max_workers,
             max_video_workers=max_video_workers,
+            video_encoder_preference=video_encoder_preference,
         )
