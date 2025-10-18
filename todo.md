@@ -1,77 +1,105 @@
-## 0) Hotfixes to land first
+## Reference summary (constraints you must honor)
 
-**Fix capability gate**
+* **Video inputs supported three ways:** Files API upload, inline base64 ≤ 20 MB, or direct **YouTube URL** ingestion (preview; public videos only). Video is sampled at ~1 fps; `videoMetadata` supports `start_offset`, `end_offset`, and `fps`. Throughput ≈ 300 tokens/sec at default media resolution or ≈ 100 tokens/sec in low resolution. Place media **before** instructions in `contents`. ([Google AI for Developers][1])
+* **Files API lifecycle:** resumable upload; states `PROCESSING` → `ACTIVE`. Size ≤ 2 GB per file, storage cap ~20 GB, automatic **48‑hour** retention; keep your own local copy. Inline uploads are best only when total request size ≤ 20 MB. ([Google AI for Developers][2])
+* **Document and image ingestion:** PDFs and images can be passed inline or via Files API; you may also fetch bytes from a URL and send inline. ([Google AI for Developers][3])
+* **URL ingestion (web pages and some hosted media):** the API exposes URL retrieval metadata and supports URL parts via the tools system; prefer **Files API** or client‑side fetch for large media to control chunking. ([Google AI for Developers][4])
 
-```diff
+---
+
+## 0) Hotfixes to land first (explicit code, no external diffs)
+
+**0.1 Fix capability gating in legacy pipeline to stop false video errors while you migrate**
+
+```python
 # lecture_summarizer/pipeline.py
-def _transcribe_pdf_with_progress(...):
--    if not self.llm.supports(model, "video"):
--        raise ValueError(f"Model {model} does not support video inputs")
-+    # Capability checks are performed per feeding mode (pdf/image) below.
+from typing import Iterable
 
-# later when using images:
-+    if not self.llm.supports(model, "image"):
-+        raise ValueError(f"Model {model} does not support image inputs")
-# and when using PDFs:
-# already checks: if strategy == PDFMode.PDF and not self.llm.supports(model, "pdf"): raise
+class Pipeline:
+
+    def _ensure_capability(self, model: str, need: str) -> None:
+        # self.llm.supports(model, capability: Literal["pdf","image","video","audio"])
+        if not self.llm.supports(model, need):
+            raise ValueError(f"Model '{model}' does not support {need} inputs")
+
+    def _transcribe_pdf_with_progress(self, *, model: str, pdf_mode: str, pages: Iterable, images: Iterable, **kw):
+        # Capability checks per feeding mode
+        if pdf_mode == "pdf":
+            self._ensure_capability(model, "pdf")
+            return self._transcribe_pdf_native(model=model, pages=pages, **kw)
+        elif pdf_mode == "images":
+            self._ensure_capability(model, "image")
+            return self._transcribe_pdf_as_images(model=model, images=images, **kw)
+        else:
+            # auto: prefer native PDF if supported, otherwise images
+            if self.llm.supports(model, "pdf"):
+                return self._transcribe_pdf_native(model=model, pages=pages, **kw)
+            self._ensure_capability(model, "image")
+            return self._transcribe_pdf_as_images(model=model, images=images, **kw)
 ```
 
-**Fix default prompt strings**
+**0.2 Fix stray quotes in default prompts**
 
-Remove embedded quotes from all `DEFAULT_PROMPTS` in `templates.py` and the new `prompts/*`.
+```python
+# lecture_summarizer/templates.py  (temporary until new templates land)
+DEFAULT_PROMPTS = {
+    "slides": "Summarize slide content. Keep math as LaTeX.",
+    "lecture": "Summarize the lecture with [MM:SS] timestamps. Include visual cues.",
+    "document": "Summarize the document. Preserve headings. Extract key equations.",
+    "image": "Describe the image with technical details. Convert text to LaTeX if math.",
+    "video": "Transcribe audio and summarize visuals with [MM:SS] timestamps."
+}
+```
+
+Ship a tiny test to assert prompts contain no `"` characters and no trailing whitespace.
 
 ---
 
 ## 1) Goals
 
-One engine for all inputs. Provider agnostic. Deterministic outputs. Strong telemetry. Resumable runs. Simple defaults. Expert controls.
+* One engine for all inputs. Local files, URLs, YouTube, and Google Drive.
+* Provider‑agnostic. Gemini first; clean adapter for others.
+* Simple defaults. Expert controls for chunking, costs, and quotas.
+* Deterministic, structured outputs. Strong telemetry. Resumable at **chunk** level.
 
 ---
 
-## 2) Scope decisions
+## 2) Scope and ingestion matrix
 
-* Inputs: filesystem, http(s) URL, YouTube URL, Google Drive file.
-* Provider: start with Gemini. Keep interface for future backends.
-* Replace old pipeline and CLI.
-
-> Notes on feasibility:
->
-> * Gemini accepts three video input methods: Files API upload, inline base64 for small files, and YouTube URLs. Default frame sampling is 1 fps. Place the media part before text. ([Google AI for Developers][1])
-> * Use Files API when total request size exceeds 20 MB. Files auto delete after 48 hours. ([Google AI for Developers][2]) ([Google AI for Developers][2])
-> * Files API usage limits: 20 GB project storage and 2 GB per file. ([Google AI for Developers][2])
-> * Batch input files up to 2 GB are supported by the Batch API.
+* **File inputs:** pdf, images, video/audio.
+* **URLs:** http(s) to PDF/image/audio/video; fetch bytes client‑side when >20 MB or when chunking needed; else inline.
+* **YouTube:** either pass **YouTube URL** directly to Gemini for short tasks or download with `yt-dlp` for long videos and fine chunk control. ([Google AI for Developers][1])
+* **Drive:** read via Google Drive API, stream to disk, then treat as local file.
+* Keep Gemini provider; abstract via `Provider` interface.
 
 ---
 
-## 3) New repository layout
+## 3) Repository layout
 
 ```
 lecture_summarizer/
-  core/              # types, contracts, errors
-  engine/            # orchestration
-  ingest/            # discovery, normalization, caching, downloads
-    sources/         # fs, http, youtube, drive
-    video/           # ffmpeg wrapper, chunker, manifest
-  prompts/           # strategies and registry
-  providers/         # gemini adapter
-  render/            # LaTeX, Markdown, JSON, SRT, VTT
-  output/            # writers, telemetry, costs
+  core/              # types + contracts + errors
+  engine/            # orchestration + execution
+  ingest/            # file/URL/YouTube/Drive discovery + normalization + caching
+  prompts/           # per-kind strategies + registry
+  providers/         # LLM backends (gemini first)
+  render/            # LaTeX/MD/JSON postprocessing
+  output/            # writers + telemetry + costs
   cli/               # Typer CLI
-  templates/         # default and user overrides
+  templates/         # user-overrides (text/Jinja2)
   tests/
 ```
 
 ---
 
-## 4) Core contracts
-
-**`core/types.py`**
+## 4) Core contracts (exact types)
 
 ```python
+# core/types.py
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypedDict
 
 class Kind(str, Enum):
     SLIDES="slides"; LECTURE="lecture"; DOCUMENT="document"; IMAGE="image"; VIDEO="video"
@@ -79,38 +107,39 @@ class Kind(str, Enum):
 class PdfMode(str, Enum):
     AUTO="auto"; IMAGES="images"; PDF="pdf"
 
-class SourceType(str, Enum):
-    FILE="file"; URL="url"; YOUTUBE="youtube"; DRIVE="drive"
+class SourceKind(str, Enum):
+    LOCAL="local"; URL="url"; YOUTUBE="youtube"; DRIVE="drive"
 
 @dataclass(frozen=True)
 class Asset:
-    path: Path | None            # local on-disk if available
-    uri: str | None              # remote locator if applicable
+    path: Path
     media: Literal["pdf","image","video","audio"]
-    page_index: int | None = None
+    page_index: int | None = None    # for rasterized PDFs
+    source_kind: SourceKind = SourceKind.LOCAL
+    mime: str | None = None
+    meta: dict = None                # e.g., {"start_seconds":0.0,"end_seconds":60.0,"fps":1}
 
 @dataclass(frozen=True)
 class Job:
-    source: str                  # path, http(s), youtube, drive file id or url
+    source: str                      # PATH or URL or drive://FILE_ID or yt://<id>|https://youtu...
     recursive: bool
     kind: Kind | None
     pdf_mode: PdfMode
     output_dir: Path | None
     model: str
+    preset: str | None = None
+    export: list[str] | None = None  # ["srt","vtt"]
+    skip_existing: bool = True
 ```
 
-**`core/contracts.py`**
-
 ```python
+# core/contracts.py
 from typing import Protocol
 from pathlib import Path
-from .types import Asset, Kind, PdfMode, SourceType
-
-class SourceResolver(Protocol):
-    def detect(self, source: str) -> SourceType: ...
+from .types import Asset, Kind, PdfMode, Job
 
 class Ingestor(Protocol):
-    def discover(self, source: str, recursive: bool) -> list[Asset]: ...
+    def discover(self, job: Job) -> list[Asset]: ...
 
 class Normalizer(Protocol):
     def normalize(self, assets: list[Asset], pdf_mode: PdfMode) -> list[Asset]: ...
@@ -130,25 +159,19 @@ class Writer(Protocol):
 
 ---
 
-## 5) Engine
-
-**Responsibilities**
-
-Discover. Normalize. Choose modality. Prompt. Call provider. Render. Write. Telemetry.
-
-**`engine/engine.py`**
+## 5) Engine orchestration
 
 ```python
+# engine/engine.py
 from dataclasses import dataclass
 from pathlib import Path
 from ..core.types import Job, Kind, PdfMode, Asset
-from ..core.contracts import SourceResolver, Ingestor, Normalizer, PromptStrategy, Provider, Writer
+from ..core.contracts import Ingestor, Normalizer, PromptStrategy, Provider, Writer
 from ..output.telemetry import RunMonitor
 from ..output.cost import CostEstimator
 
 @dataclass
 class Engine:
-    resolver: SourceResolver
     ingestor: Ingestor
     normalizer: Normalizer
     prompts: dict[Kind, PromptStrategy]
@@ -158,39 +181,39 @@ class Engine:
     cost: CostEstimator
 
     def run(self, job: Job) -> Path | None:
-        stype = self.resolver.detect(job.source)
-        assets = self.ingestor.discover(job.source, job.recursive)
+        assets = self.ingestor.discover(job)
         if not assets:
+            self.monitor.note_event("discover.empty", {"source": job.source})
             return None
-        k = job.kind or self._infer_kind(job.source, assets)
+
+        k = job.kind or self._infer_kind(assets)
         assets = self.normalizer.normalize(assets, job.pdf_mode)
         modality = self._modality_for(assets, job.pdf_mode)
-        strat = self.prompts[k]
-        pre = strat.preamble()
-        instr = strat.instruction(pre)
+        strat = self.prompts[k]; pre = strat.preamble(); instr = strat.instruction(pre)
+
         text = self.provider.transcribe(
-            instruction=instr,
-            assets=assets,
-            modality=modality,
-            meta={"kind": k.value, "source": job.source, "source_type": stype.value}
+            instruction=instr, assets=assets, modality=modality,
+            meta={"kind": k.value, "source": job.source}
         )
-        base = (job.output_dir or Path(job.source).parent if stype==stype.FILE else Path.cwd() / "output") / self._slug(Path(job.source).stem if stype==stype.FILE else self._slug(job.source))
-        name = f"{self._slug(Path(job.source).stem if stype==stype.FILE else 'remote')}-transcribed"
+
+        base = (job.output_dir or Path(".") / "output") / self._slug(Path(job.source).stem if "://" not in job.source else "remote")
+        name = f"{self._slug(Path(job.source).stem)}-transcribed"
         out = self.writer.write_latex(base=base, name=name, preamble=pre, body=text)
+
         self.monitor.flush_summary(to=base / "run-summary.json", cost=self.cost)
         return out
 
-    def _infer_kind(self, source: str, assets: list[Asset]) -> Kind:
-        from ..ingest.pdf import guess_kind_from_pdf
-        p = Path(source)
-        if p.suffix.lower()==".pdf":
-            return Kind(guess_kind_from_pdf(p))
+    def _infer_kind(self, assets: list[Asset]) -> Kind:
+        # Basic heuristic; refined in PDF module if needed
+        if assets and assets[0].media == "video":
+            return Kind.LECTURE
+        if assets and assets[0].media == "image":
+            return Kind.SLIDES
         return Kind.DOCUMENT
 
     def _modality_for(self, assets: list[Asset], pdf_mode: PdfMode) -> str:
-        if assets and assets[0].media=="video":
-            return "video"
-        return "pdf" if pdf_mode==PdfMode.PDF else "image"
+        if assets and assets[0].media in ("video","audio"): return "video"
+        return "pdf" if pdf_mode == PdfMode.PDF else "image"
 
     @staticmethod
     def _slug(s: str) -> str:
@@ -199,183 +222,309 @@ class Engine:
 
 ---
 
-## 6) Ingestion and normalization
+## 6) Ingestion and normalization (local, URL, YouTube, Drive)
 
-### 6.1 Source resolver
+**6.1 Discovery (`ingest/discover.py`)**
 
-**`ingest/sources/resolver.py`**
+* Accept `job.source` as:
 
-* Detect by scheme and domain.
+  * Local path or directory.
+  * `http(s)://…` URL.
+  * `yt://<id>` or full YouTube URL.
+  * `drive://<FILE_ID>` or `gdrive://<FILE_ID>`.
+* Return list of `Asset` with `source_kind` set. For dirs, recurse if `job.recursive`.
 
-  * `file://` or path → `FILE`.
-  * `http(s)://` YouTube domains → `YOUTUBE`.
-  * `http(s)://` others → `URL`.
-  * `drive://<file-id>` or `https://drive.google.com/...` → `DRIVE`.
-* Expose `resolve_to_local(asset)` to fetch remote to a cache when needed.
+**6.2 URL ingestion (`ingest/url.py`)**
 
-### 6.2 Discovery
+* For **PDF/image/audio/video** URLs:
 
-**`ingest/discover.py`**
+  * If `Content-Length` ≤ 20 MB, fetch bytes, return `Asset` with temp file and `media` inferred, for possible **inline** send. ([Google AI for Developers][5])
+  * If > 20 MB or unknown length: stream to disk, return local `Asset`. Prefer Files API upload path. ([Google AI for Developers][2])
+* Optional: support **URL Context** tool for web pages when you want the model to fetch directly; not for long media. Store `meta={"url_context": True}` if selected. ([Google AI for Developers][4])
 
-* Filesystem: recurse if asked. Recognize pdf, image, video, audio.
-* URL:
+**6.3 YouTube ingestion (`ingest/youtube.py`)**
 
-  * For PDFs, images, audio, small videos ≤20 MB read into memory and emit `Asset(uri=url, path=None)`.
-  * For larger or unknown size download to cache directory for Files API usage.
-  * Respect `Content-Type` if present.
-* YouTube:
+* Two modes:
 
-  * Do not download by default. Emit `Asset(uri=youtube_url, media="video")`. Provider will pass `file_data.file_uri` directly. ([Google AI for Developers][1])
-  * Optional `--youtube-download` to normalize locally via ffmpeg if user prefers.
-* Drive:
+  1. **Direct to Gemini**: emit virtual `Asset` with `media="video"`, `source_kind=YOUTUBE`, `meta={"pass_through": True}`. Provider will send a `file_data.file_uri` with the YouTube URL and optional `videoMetadata` clip. Best for short analyses or clips. ([Google AI for Developers][1])
+  2. **Download**: use `yt-dlp` to get MP4 (H.264/AAC), then normalize and chunk locally for long videos, resumability, or precise cost control.
 
-  * Use Drive API `files.get` with `alt=media` for binary. Use `files.export` for Google Docs to PDF. Store bytes in cache. Then proceed as for URL or local. Scopes: `drive.readonly`.
+**6.4 Drive ingestion (`ingest/drive.py`)**
 
-### 6.3 PDF pipeline
+* Use Google Drive API:
 
-**`ingest/pdf.py`**
+  * Resolve file by ID or by path via search.
+  * Download with `files.get(fileId, alt="media")` streaming to a temp file.
+  * Emit local `Asset` with inferred `media`.
+* Authentication via OAuth or service account; store no refresh tokens in repo.
 
-* `rasterize_pdf_if_needed(assets, pdf_mode)`:
+**6.5 Normalization**
 
-  * If `pdf_mode==PDF` and provider supports `pdf`, keep as PDF.
-  * Else rasterize to `page-images/<stem>-N.png`.
-* Keep `guess_kind_from_pdf`.
+* **PDF (`ingest/pdf.py`)**
 
-### 6.4 Video pipeline
+  * If `pdf_mode=="pdf"` and provider supports native PDF, pass through; else rasterize to PNGs under `<out>/<slug>/page-images/<stem>-p{N}.png`.
+  * Guess `Kind` from PDF outline or aspect ratio if `job.kind` is None.
 
-**`ingest/video/ffmpeg.py`**
+* **Images (`ingest/image.py`)**
 
-* Normalize to MP4 H.264 AAC with `-movflags +faststart`.
-* Detect duration, fps, width, height, codecs. Compute hash.
-* Hardware encoder selection based on config.
+  * Validate and keep original; optional downscale to ≤3072 px on long edge.
 
-**`ingest/video/chunker.py`**
+* **Video/Audio (`ingest/video.py`)**
 
-* Plan by seconds, byte size, and estimated tokens.
-  Defaults:
+  * Always normalize to MP4 H.264 + AAC with `+faststart`.
 
-  * `max_chunk_seconds` 7200.
-  * `max_chunk_bytes` 524288000.
-  * Token budgeting configured but calibrated at runtime with `count_tokens` if available. Do not hard code throughput.
-* Emit ISO 8601 offsets.
+    * Example ffmpeg:
 
-**Manifest schema** `chunks.json`
+      ```
+      ffmpeg -y -i INPUT -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p \
+             -c:a aac -b:a 128k -movflags +faststart -map 0:v:0? -map 0:a:0? OUTPUT.mp4
+      ```
+  * Probe duration, fps. Default Gemini sampling is ~1 fps; keep originals for archival. ([Google AI for Developers][1])
+  * **Chunk planning**:
+
+    * Defaults: `max_seconds=7200`, `max_bytes=524288000`, `token_limit=300_000`, `tokens_per_second=300` (use 100 if `mediaResolution=LOW`). ([Google AI for Developers][1])
+    * Compute `max_by_tokens = floor(token_limit / tokens_per_second)`.
+    * Chunk length = `min(max_seconds, max_by_tokens, by_size_estimate)`.
+  * Emit a **manifest** and per‑chunk MP4s under `pickles/video-chunks/`.
+
+**6.6 Manifest schema (resumable)**
 
 ```json
 {
   "version": 1,
-  "source": "path-or-uri",
-  "source_hash": "sha256:...",
+  "source": "path/or/url",
+  "source_hash": "sha256:...",          "source_kind": "local|url|youtube|drive",
   "normalized": "path/to/normalized.mp4",
   "normalized_hash": "sha256:...",
   "duration_seconds": 1234.5,
   "size_bytes": 123456789,
   "fps": 29.97,
-  "video_codec": "h264",
-  "audio_codec": "aac",
-  "encoder": {"requested": "auto","effective": "nvenc","accelerated": true},
   "model": "gemini-2.5-flash",
-  "token_plan": {"limit": null, "estimator": "count_tokens|heuristic"},
+  "token_limit": 300000,
+  "tokens_per_second": 300.0,
+  "video_metadata_defaults": {"fps": 1},
   "chunks": [
     {
       "index": 0,
       "start_seconds": 0.0,
       "end_seconds": 3600.0,
       "start_iso": "PT0S",
-      "end_iso": "PT1H",
-      "path": "pickles/video-chunks/foo-chunk00.mp4",
-      "transcript_path": "full-response/chunks/foo-chunk00.txt"
+      "end_iso": "PT1H0M0S",
+      "path": "pickles/video-chunks/foo-000.mp4",
+      "status": "pending|done|failed",
+      "response_path": "full-response/chunks/foo-000.txt"
     }
-  ]
+  ],
+  "created_utc": "2025-10-15T12:34:56Z"
 }
 ```
 
-**Resume semantics**
+**Resume rules**
 
-* If `source_hash` and `normalized_hash` match, reuse.
-* If a chunk has `transcript_path` and `--skip-existing`, reuse its output.
-* If hashes mismatch, rebuild artifacts and manifest.
-
----
-
-## 7) Provider abstraction for Gemini
-
-**`providers/gemini.py`**
-
-* Map assets to request parts.
-
-  * PDF path or blob → Files API or inline if ≤20 MB. ([Google AI for Developers][2])
-  * Image paths → inline or Files API as needed.
-  * Video:
-
-    * YouTube: pass `{"file_data":{"file_uri": youtube_url}}`. Optional `videoMetadata` with `start_offset` and `end_offset` to clip. ([Google AI for Developers][1])
-    * Local video chunks: upload with Files API, poll `files.get` until `ACTIVE`, then reference `file.uri`. ([Google AI for Developers][2])
-* Always place the media part before instructions. ([Google AI for Developers][1])
-* Use streaming for long text assembly when supported.
-* Optional `response_schema` for structured timelines.
-
-**Retries and backoff**
-
-* On `FAILED_PRECONDITION` for file still processing, poll with backoff and jitter.
-* On `RATE_LIMIT_EXCEEDED`, exponential backoff with cap.
-* On size violation, switch to Files API and replan chunks.
+* If `source_hash` and `normalized_hash` match, reuse normalization and chunks.
+* If `response_path` exists and `--skip-existing`, skip re‑transcription.
+* If mismatch, purge artifacts and rebuild.
 
 ---
 
-## 8) Prompts and templates
+## 7) Prompt strategies and templates
 
-* Move defaults into `prompts/*.py` with Jinja2-ready strings in `templates/`.
-* New video prompts:
+* Move defaults to `prompts/*.py`; user‑overrides in `templates/`.
+* Ship text templates:
 
-  * transcript only.
-  * timeline summary with `[MM:SS]` stamps.
-  * slides plus visual descriptions.
-* System instruction follows media-first order.
-* Allow `response_schema` for JSON timeline.
+  * `video-preamble.txt`, `video-instruction.txt`
+  * `slide/lecture/document/image` equivalents.
+* **Video instruction baseline** (pseudocode text):
+
+  ```
+  Task: Produce a transcript with [MM:SS] timestamps and a timeline of salient visual events.
+  Include: visual descriptions, slide titles, equations in LaTeX.
+  Output: Markdown. Headings: "Transcript", "Timeline", "Key Terms".
+  ```
+* System instruction: “Media first” in `contents` ordering. ([Google AI for Developers][1])
 
 ---
 
-## 9) Chunk assembly and outputs
+## 8) Gemini provider adapter
 
-* Define merge order. Sort by `chunk.index`. Normalize time codes to `MM:SS`.
-* Insert `\section*{Chunk N (HH:MM:SS–HH:MM:SS)}` in LaTeX.
-* LaTeX cleanup handles `[Slide]` markers and math.
+```python
+# providers/gemini.py
+from google import genai
+from google.genai import types
 
-**Extra exports**
+class GeminiProvider:
+    def __init__(self, api_key: str, model: str, **opts):
+        self.client = genai.Client(api_key=api_key)
+        self.model = model
+        self.opts = opts
 
-* SRT and VTT optional.
-  If no utterance granularity, one block per chunk with chunk bounds.
+    def supports(self, capability: str) -> bool:
+        # minimal static map; extend as needed
+        caps = {
+            "pdf": True, "image": True, "video": True, "audio": True
+        }
+        return caps.get(capability, False)
 
-**Output tree**
+    def _file_part(self, uri: str, mime: str):
+        return types.Part(file_data=types.FileData(file_uri=uri, mime_type=mime))
+
+    def _inline_part(self, bytes_: bytes, mime: str):
+        return types.Part(inline_data=types.Blob(data=bytes_, mime_type=mime))
+
+    def transcribe(self, *, instruction: str, assets, modality: str, meta: dict) -> str:
+        # Build 'parts' with media first
+        parts = []
+        # Strategy per source_kind
+        for a in assets:
+            if a.source_kind.name == "YOUTUBE" and a.meta.get("pass_through"):
+                # pass YouTube URL directly
+                parts.append(types.Part(file_data=types.FileData(file_uri=a.path.as_posix())))
+            elif a.meta and a.meta.get("file_uri"):
+                parts.append(self._file_part(a.meta["file_uri"], a.mime or "video/mp4"))
+            elif a.meta and a.meta.get("inline_bytes"):
+                parts.append(self._inline_part(a.meta["inline_bytes"], a.mime or "video/mp4"))
+            else:
+                # Upload via Files API and wait for ACTIVE
+                f = self.client.files.upload(file=str(a.path))
+                while f.state.name == "PROCESSING":
+                    f = self.client.files.get(name=f.name)
+                if f.state.name != "ACTIVE":
+                    raise RuntimeError(f"File failed: {f.state.name}")
+                parts.append(self._file_part(f.uri, f.mime_type))
+
+            # Apply optional clip/FPS
+            if a.meta and any(k in a.meta for k in ("start_offset","end_offset","fps")):
+                parts[-1].video_metadata = types.VideoMetadata(
+                    start_offset=a.meta.get("start_offset"),
+                    end_offset=a.meta.get("end_offset"),
+                    fps=a.meta.get("fps"),
+                )
+
+        parts.append(types.Part(text=instruction))
+
+        cfg = types.GenerateContentConfig(
+            # set thinking budgets as needed
+            # response schemas configurable by strategy
+        )
+        resp = self.client.models.generate_content(
+            model=self.model, contents=types.Content(parts=parts), config=cfg
+        )
+        return resp.text or ""
+```
+
+* For **chunked video**, call once per chunk, write raw text per chunk, then combine.
+* Use `file_data.file_uri` for **YouTube** when not downloading. ([Google AI for Developers][1])
+* Respect Files API **processing** states before using a file; expect 48‑hour retention. ([Google AI for Developers][2])
+
+---
+
+## 9) Concurrency, rate limits, and backpressure
+
+**Token bucket (thread‑safe, async‑friendly)**
+
+```python
+# output/limits.py
+import time, threading
+
+class TokenBucket:
+    def __init__(self, capacity: int, refill_per_sec: int):
+        self.capacity = capacity
+        self.tokens = capacity
+        self.refill_per_sec = refill_per_sec
+        self.lock = threading.Lock()
+        self.last = time.monotonic()
+
+    def acquire(self, n: int = 1):
+        with self.lock:
+            now = time.monotonic()
+            self.tokens = min(self.capacity, self.tokens + (now - self.last) * self.refill_per_sec)
+            self.last = now
+            if self.tokens < n:
+                sleep_s = (n - self.tokens) / self.refill_per_sec
+                time.sleep(max(0, sleep_s))
+                self.tokens = n
+            self.tokens -= n
+```
+
+* Maintain RPM and TPM per model from config. Sleep before calls to avoid `429`.
+* For video, throttle by **estimated tokens** = `tokens_per_second * duration` to pre‑budget the bucket. Use 300 t/s default, 100 t/s if `mediaResolution=LOW`. Calibrate with `models.count_tokens` when needed. ([Google AI for Developers][1])
+* Exponential backoff on `429` and `FAILED_PRECONDITION` (file still processing). Files API states must be `ACTIVE` before use. ([Google AI for Developers][2])
+
+---
+
+## 10) Cost tracking
+
+* Load pricing from `pricing.yaml` with fallbacks.
+* For each request capture:
+
+  * timestamps, model, modality, chunk index, tokens in/out when provided, or duration‑based estimate for media.
+* Estimated cost = `input_tokens * price_in + output_tokens * price_out` (thinking tokens included per model’s pricing tier from your pricing file).
+
+---
+
+## 11) Chunk assembly and outputs
+
+**LaTeX writer (video aware)**
+
+```python
+# render/writer.py
+from pathlib import Path
+
+class LatexWriter:
+    def write_latex(self, *, base: Path, name: str, preamble: str, body: str) -> Path:
+        base.mkdir(parents=True, exist_ok=True)
+        tex = base / f"{name}.tex"
+        with tex.open("w", encoding="utf-8") as f:
+            f.write("\\documentclass{article}\n")
+            f.write("\\usepackage{hyperref,amsmath}\n")
+            f.write("\\begin{document}\n")
+            f.write(preamble + "\n\n")
+            f.write(body + "\n")
+            f.write("\\end{document}\n")
+        return tex
+```
+
+**Video merge rules**
+
+* For each chunk `i`, write:
+
+  ```
+  \section*{Chunk i (HH:MM:SS–HH:MM:SS)}
+  <chunk text>
+  ```
+* Normalize timestamps to `MM:SS`. Simple helper:
+
+```python
+def to_mmss(seconds: float) -> str:
+    m = int(seconds // 60); s = int(seconds % 60)
+    return f"{m:02d}:{s:02d}"
+```
+
+**SRT/VTT generation (optional)**
+
+* If the chunk response lacks utterance timing, emit one block per chunk window with the chunk text.
+
+---
+
+## 12) Output tree
 
 ```
 <out>/<slug>/
-  page-images/
-  pickles/video-chunks/
+  page-images/                # rasterized PDFs
+  pickles/video-chunks/       # chunk mp4s
   full-response/
-    combined.txt        # optional
+    combined.txt              # optional combined raw
     chunks/<name>-chunkNN.txt
   <name>.tex
-  <name>.srt            # opt
-  <name>.vtt            # opt
+  <name>.srt (opt)
+  <name>.vtt (opt)
   run-summary.json
-  chunks.json
+  chunks.json                 # manifest
 ```
 
 ---
 
-## 10) Concurrency, quotas, cost
-
-* Thread pool for per file. Separate pool for per video chunk.
-* Shared token bucket across workers.
-* Instrument each call with model, modality, timestamps, chunk id.
-* Quota monitor tracks RPM and TPM per model.
-* Cost estimator multiplies observed token usage by pricing table. Store per run totals.
-* Preflight `count_tokens` where available to throttle before calls.
-
----
-
-## 11) Configuration
+## 13) Configuration
 
 **`lecture-summarizer.yaml`**
 
@@ -388,18 +537,19 @@ workers:
   files: 4
   video_chunks: 3
 
-sources:
-  allow_url: true
-  allow_youtube: true
-  allow_drive: true
-  cache_dir: ./.cache/ingest
-  youtube_download: false         # if true, download then treat as local video
-
 video:
+  token_limit: 300000         # per request budget
+  tokens_per_second: 300      # 100 if mediaResolution=LOW
   max_chunk_seconds: 7200
   max_chunk_bytes: 524288000
-  encoder: auto                   # auto, cpu, nvenc, videotoolbox, qsv, amf
-  clip: null                      # "MM:SS-MM:SS" applied for YouTube or local
+  encoder: auto               # auto|cpu|nvenc|videotoolbox|qsv|amf
+  use_youtube_passthrough: true
+  media_resolution: default   # default|low
+
+ingest:
+  allow_url: true
+  allow_drive: true
+  allow_youtube: true
 
 save:
   full_response: false
@@ -407,94 +557,65 @@ save:
 
 pricing_file: ./pricing.yaml
 templates_dir: ./templates
+
 logging:
   level: info
-
-drive:
-  credentials_path: ~/.config/lecture_summarizer/google.json
-  use_service_account: false
 ```
 
-Precedence: CLI flags override YAML. Env only for API keys and OAuth secrets.
+Precedence: CLI > env (only API key) > YAML.
 
 ---
 
-## 12) CLI
+## 14) CLI (Typer)
 
-**Primary**
+* `summarize SOURCE [--kind auto|slides|lecture|document|image|video] [--pdf-mode auto|images|pdf] [--recursive] [--model ...] [--output-dir ...] [--export srt|vtt] [--skip-existing/--no-skip-existing] [--preset basic|speed|quality] [--config PATH] [--media-resolution default|low]`
 
-```
-summarize SOURCE
-  [--kind auto|slides|lecture|document|image|video]
-  [--pdf-mode auto|images|pdf]
-  [--recursive]
-  [--model ...]
-  [--output-dir ...]
-  [--export srt|vtt]
-  [--skip-existing/--no-skip-existing]
-  [--clip "MM:SS-MM:SS"]                   # for youtube or local video
-  [--allow-url/--no-allow-url]
-  [--allow-youtube/--no-allow-youtube]
-  [--allow-drive/--no-allow-drive]
-  [--youtube-download/--no-youtube-download]
-```
+  * `SOURCE` can be:
 
-**Utility**
+    * Path or directory
+    * `https://...` URL
+    * `yt://<id>` or full YouTube URL
+    * `drive://<FILE_ID>`
+* `plan SOURCE --json` → prints discovered assets, chosen modality, planned chunks.
+* `init` → writes sample YAML and templates.
+* `convert md PATH` | `convert json PATH` → post‑processing exporters.
+
+Examples:
 
 ```
-plan SOURCE --json
-init
-convert md PATH
-convert json PATH
+lecture-summarizer summarize yt://9hE5-98ZeCg --kind lecture --export srt
+lecture-summarizer summarize https://site/file.pdf --pdf-mode auto
+lecture-summarizer summarize drive://1AbCDefGhIJk --output-dir out
 ```
-
-**SOURCE forms**
-
-* Path or file://path
-* http(s)://example.com/file.pdf
-* [https://www.youtube.com/watch?v=ID](https://www.youtube.com/watch?v=ID)
-* drive://<file-id> or a share URL
 
 ---
 
-## 13) Rate limiting and robustness
+## 15) Error handling
 
-* TokenBucket with condition variables for both sync and async flows.
-* Apply preflight `count_tokens` on text prompts and small media to adjust concurrency.
-* Throttle uploads to stay under concurrent Files API processing limits.
-* Clear error messages on upload failure with remediation steps.
-
----
-
-## 14) Telemetry
-
-* `RunMonitor` writes `run-summary.json` with:
-
-  * files processed and durations.
-  * per call tokens and cost estimates.
-  * RPM and TPM utilizations.
-  * retry counts and causes.
-* NDJSON event stream optional for dashboards.
+* **CapabilityError:** clear message with required modality.
+* **Files API failure:** show `state`, advise retry or re‑upload; remind 2 GB limit and 48‑hour retention. ([Google AI for Developers][2])
+* **Oversize inline:** suggest Files API instead of base64 when > 20 MB. ([Google AI for Developers][1])
+* **429 / quota:** exponential backoff; log RPM/TPM and next attempt ETA.
+* **YouTube private/unavailable:** fall back to `yt-dlp` download path and local chunking.
 
 ---
 
-## 15) Error handling matrix
+## 16) Telemetry schema
 
-* URL fetch failure → retry with backoff. Final error includes HTTP status and size seen.
-* YouTube access blocked or private → instruct to download or provide a public link.
-  Gemini supports public YouTube only. ([Google AI for Developers][1])
-* Files API state `PROCESSING` for too long → exponential backoff up to max wait. Then fail with hint to split or reupload. ([Google AI for Developers][2])
-* Files API size limits → switch to chunked local files. Limits per file 2 GB and per project 20 GB. ([Google AI for Developers][2])
-* 48 hour retention → warn users that cached `file_uri` expires. Persist local copies. ([Google AI for Developers][2])
+**`run-summary.json`** example:
 
----
+```json
+{
+  "job": {"source":"yt://9hE5-98ZeCg","kind":"lecture","model":"gemini-2.5-flash"},
+  "totals": {"requests": 4, "input_tokens": 280000, "output_tokens": 6200, "est_cost_usd": 0.93},
+  "time": {"start":"...Z","end":"...Z","elapsed_sec": 412.3},
+  "limits": {"rpm": 1000, "tpm": 1000000},
+  "files": [".../chunks.json",".../combined.txt",".../name.tex"],
+  "warnings": []
+}
+```
 
-## 16) Security and privacy
-
-* Never log API keys or OAuth tokens.
-* Redact URLs that contain tokens.
-* Drive scopes limited to read only. Cache expires on a schedule.
-* Respect 48 hour Files API retention by not relying on remote URI beyond a run. ([Google AI for Developers][2])
+Emit NDJSON per request with `{model, modality, chunk_index, start_utc, end_utc, latency_ms, tokens_in, tokens_out, video_start, video_end, file_uri}`.
 
 ---
 
@@ -502,126 +623,145 @@ convert json PATH
 
 **Unit**
 
-* Resolver detects source type from path, URL, YouTube, Drive URL.
-* PDF modality selection and rasterize logic.
-* Video chunk math and ISO offsets.
-* Manifest IO and resume.
-* Prompt rendering.
+* Kind inference; modality selection; slug; manifest IO; chunk math; token‑rate planner; prompt rendering; timestamp utils; URL and Drive detection.
 
 **Integration**
 
-* Two page PDF both pdf and images modes.
-* One PNG.
-* 30 second MP4 normalized and chunked.
-* YouTube public URL with `--clip 00:40-01:20` using direct `file_uri`.
-* URL PDF fetched and summarized.
-* Drive binary file downloaded and summarized.
-* Resume with `--skip-existing`.
+* Small PDF (≤200 KB) → `.tex` + images in `images` mode.
+* Single PNG → `.tex`.
+* 20–30 s MP4 → normalization, chunking, manifest, `.tex`, and raw chunks.
+* YouTube passthrough (public short video) → single call path. ([Google AI for Developers][1])
+* URL PDF fetch inline (<20 MB) and Files API path (>20 MB). ([Google AI for Developers][3])
+* Resume with `--skip-existing` and verify reuse.
 
 **Fixtures**
 
-* ≤200 KB PDF, ≤200 KB PNG, ≤2 MB MP4, one public YouTube id.
+* Tiny assets with stable content. Golden files for `.tex` headers and chunk headings.
 
 ---
 
 ## 18) Documentation
 
-* README quick start for local files, URLs, YouTube, Drive.
-* How resumability works with manifest examples.
-* Files API limits and retention section. Link to docs. ([Google AI for Developers][2])
-* Video understanding usage and media first prompt order. ([Google AI for Developers][1])
-* When to use inline base64 vs Files API. ([Google AI for Developers][2])
+* README:
+
+  * Install, auth for Gemini and Drive, ffmpeg requirement.
+  * How **YouTube passthrough** works and when to download. ([Google AI for Developers][1])
+  * Files API constraints: 2 GB/file, 20 GB storage, 48 h retention. ([Google AI for Developers][2])
+  * Inline ≤ 20 MB guidance and media‑first ordering. ([Google AI for Developers][1])
+* CLI `--help` examples.
+* “Resumability and manifests” page with diagram.
 
 ---
 
-## 19) PR sequence
+## 19) PR sequence (mergeable)
 
-1. Hotfixes. Add smoke tests.
-2. Core contracts, Engine, Writer. `plan` command.
-3. FS ingest and PDF rasterization.
-4. Gemini provider for PDF and images. Minimal `summarize`.
-5. Video normalization, chunker, manifest. Provider(video).
-6. URL ingest. Cache and size detection. Inline vs Files API switch.
-7. YouTube ingest. Direct `file_uri`. Optional clip. Provider wiring.
-8. Drive ingest. OAuth. Download or export. Cache.
-9. Telemetry, pricing, run summary.
-10. Exports SRT and VTT. Presets. `init`.
-11. Test matrix and docs. Release notes.
-
-Each PR must run lint, unit, and integration fixtures and must write `run-summary.json`.
+1. Hotfixes (capability gate + prompt strings) + smoke tests.
+2. Core contracts + Engine + LaTeX Writer + `plan` command.
+3. Ingest: local discovery + URL fetch; PDF rasterization + image passthrough.
+4. Provider: Gemini wrapper; wire PDF/image; minimal CLI `summarize`.
+5. Video normalization + manifest + chunking; YouTube passthrough; Drive download.
+6. Telemetry + pricing YAML + run summary.
+7. Exports (SRT/VTT) + presets + `init`.
+8. Tests + docs + release notes.
 
 ---
 
 ## 20) Acceptance criteria
 
-* One `summarize` command handles pdf, image, video, URL, YouTube, Drive.
-* Video runs resumable per chunk.
+* One `summarize` handles file/URL/YouTube/Drive.
+* Video runs resumable at **chunk** granularity.
 * `run-summary.json` and `chunks.json` always written.
-* LaTeX outputs compile with defaults.
-* `--pdf-mode auto` prefers pdf only when provider supports it.
-* Costs recorded even when estimated.
-* `--skip-existing` reuses per chunk transcripts.
-* YouTube works without download when public. ([Google AI for Developers][1])
+* LaTeX compiles by default.
+* `--pdf-mode auto` uses native PDF when supported, else images.
+* Costs reported even when video uses duration‑based estimates.
+* `--skip-existing` reuses per‑chunk transcripts.
 
 ---
 
-## 21) Items dropped
+## 21) Items deliberately out of scope
 
-* Legacy pipeline and CLI.
-* Back compat shims.
-* New env toggles for non secrets. Use YAML.
-
----
-
-## 22) Implementation notes for the three new sources
-
-**URL**
-
-* Small file ≤20 MB → inline base64. Use `inline_data` in a single request. ([Google AI for Developers][2])
-* Larger → download to cache then Files API upload and reference `file.uri`. ([Google AI for Developers][2])
-* Content sniffing with `Content-Type` first, magic bytes fallback.
-
-**YouTube**
-
-* Preferred path: do not download. Use `file_data.file_uri` with the YouTube URL. Add `videoMetadata` `start_offset` and `end_offset` if `--clip` was set. ([Google AI for Developers][1])
-* Fallback: `--youtube-download` for private or rate limited cases. Treat as local video.
-
-**Drive**
-
-* Accept `drive://<file-id>` or share URL. If Google Docs or Slides use `files.export` to PDF. If binary use `files.get?alt=media`.
-* Store to cache, then follow URL path rules.
+* Non‑YouTube streaming platforms without direct download support.
+* Full web crawling. Limit to explicit URLs.
+* Persistent caches beyond 48 h Files API retention; keep local artifacts. ([Google AI for Developers][2])
 
 ---
 
-## 23) Example provider calls
+## 22) Security and privacy
 
-**YouTube clip**
+* Do not embed API keys in logs.
+* Strip URLs, file IDs, and personally identifying data from telemetry unless `--debug`.
+* Respect 48‑hour Files API retention. Delete files early if not needed. ([Google AI for Developers][2])
+
+---
+
+## 23) Implementation details to copy‑paste
+
+**23.1 CLI source parsing**
 
 ```python
-parts = [
-  {"file_data": {"file_uri": youtube_url}},
-  {"text": prompt},
-]
-# Optionally add:
-# parts[0]["video_metadata"] = {"start_offset": "40s", "end_offset": "80s"}
-# Then call models.generate_content with media first.
+from urllib.parse import urlparse
+
+def parse_source(s: str):
+    if s.startswith(("yt://","https://www.youtube.com/","https://youtu.be/")):
+        return ("youtube", s)
+    if s.startswith(("drive://","gdrive://")):
+        return ("drive", s.split("://",1)[1])
+    u = urlparse(s)
+    if u.scheme in ("http","https"):
+        return ("url", s)
+    return ("local", s)
 ```
 
-**Files API video**
+**23.2 YouTube passthrough asset**
 
 ```python
-video_file = client.files.upload(file=normalized_path)
-file = client.files.get(name=video_file.name)  # poll until ACTIVE
-parts = [{"file_data": {"file_uri": file.uri}}, {"text": prompt}]
+from pathlib import Path
+from core.types import Asset, SourceKind
+
+def youtube_passthrough(url: str) -> Asset:
+    return Asset(
+        path=Path(url), media="video",
+        source_kind=SourceKind.YOUTUBE,
+        mime="video/*",
+        meta={"pass_through": True}
+    )
 ```
 
-References: media first, three ingestion methods including YouTube URLs, and Files API lifecycle. ([Google AI for Developers][1]) ([Google AI for Developers][2])
+**23.3 Apply clip windows to `videoMetadata`** (ISO‑8601 or seconds strings like `"1250s"`). ([Google AI for Developers][1])
+
+```python
+def sec_to_iso(s: float) -> str:
+    # e.g., "PT20S" for 20 seconds
+    return f"PT{int(s)}S"
+```
+
+**23.4 Count‑tokens preflight (optional throttle)**
+
+```python
+def estimate_media_tokens(seconds: float, tps: int = 300) -> int:
+    return int(seconds * tps)
+```
 
 ---
 
-## 24) Cost model source of truth
+## 24) Risks and mitigations
 
-* Keep `pricing.yaml` under version control.
-* Update with model names and per token rates.
-* Store per request usage and totals in `run-summary.json`.
-* Do not embed hard token throughput for video. Calibrate with `count_tokens` and measured usage.
+* **YouTube preview behavior changes:** keep local download path as fallback. ([Google AI for Developers][1])
+* **Files API storage exhaustion (20 GB):** purge normalized and chunk files after merge; configurable retention. ([Google AI for Developers][2])
+* **Inline oversize (>20 MB):** always check `Content-Length` and choose Files API. ([Google AI for Developers][1])
+* **Token cost drift:** enable `models.count_tokens` sampling on one chunk per run; adjust `tokens_per_second`.
+
+---
+
+### Notes
+
+* Video understanding best practice: media first, explicit request for transcript + visuals, optional higher `fps` for fast visuals. ([Google AI for Developers][1])
+* For images/PDFs from URLs, prefer client‑side fetch to bytes then inline or Files upload. ([Google AI for Developers][3])
+
+This plan is self‑contained. It includes URL, YouTube, and Drive ingestion, Files API rules, chunking, quotas, and outputs, aligned with current Gemini docs.
+
+[1]: https://ai.google.dev/gemini-api/docs/video-understanding?hl=fr "Compréhension des vidéos  |  Gemini API  |  Google AI for Developers"
+[2]: https://ai.google.dev/gemini-api/docs/files?hl=fr "API Files  |  Gemini API  |  Google AI for Developers"
+[3]: https://ai.google.dev/gemini-api/docs/document-processing?utm_source=chatgpt.com "Document understanding | Gemini API"
+[4]: https://ai.google.dev/api/generate-content?hl=fr "Generating content  |  Gemini API  |  Google AI for Developers"
+[5]: https://ai.google.dev/gemini-api/docs/image-understanding?utm_source=chatgpt.com "Image understanding | Gemini API | Google AI for Developers"
