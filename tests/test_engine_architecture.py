@@ -155,6 +155,8 @@ def test_cli_summarize_command(tmp_path, monkeypatch, capsys) -> None:
         pdf_mode="pdf",
         recursive=False,
         skip_existing=True,
+        export=["srt"],
+        preset="basic",
     )
     captured = capsys.readouterr()
     assert "Wrote" in captured.out
@@ -167,3 +169,13 @@ def test_cli_summarize_command(tmp_path, monkeypatch, capsys) -> None:
     assert summary["job"]["source"] == str(sample)
     events_path = outputs / sample.stem / "run-events.ndjson"
     assert events_path.exists()
+    srt_path = outputs / sample.stem / f"{sample.stem}-transcribed.srt"
+    assert srt_path.exists()
+
+
+def test_cli_init_creates_config(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    cli_module.init(path=tmp_path / "config.toml", force=False)
+    captured = capsys.readouterr()
+    assert "Wrote" in captured.out
+    assert (tmp_path / "config.toml").exists()

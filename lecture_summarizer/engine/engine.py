@@ -8,6 +8,7 @@ from ..core.contracts import Ingestor, Normalizer, PromptStrategy, Provider, Wri
 from ..telemetry import RunMonitor
 from ..output.cost import CostEstimator
 from ..constants import RATE_LIMITS, TOKEN_LIMITS_PER_MINUTE
+from ..render.subtitles import SubtitleExporter
 
 
 @dataclass
@@ -19,6 +20,7 @@ class Engine:
     writer: Writer
     monitor: RunMonitor
     cost: CostEstimator
+    subtitles: SubtitleExporter | None = None
 
     def run(self, job: Job) -> Path | None:
         prepare = getattr(self.normalizer, "prepare", None)
@@ -51,12 +53,19 @@ class Engine:
 
         output_path = self.writer.write_latex(base=base, name=name, preamble=preamble, body=text)
 
+        subtitle_paths: list[Path] = []
+        if self.subtitles is not None and job.export:
+            chunk_info_fn = getattr(self.normalizer, "chunk_descriptors", None)
+            chunk_info = chunk_info_fn() if callable(chunk_info_fn) else []
+            for fmt in job.export:
+                rendered = self.subtitles.write(fmt, base=base, name=name, text=text, chunks=chunk_info)
+                if rendered is not None:
+                    subtitle_paths.append(rendered)
+
         artifact_fn = getattr(self.normalizer, "artifact_paths", None)
         artifact_paths = []
         if callable(artifact_fn):
             artifact_paths = [Path(p) for p in artifact_fn() if p]
-
-        files = [output_path, *artifact_paths]
 
         limits = {
             "rpm": RATE_LIMITS.get(job.model),
@@ -64,6 +73,7 @@ class Engine:
         }
 
         events_path = base / "run-events.ndjson"
+        files = [output_path, *artifact_paths, *subtitle_paths, events_path]
         self.monitor.flush_summary(
             to=base / "run-summary.json",
             cost=self.cost,

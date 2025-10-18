@@ -19,6 +19,7 @@ from .engine import Engine
 from .ingest import CompositeIngestor, CompositeNormalizer
 from .providers import GeminiProvider
 from .render.writer import LatexWriter
+from .render.subtitles import SubtitleExporter
 from .templates import TemplateLoader
 from .telemetry import RunMonitor
 from .output.cost import CostEstimator
@@ -26,6 +27,12 @@ from .config import AppConfig
 
 
 _CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"], "allow_interspersed_args": True}
+
+PRESETS: dict[str, dict[str, object]] = {
+    "basic": {},
+    "speed": {"pdf_mode": "images"},
+    "quality": {"pdf_mode": "pdf"},
+}
 
 app = typer.Typer(
     add_completion=False,
@@ -449,6 +456,8 @@ def summarize(  # noqa: D401
     pdf_mode: str = typer.Option("auto", "--pdf-mode", "-P", case_sensitive=False, help="auto|pdf|images"),
     recursive: bool = typer.Option(False, "--recursive/--no-recursive", help="Recurse into directories"),
     skip_existing: bool = typer.Option(True, "--skip-existing/--no-skip-existing", help="Skip outputs that already exist"),
+    export: list[str] = typer.Option([], "--export", "-e", help="Write additional exports such as srt or vtt"),
+    preset: str = typer.Option("basic", "--preset", help="Preset profile", case_sensitive=False),
 ):
     try:
         cfg = AppConfig.from_env()
@@ -471,6 +480,12 @@ def summarize(  # noqa: D401
         raise typer.BadParameter("PDF mode must be auto|pdf|images", param_hint="--pdf-mode") from exc
 
     active_model = model or cfg.default_model
+    preset_key = preset.lower() if preset else "basic"
+    if preset_key not in PRESETS:
+        raise typer.BadParameter(
+            f"Unknown preset '{preset}'. Available presets: {', '.join(sorted(PRESETS))}",
+            param_hint="--preset",
+        )
     loader = TemplateLoader(cfg.templates_dir)
     prompts = _prompt_strategies(loader)
 
@@ -485,6 +500,7 @@ def summarize(  # noqa: D401
         writer=LatexWriter(),
         monitor=monitor,
         cost=CostEstimator(),
+        subtitles=SubtitleExporter(),
     )
 
     job = CoreJob(
@@ -494,14 +510,48 @@ def summarize(  # noqa: D401
         pdf_mode=normalized_pdf_mode,
         output_dir=output_dir or cfg.output_dir,
         model=active_model,
+        preset=preset_key,
+        export=list(export) if export else None,
         skip_existing=skip_existing,
     )
+
+    preset_config = PRESETS[preset_key]
+    if "pdf_mode" in preset_config and job.pdf_mode == CorePdfMode.AUTO:
+        try:
+            preset_pdf_mode = CorePdfMode(str(preset_config["pdf_mode"]).lower())
+        except ValueError:
+            preset_pdf_mode = job.pdf_mode
+        job = CoreJob(
+            source=job.source,
+            recursive=job.recursive,
+            kind=job.kind,
+            pdf_mode=preset_pdf_mode,
+            output_dir=job.output_dir,
+            model=job.model,
+            preset=job.preset,
+            export=job.export,
+            skip_existing=job.skip_existing,
+        )
 
     result = engine.run(job)
     if result is None:
         typer.echo("No output generated.")
     else:
         typer.echo(f"Wrote {result}")
+
+
+@app.command(help="Create a starter configuration file in the current directory.")
+def init(
+    path: Path = typer.Option(Path("lecture-summarizer.toml"), "--path", help="Where to write the config file"),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing file"),
+):
+    target = path.expanduser()
+    if target.exists() and not force:
+        raise typer.BadParameter(f"{target} already exists; use --force to overwrite", param_hint="--force")
+
+    content = """# Lecture Summarizer configuration\n# Adjust defaults for the summarize command.\n# Available presets live under [presets.<name>].\n\ndefault_model = \"gemini-2.5-flash-lite\"\noutput_dir = \"output\"\nsave_full_response = true\nexports = [\"srt\"]\n\n[presets.speed]\npdf_mode = \"images\"\n\n[presets.quality]\npdf_mode = \"pdf\"\n"""
+    target.write_text(content)
+    typer.echo(f"Wrote {target}")
 
 
 @convert_app.command("md")
