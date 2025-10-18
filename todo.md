@@ -660,9 +660,9 @@ Emit NDJSON per request with `{model, modality, chunk_index, start_utc, end_utc,
 3. [x] Ingest: local discovery + URL fetch; PDF rasterization + image passthrough.
 4. [x] Provider: Gemini wrapper; wire PDF/image; minimal CLI `summarize`.
 5. [x] Video normalization + manifest + chunking; YouTube passthrough; Drive download.
-6. [ ] Telemetry + pricing YAML + run summary.
+6. [x] Telemetry + pricing YAML + run summary.
 7. [x] Exports (SRT/VTT) + presets + `init`.
-8. [ ] Tests + docs + release notes.
+8. [x] Tests + docs + release notes.
 
 ---
 

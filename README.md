@@ -53,44 +53,47 @@ Environment variables:
 
 All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
 
+Prefer configuration files? Run `lecture-summarizer init` to create `lecture-summarizer.toml`; it stores defaults for `default_model`, `output_dir`, `exports`, and per-preset overrides. Environment variables still take precedence so you can mix-and-match as needed.
+
 ## CLI Usage
 
-After installation the `lecture-summarizer` command becomes available. Every command accepts a path to a file or directory; directories are enumerated with natural sorting.
+After installation the `lecture-summarizer` command becomes available. Export `GEMINI_API_KEY` first, then explore the commands below.
 
 ```shell
 export GEMINI_API_KEY="..."
 
-# Quick start – same as `transcribe`
+# Inspect how an asset will be processed (no API calls)
+lecture-summarizer plan input/video.mp4
+lecture-summarizer plan https://example.com/report.pdf --json
+
+# Run the new engine with sensible defaults
+lecture-summarizer summarize input/lecture.mp4 --export srt --preset quality
+
+# Traditional batch transcription (existing pipeline)
 lecture-summarizer /path/to/materials --recursive --include-images
 
-# Mixed PDF folders – auto-detects slides vs. documents, optional image pickup
-lecture-summarizer transcribe /path/to/more-materials --recursive --include-images
-
-# Force a style if the heuristic guess is wrong
-lecture-summarizer transcribe /path/to/notes --kind lecture
-
-# Static images (PNG by default)
-lecture-summarizer transcribe /path/to/imgs --include-images --kind image
-
-# Keep chunk artifacts for inspection (normalized MP4s & manifests)
-lecture-summarizer transcribe input/lectures --include-video --save-intermediates
-
-# Force a specific encoder if auto-detect picks the wrong one
-lecture-summarizer transcribe input/lectures --include-video --video-encoder nvenc
+# Generate a starter config
+lecture-summarizer init
 
 # Post-processing helpers
-lecture-summarizer convert md /path/to/tex
-lecture-summarizer convert json /path/to/tex --recursive
-
+lecture-summarizer convert md output/course-notes
+lecture-summarizer convert json output/course-notes --recursive
 ```
 
-By default the CLI prints a token/cost summary when a run finishes and writes `run-summary.json` (containing telemetry, per-model totals, and estimated spend) to the chosen output directory. Control this behaviour with:
+`lecture-summarizer summarize` accepts the same `--kind`/`--pdf-mode` overrides as the legacy pipeline, plus:
 
-- `--hide-summary` to suppress console output.
-- `--detailed-costs` to include a per-model cost breakdown in the summary.
-- `--summary-path /custom/path.json` to override where the JSON report is written.
+- `--export srt|vtt` to emit subtitle tracks using chunk boundaries.
+- `--preset speed|quality|basic` to adjust defaults (e.g., `speed` forces rasterized PDFs; `quality` prefers native PDF ingestion when the model supports it).
 
-Run `lecture-summarizer --help` or `lecture-summarizer <command> --help` for parameter details.
+Every run writes:
+
+- `<slug>/<slug>-transcribed.tex` – cleaned LaTeX body content.
+- `run-summary.json` – totals, estimated spend, and a list of output artifacts.
+- `run-events.ndjson` – per-request telemetry (one JSON object per API call).
+- `chunks.json` – manifest for normalized video assets (video inputs only).
+- Optional `.srt`/`.vtt` files when `--export` is provided.
+
+Use `--hide-summary`, `--detailed-costs`, and `--summary-path` to adjust the console summary behaviour.
 
 ## Python API
 
