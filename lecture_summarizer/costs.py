@@ -30,13 +30,15 @@ class CostSummary:
         }
 
 
-def estimate_costs(events: Iterable[RequestEvent]) -> CostSummary:
+def estimate_costs(events: Iterable[RequestEvent], pricing: dict | None = None) -> CostSummary:
     summary = CostSummary()
+    pricing_table = pricing or MODEL_PRICING
     for event in events:
         if event.modality in _SKIP_MODALITIES:
             continue
         price_key = "audio_video" if event.modality in _AUDIO_VIDEO_MODALITIES else "text"
-        pricing = MODEL_PRICING.get(event.model, MODEL_PRICING["default"]).get(price_key, MODEL_PRICING["default"][price_key])
+        model_pricing = pricing_table.get(event.model, pricing_table.get("default", {}))
+        pricing_entry = model_pricing.get(price_key, pricing_table.get("default", {}).get(price_key, {"input": 0.0, "output": 0.0}))
 
         input_tokens = _determine_input_tokens(event)
         output_tokens = _determine_output_tokens(event)
@@ -53,8 +55,8 @@ def estimate_costs(events: Iterable[RequestEvent]) -> CostSummary:
         if output_tokens is None:
             output_tokens = 0
 
-        input_cost = (input_tokens / 1_000_000) * pricing.get("input", 0.0)
-        output_cost = (output_tokens / 1_000_000) * pricing.get("output", 0.0)
+        input_cost = (input_tokens / 1_000_000) * pricing_entry.get("input", 0.0)
+        output_cost = (output_tokens / 1_000_000) * pricing_entry.get("output", 0.0)
 
         summary.total_input_cost += input_cost
         summary.total_output_cost += output_cost

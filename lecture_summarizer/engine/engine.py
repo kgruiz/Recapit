@@ -7,6 +7,7 @@ from ..core.types import Job, Kind, PdfMode, Asset
 from ..core.contracts import Ingestor, Normalizer, PromptStrategy, Provider, Writer
 from ..telemetry import RunMonitor
 from ..output.cost import CostEstimator
+from ..constants import RATE_LIMITS, TOKEN_LIMITS_PER_MINUTE
 
 
 @dataclass
@@ -50,7 +51,27 @@ class Engine:
 
         output_path = self.writer.write_latex(base=base, name=name, preamble=preamble, body=text)
 
-        self.monitor.flush_summary(to=base / "run-summary.json", cost=self.cost)
+        artifact_fn = getattr(self.normalizer, "artifact_paths", None)
+        artifact_paths = []
+        if callable(artifact_fn):
+            artifact_paths = [Path(p) for p in artifact_fn() if p]
+
+        files = [output_path, *artifact_paths]
+
+        limits = {
+            "rpm": RATE_LIMITS.get(job.model),
+            "tpm": TOKEN_LIMITS_PER_MINUTE.get(job.model),
+        }
+
+        events_path = base / "run-events.ndjson"
+        self.monitor.flush_summary(
+            to=base / "run-summary.json",
+            cost=self.cost,
+            job=job,
+            files=files,
+            limits=limits,
+            ndjson=events_path,
+        )
         return output_path
 
     def _infer_kind(self, assets: list[Asset]) -> Kind:

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
 from ..core.types import Asset, SourceKind
+from ..telemetry import RunMonitor, RequestEvent
 
 try:  # pragma: no cover - exercised in integration, not unit tests
     from google import genai  # type: ignore
@@ -34,6 +36,7 @@ class GeminiProvider:
         client: Optional[object] = None,
         types_module: Optional[object] = None,
         poll_interval: float = 0.5,
+        monitor: RunMonitor | None = None,
     ) -> None:
         if client is not None:
             self._client = client
@@ -46,12 +49,14 @@ class GeminiProvider:
             raise ImportError("google-genai types are required unless a types_module is provided")
         self._model = model
         self._poll_interval = max(poll_interval, 0.1)
+        self._monitor = monitor
 
     def supports(self, capability: str) -> bool:
         return _DEFAULT_CAPABILITIES.get(capability, False)
 
     def transcribe(self, *, instruction: str, assets: Iterable[Asset], modality: str, meta: dict) -> str:
-        parts = self._build_media_parts(list(assets))
+        asset_list = list(assets)
+        parts, event_assets = self._build_media_parts(asset_list)
         parts.append(self._types.Part(text=instruction))
 
         config = getattr(self._types, "GenerateContentConfig", None)
@@ -63,16 +68,37 @@ class GeminiProvider:
             raise RuntimeError("types module missing Content")
 
         request = content_ctor(parts=parts)
+        started = datetime.now(timezone.utc)
         resp = self._client.models.generate_content(
             model=self._model,
             contents=request,
             config=config(),
         )
-        return getattr(resp, "text", "") or ""
+        finished = datetime.now(timezone.utc)
+        text = getattr(resp, "text", "") or ""
 
-    def _build_media_parts(self, assets: list[Asset]) -> list[object]:
+        self._record_event(
+            modality=modality,
+            started=started,
+            finished=finished,
+            meta=meta,
+            assets=event_assets,
+            response=resp,
+        )
+
+        return text
+
+    def _build_media_parts(self, assets: list[Asset]) -> tuple[list[object], list[dict]]:
         parts: list[object] = []
+        event_assets: list[dict] = []
         for asset in assets:
+            asset_info = {
+                "path": str(asset.path),
+                "media": asset.media,
+                "source_kind": asset.source_kind.value,
+            }
+            if asset.meta:
+                asset_info.update({k: v for k, v in asset.meta.items() if isinstance(k, str)})
             if asset.source_kind == SourceKind.YOUTUBE and asset.meta and asset.meta.get("pass_through"):
                 uri = asset.path.as_posix()
                 file_part = self._types.Part(
@@ -80,6 +106,8 @@ class GeminiProvider:
                 )
                 self._attach_video_metadata(file_part, asset)
                 parts.append(file_part)
+                asset_info["file_uri"] = uri
+                event_assets.append(asset_info)
                 continue
 
             if asset.meta and asset.meta.get("file_uri"):
@@ -91,6 +119,8 @@ class GeminiProvider:
                 )
                 self._attach_video_metadata(file_part, asset)
                 parts.append(file_part)
+                asset_info["file_uri"] = asset.meta["file_uri"]
+                event_assets.append(asset_info)
                 continue
 
             if asset.meta and asset.meta.get("inline_bytes"):
@@ -102,6 +132,7 @@ class GeminiProvider:
                 )
                 self._attach_video_metadata(part, asset)
                 parts.append(part)
+                event_assets.append(asset_info)
                 continue
 
             uploaded = self._upload_asset(asset)
@@ -113,7 +144,10 @@ class GeminiProvider:
             )
             self._attach_video_metadata(file_part, asset)
             parts.append(file_part)
-        return parts
+            asset_info["file_uri"] = getattr(uploaded, "uri", None)
+            asset_info["upload_state"] = self._state_name(uploaded)
+            event_assets.append(asset_info)
+        return parts, event_assets
 
     def _upload_asset(self, asset: Asset):
         result = self._client.files.upload(file=str(asset.path))
@@ -158,3 +192,51 @@ class GeminiProvider:
         if path.suffix.lower() in {".mp3", ".wav", ".m4a"}:
             return "audio/mpeg"
         return "application/octet-stream"
+
+    def _record_event(
+        self,
+        *,
+        modality: str,
+        started: datetime,
+        finished: datetime,
+        meta: dict,
+        assets: list[dict],
+        response: object,
+    ) -> None:
+        if self._monitor is None:
+            return
+
+        usage = getattr(response, "usage_metadata", None)
+
+        def _token(attr: str, fallback: str | None = None) -> Optional[int]:
+            if usage is None:
+                return None
+            value = getattr(usage, attr, None)
+            if value is None and fallback:
+                value = getattr(usage, fallback, None)
+            try:
+                return int(value) if value is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        input_tokens = _token("input_tokens", fallback="prompt_token_count")
+        output_tokens = _token("output_tokens", fallback="candidates_token_count")
+        total_tokens = _token("total_tokens", fallback="total_token_count")
+        if total_tokens is None and input_tokens is not None and output_tokens is not None:
+            total_tokens = input_tokens + output_tokens
+
+        metadata_payload = dict(meta or {})
+        metadata_payload.setdefault("assets", assets)
+
+        self._monitor.record(
+            RequestEvent(
+                model=self._model,
+                modality=modality,
+                started_at=started,
+                finished_at=finished,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                metadata=metadata_payload,
+            )
+        )

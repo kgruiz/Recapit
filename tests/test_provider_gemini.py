@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import types
 
 import pytest
 
 from lecture_summarizer.core.types import Asset, SourceKind
 from lecture_summarizer.providers.gemini import GeminiProvider
+from lecture_summarizer.telemetry import RunMonitor
 
 
 class _FakeTypes:
@@ -115,3 +117,37 @@ def test_provider_supports_capabilities(tmp_path) -> None:
     provider = GeminiProvider(api_key="dummy", model="x", client=_FakeClient(), types_module=_FakeTypes())
     assert provider.supports("pdf")
     assert not provider.supports("unknown")
+
+
+def test_provider_records_events(tmp_path) -> None:
+    asset_path = tmp_path / "doc.pdf"
+    asset_path.write_text("stub")
+    asset = Asset(path=asset_path, media="pdf", source_kind=SourceKind.LOCAL)
+
+    client = _FakeClient()
+
+    class _Usage:
+        input_tokens = 100
+        output_tokens = 20
+        total_tokens = 120
+
+    class _Response:
+        text = "response"
+        usage_metadata = _Usage()
+
+    def generate_content(self, **kwargs):
+        self.calls.append(kwargs)
+        return _Response()
+
+    client.models.generate_content = types.MethodType(generate_content, client.models)  # type: ignore[attr-defined]
+
+    monitor = RunMonitor()
+    provider = GeminiProvider(api_key="dummy", model="gemini-test", client=client, types_module=_FakeTypes(), monitor=monitor)
+    provider.transcribe(instruction="Summarize", assets=[asset], modality="pdf", meta={"source": "doc"})
+
+    events = monitor.events()
+    assert len(events) == 1
+    event = events[0]
+    assert event.model == "gemini-test"
+    assert event.input_tokens == 100
+    assert event.metadata["assets"][0]["file_uri"].endswith("doc.pdf")

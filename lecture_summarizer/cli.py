@@ -474,13 +474,16 @@ def summarize(  # noqa: D401
     loader = TemplateLoader(cfg.templates_dir)
     prompts = _prompt_strategies(loader)
 
+    monitor = RunMonitor()
+    normalizer = CompositeNormalizer()
+    provider = GeminiProvider(api_key=cfg.api_key, model=active_model, monitor=monitor)
     engine = Engine(
         ingestor=CompositeIngestor(),
-        normalizer=CompositeNormalizer(),
+        normalizer=normalizer,
         prompts=prompts,
-        provider=GeminiProvider(api_key=cfg.api_key, model=active_model),
+        provider=provider,
         writer=LatexWriter(),
-        monitor=RunMonitor(),
+        monitor=monitor,
         cost=CostEstimator(),
     )
 

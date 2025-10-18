@@ -54,6 +54,7 @@ class CompositeNormalizer:
         self._video = _VideoDependencies(video_normalizer, video_probe, video_planner, hash_func)
         self._job: Job | None = None
         self._last_chunk_info: list[dict] = []
+        self._last_manifest_path: Path | None = None
 
     # Optional hook used by Engine/Planner
     def prepare(self, job: Job) -> None:  # pragma: no cover - simple setter
@@ -61,6 +62,7 @@ class CompositeNormalizer:
 
     def normalize(self, assets: list[Asset], pdf_mode: PdfMode) -> list[Asset]:
         self._last_chunk_info = []
+        self._last_manifest_path = None
         normalized: list[Asset] = []
         for asset in assets:
             if asset.media == "pdf":
@@ -166,6 +168,7 @@ class CompositeNormalizer:
         )
 
         manifest_path = self._write_manifest(plan, asset)
+        self._last_manifest_path = manifest_path
 
         chunk_total = len(plan.chunks)
         chunk_assets: list[Asset] = []
@@ -266,3 +269,9 @@ class CompositeNormalizer:
             return self._video.hash_func(Path(path))
         except FileNotFoundError:
             return ""
+
+    def artifact_paths(self) -> list[Path]:  # pragma: no cover - simple accessor
+        paths: list[Path] = []
+        if self._last_manifest_path is not None:
+            paths.append(self._last_manifest_path)
+        return paths

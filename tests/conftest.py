@@ -8,6 +8,41 @@ if str(ROOT) not in sys.path:
 
 sys.modules.setdefault("pillow_avif", types.ModuleType("pillow_avif"))
 
+if "yaml" not in sys.modules:
+    def _simple_safe_load(stream):  # pragma: no cover - trivial parser
+        if hasattr(stream, "read"):
+            content = stream.read()
+        else:
+            content = str(stream)
+        root: dict[str, object] = {}
+        stack: list[tuple[int, dict[str, object]]] = [(0, root)]
+        for raw_line in str(content).splitlines():
+            if not raw_line.strip() or raw_line.lstrip().startswith("#"):
+                continue
+            indent = len(raw_line) - len(raw_line.lstrip(" "))
+            line = raw_line.strip()
+            key, _, rest = line.partition(":")
+            key = key.strip().strip('"')
+            rest = rest.strip()
+            while len(stack) > 1 and indent < stack[-1][0]:
+                stack.pop()
+            current = stack[-1][1]
+            if not rest:
+                value: dict[str, object] = {}
+                current[key] = value
+                stack.append((indent + 2, value))
+            else:
+                try:
+                    numeric = float(rest)
+                    value = numeric
+                except ValueError:
+                    value = rest.strip('"')
+                current[key] = value
+        return root
+
+    yaml_mod = types.SimpleNamespace(safe_load=_simple_safe_load)
+    sys.modules["yaml"] = yaml_mod
+
 if "typer" not in sys.modules:
     typer_mod = types.ModuleType("typer")
 

@@ -97,7 +97,7 @@ def test_engine_runs_full_cycle(tmp_path: Path) -> None:
     run_summary = output.parent / "run-summary.json"
     assert run_summary.exists()
     payload = json.loads(run_summary.read_text())
-    assert payload["summary"]["total_requests"] == 0
+    assert payload["totals"]["requests"] == 0
     assert provider.calls and provider.calls[0]["modality"] == "pdf"
 
 
@@ -161,3 +161,9 @@ def test_cli_summarize_command(tmp_path, monkeypatch, capsys) -> None:
     expected = outputs / sample.stem / f"{sample.stem}-transcribed.tex"
     assert expected.exists()
     assert _StubProvider.instances and _StubProvider.instances[0].calls
+    summary_path = outputs / sample.stem / "run-summary.json"
+    assert summary_path.exists()
+    summary = json.loads(summary_path.read_text())
+    assert summary["job"]["source"] == str(sample)
+    events_path = outputs / sample.stem / "run-events.ndjson"
+    assert events_path.exists()
