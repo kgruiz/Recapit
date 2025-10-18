@@ -659,7 +659,7 @@ Emit NDJSON per request with `{model, modality, chunk_index, start_utc, end_utc,
 2. [x] Core contracts + Engine + LaTeX Writer + `plan` command.
 3. [x] Ingest: local discovery + URL fetch; PDF rasterization + image passthrough.
 4. [x] Provider: Gemini wrapper; wire PDF/image; minimal CLI `summarize`.
-5. [ ] Video normalization + manifest + chunking; YouTube passthrough; Drive download.
+5. [x] Video normalization + manifest + chunking; YouTube passthrough; Drive download.
 6. [ ] Telemetry + pricing YAML + run summary.
 7. [ ] Exports (SRT/VTT) + presets + `init`.
 8. [ ] Tests + docs + release notes.

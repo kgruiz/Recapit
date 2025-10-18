@@ -20,6 +20,9 @@ class Engine:
     cost: CostEstimator
 
     def run(self, job: Job) -> Path | None:
+        prepare = getattr(self.normalizer, "prepare", None)
+        if callable(prepare):
+            prepare(job)
         assets = self.ingestor.discover(job)
         if not assets:
             self.monitor.note_event("discover.empty", {"source": job.source})
@@ -28,7 +31,7 @@ class Engine:
         kind = job.kind or self._infer_kind(assets)
         assets = self.normalizer.normalize(assets, job.pdf_mode)
         modality = self._modality_for(assets, job.pdf_mode)
-
+        
         strategy = self.prompts[kind]
         preamble = strategy.preamble()
         instruction = strategy.instruction(preamble)

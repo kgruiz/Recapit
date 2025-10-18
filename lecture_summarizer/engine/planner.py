@@ -59,11 +59,16 @@ class Planner:
         self._normalizer = normalizer
 
     def plan(self, job: Job) -> PlanReport:
+        prepare = getattr(self._normalizer, "prepare", None)
+        if callable(prepare):
+            prepare(job)
         assets = self._ingestor.discover(job)
         normalized = self._normalizer.normalize(assets, job.pdf_mode)
         kind = (job.kind or self._infer_kind(assets)) if assets else (job.kind or Kind.DOCUMENT)
         modality = self._determine_modality(normalized, job.pdf_mode)
-        return PlanReport(job=job, assets=assets, normalized=normalized, kind=kind, modality=modality, chunks=[])
+        chunk_info = getattr(self._normalizer, "chunk_descriptors", None)
+        chunks = chunk_info() if callable(chunk_info) else []
+        return PlanReport(job=job, assets=assets, normalized=normalized, kind=kind, modality=modality, chunks=chunks)
 
     @staticmethod
     def _infer_kind(assets: list[Asset]) -> Kind:
