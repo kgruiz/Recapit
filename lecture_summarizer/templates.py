@@ -104,56 +104,11 @@ DEFAULT_PREAMBLES = {
 
 
 DEFAULT_PROMPTS = {
-    "slides": dedent(
-        """Transcribe the slide or deck page into LaTeX using the provided preamble.\n"
-        "- Preserve math in LaTeX form.\n"
-        "- Render bullet points with itemize/enumerate.\n"
-        "- For graphics, insert tikz approximations or `[Placeholder: <description>]`.\n"
-        "- Escape special characters such as %, $, &, _ appropriately.\n\n"
-        "LaTeX Preamble:\n{{PREAMBLE}}"""
-    ).strip(),
-    "lecture": dedent(
-        """Transcribe the handwritten or scanned lecture content into LaTeX.\n"
-        "- Keep section structure, theorem environments, and displayed math.\n"
-        "- Convert tables into tabular/tabularx when present.\n"
-        "- Describe diagrams as placeholders when recreation is impractical.\n"
-        "- Do not invent content; preserve typos with `[sic]` if needed.\n\n"
-        "LaTeX Preamble:\n{{PREAMBLE}}"""
-    ).strip(),
-    "document": dedent(
-        """Transcribe the document into LaTeX ready for compilation.\n"
-        "- Preserve headings, lists, tables, and math.\n"
-        "- Represent structured data in tabular/tabularx.\n"
-        "- Replace complex figures with `[Placeholder: description]`.\n"
-        "- Escape LaTeX-sensitive characters and keep provided metadata fields.\n\n"
-        "LaTeX Preamble:\n{{PREAMBLE}}"""
-    ).strip(),
-    "image": dedent(
-        """Transcribe the image contents into LaTeX using the supplied preamble.\n"
-        "- Capture printed or handwritten math verbatim.\n"
-        "- Use itemize/enumerate for bullet lists.\n"
-        "- Replace illustrations with descriptive placeholders if necessary.\n"
-        "- Do not include external files or packages beyond the preamble.\n\n"
-        "LaTeX Preamble:\n{{PREAMBLE}}"""
-    ).strip(),
-    "video": dedent(
-        """Task: Transcribe the video faithfully.\n\n"
-        "Rules:\n"
-        "- Include timestamps and speaker labels when identifiable.\n"
-        "- Preserve wording and meaning; fix grammar/punctuation only for readability.\n"
-        "- Mark unclear audio as <inaudible>, uncertainty as <uncertain>, and gaps as <missing>. Do not guess.\n"
-        "- Do not summarize, interpret, translate, or add commentary.\n\n"
-        "Format:\n"
-        "- Return LaTeX body content only.\n"
-        "- For each utterance output a line like `\\textbf{[HH:MM:SS.mmm]} \\textsc{Speaker}: content`.\n"
-        "- Leave a blank line between utterances belonging to different speakers.\n"
-        "- Non-speech events should appear in angle brackets within the content (e.g., `<laughter>`).\n\n"
-        "Notes:\n"
-        "- Use `Speaker 1`, `Speaker 2`, ... if names are unknown; otherwise use the name.\n"
-        "- Retain the provided angle-bracket annotations verbatim.\n"
-        "- Preserve math using LaTeX where applicable.\n\n"
-        "LaTeX Preamble:\n{{PREAMBLE}}"""
-    ).strip(),
+    "slides": "Summarize slide content. Keep math as LaTeX.",
+    "lecture": "Summarize the lecture with [MM:SS] timestamps. Include visual cues.",
+    "document": "Summarize the document. Preserve headings. Extract key equations.",
+    "image": "Describe the image with technical details. Convert text to LaTeX if math.",
+    "video": "Transcribe audio and summarize visuals with [MM:SS] timestamps.",
 }
 
 

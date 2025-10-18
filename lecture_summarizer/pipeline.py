@@ -128,6 +128,11 @@ class Pipeline:
         root = self._select_output_root(override=override_root, fallback=source.parent)
         return root / slugify(source.stem)
 
+    def _ensure_capability(self, model: str, need: str) -> None:
+        """Raise a clear error when the target model lacks a capability."""
+        if not self.llm.supports(model, need):
+            raise ValueError(f"Model '{model}' does not support {need} inputs")
+
     def _progress(self, *, transient: bool = False) -> Progress:
         return Progress(
             SpinnerColumn(),
@@ -235,9 +240,6 @@ class Pipeline:
         output_root: Path | None,
         files_task: TaskID | None,
     ) -> None:
-        if not self.llm.supports(model, "video"):
-            raise ValueError(f"Model {model} does not support video inputs")
-
         bucket = self._bucket_for(model)
         instr, preamble = self._instruction_for_kind(kind)
 
@@ -255,12 +257,14 @@ class Pipeline:
         if isinstance(strategy, str):
             strategy = PDFMode(strategy)
         if strategy == PDFMode.AUTO:
-            strategy = PDFMode.PDF if self.llm.supports(model, "pdf") else PDFMode.IMAGES
-
-        if strategy == PDFMode.PDF and not self.llm.supports(model, "pdf"):
-            raise ValueError(f"Model {model} does not support PDF inputs")
+            if self.llm.supports(model, "pdf"):
+                strategy = PDFMode.PDF
+            else:
+                self._ensure_capability(model, "image")
+                strategy = PDFMode.IMAGES
 
         if strategy == PDFMode.PDF:
+            self._ensure_capability(model, "pdf")
             texts: list[str] = []
             try:
                 page_total = total_pages([pdf])
@@ -289,6 +293,7 @@ class Pipeline:
                 progress.update(files_task, advance=1)
             return
 
+        self._ensure_capability(model, "image")
         pages_dir = ensure_dir(base_dir / PAGE_IMAGES_DIRNAME)
         images = pdf_to_png(pdf, pages_dir, prefix=output_name)
         page_total = max(len(images), 1)
