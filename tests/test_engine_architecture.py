@@ -5,7 +5,7 @@ from pathlib import Path
 from lecture_summarizer.core.types import Asset, Job, Kind, PdfMode
 from lecture_summarizer.engine.engine import Engine
 from lecture_summarizer.engine.planner import Planner
-from lecture_summarizer.ingest import LocalIngestor, PassthroughNormalizer
+from lecture_summarizer.ingest import LocalIngestor, CompositeNormalizer
 from lecture_summarizer.output.cost import CostEstimator
 from lecture_summarizer.render.writer import LatexWriter
 from lecture_summarizer.telemetry import RunMonitor
@@ -112,10 +112,9 @@ def test_planner_reports_basic_plan(tmp_path: Path) -> None:
         model="gemini-test",
     )
 
-    planner = Planner(ingestor=LocalIngestor(), normalizer=PassthroughNormalizer())
+    planner = Planner(ingestor=LocalIngestor(), normalizer=CompositeNormalizer())
     report = planner.plan(job)
 
     assert report.assets, "Planner should discover local file assets"
     assert report.kind == Kind.DOCUMENT
     assert report.modality in {"pdf", "image"}
-

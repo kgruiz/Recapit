@@ -15,7 +15,7 @@ from .constants import OUTPUT_DIR
 from .video import VideoEncoderPreference
 from .core.types import Job as CoreJob, Kind as CoreKind, PdfMode as CorePdfMode
 from .engine.planner import Planner
-from .ingest import LocalIngestor, PassthroughNormalizer
+from .ingest import CompositeIngestor, CompositeNormalizer
 
 
 _CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"], "allow_interspersed_args": True}
@@ -390,7 +390,7 @@ def plan(  # noqa: D401 - short CLI help already provided
         model=model,
     )
 
-    planner = Planner(ingestor=LocalIngestor(), normalizer=PassthroughNormalizer())
+    planner = Planner(ingestor=CompositeIngestor(), normalizer=CompositeNormalizer())
     report = planner.plan(job)
 
     if json_output:
