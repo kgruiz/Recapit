@@ -15,7 +15,14 @@ from .constants import OUTPUT_DIR
 from .video import VideoEncoderPreference
 from .core.types import Job as CoreJob, Kind as CoreKind, PdfMode as CorePdfMode
 from .engine.planner import Planner
+from .engine import Engine
 from .ingest import CompositeIngestor, CompositeNormalizer
+from .providers import GeminiProvider
+from .render.writer import LatexWriter
+from .templates import TemplateLoader
+from .telemetry import RunMonitor
+from .output.cost import CostEstimator
+from .config import AppConfig
 
 
 _CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"], "allow_interspersed_args": True}
@@ -30,6 +37,31 @@ convert_app = typer.Typer(
     context_settings=_CONTEXT_SETTINGS,
 )
 app.add_typer(convert_app, name="convert")
+
+
+class _TemplatePromptStrategy:
+    def __init__(self, loader: TemplateLoader, kind: CoreKind) -> None:
+        self.kind = kind
+        self._loader = loader
+
+    def preamble(self) -> str:
+        if self.kind == CoreKind.SLIDES:
+            return self._loader.slide_preamble()
+        if self.kind == CoreKind.LECTURE:
+            return self._loader.lecture_preamble()
+        if self.kind == CoreKind.IMAGE:
+            return self._loader.image_preamble()
+        if self.kind == CoreKind.VIDEO:
+            return self._loader.video_preamble()
+        return self._loader.document_preamble()
+
+    def instruction(self, preamble: str) -> str:
+        prompt = self._loader.prompt(self.kind.value)
+        return prompt.replace("{{PREAMBLE}}", preamble)
+
+
+def _prompt_strategies(loader: TemplateLoader) -> dict[CoreKind, _TemplatePromptStrategy]:
+    return {kind: _TemplatePromptStrategy(loader, kind) for kind in CoreKind}
 
 
 def _default_summary_path(output_dir: Path | None) -> Path:
@@ -406,6 +438,67 @@ def plan(  # noqa: D401 - short CLI help already provided
     if len(report.assets) > 10:
         typer.echo(f"  ... {len(report.assets) - 10} more")
     typer.echo(f"Chunks planned: {len(report.chunks)}")
+
+
+@app.command(help="Summarize a source using the new engine pipeline.")
+def summarize(  # noqa: D401
+    source: Path = typer.Argument(..., help="File, directory, or URL to summarize."),
+    output_dir: Path | None = typer.Option(None, "--output-dir", "-o", help="Write outputs under this directory"),
+    kind: str = typer.Option("auto", "--kind", "-k", case_sensitive=False, help="auto|slides|lecture|document|image|video"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Override the default model"),
+    pdf_mode: str = typer.Option("auto", "--pdf-mode", "-P", case_sensitive=False, help="auto|pdf|images"),
+    recursive: bool = typer.Option(False, "--recursive/--no-recursive", help="Recurse into directories"),
+    skip_existing: bool = typer.Option(True, "--skip-existing/--no-skip-existing", help="Skip outputs that already exist"),
+):
+    try:
+        cfg = AppConfig.from_env()
+    except ValueError as exc:  # noqa: BLE001
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    normalized_kind: CoreKind | None
+    if kind.lower() == "auto":
+        normalized_kind = None
+    else:
+        try:
+            normalized_kind = CoreKind(kind.lower())
+        except ValueError as exc:  # noqa: BLE001
+            raise typer.BadParameter("Kind must be one of auto|slides|lecture|document|image|video", param_hint="--kind") from exc
+
+    try:
+        normalized_pdf_mode = CorePdfMode(pdf_mode.lower())
+    except ValueError as exc:  # noqa: BLE001
+        raise typer.BadParameter("PDF mode must be auto|pdf|images", param_hint="--pdf-mode") from exc
+
+    active_model = model or cfg.default_model
+    loader = TemplateLoader(cfg.templates_dir)
+    prompts = _prompt_strategies(loader)
+
+    engine = Engine(
+        ingestor=CompositeIngestor(),
+        normalizer=CompositeNormalizer(),
+        prompts=prompts,
+        provider=GeminiProvider(api_key=cfg.api_key, model=active_model),
+        writer=LatexWriter(),
+        monitor=RunMonitor(),
+        cost=CostEstimator(),
+    )
+
+    job = CoreJob(
+        source=str(source),
+        recursive=recursive,
+        kind=normalized_kind,
+        pdf_mode=normalized_pdf_mode,
+        output_dir=output_dir or cfg.output_dir,
+        model=active_model,
+        skip_existing=skip_existing,
+    )
+
+    result = engine.run(job)
+    if result is None:
+        typer.echo("No output generated.")
+    else:
+        typer.echo(f"Wrote {result}")
 
 
 @convert_app.command("md")

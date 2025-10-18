@@ -658,7 +658,7 @@ Emit NDJSON per request with `{model, modality, chunk_index, start_utc, end_utc,
 1. [x] Hotfixes (capability gate + prompt strings) + smoke tests.
 2. [x] Core contracts + Engine + LaTeX Writer + `plan` command.
 3. [x] Ingest: local discovery + URL fetch; PDF rasterization + image passthrough.
-4. [ ] Provider: Gemini wrapper; wire PDF/image; minimal CLI `summarize`.
+4. [x] Provider: Gemini wrapper; wire PDF/image; minimal CLI `summarize`.
 5. [ ] Video normalization + manifest + chunking; YouTube passthrough; Drive download.
 6. [ ] Telemetry + pricing YAML + run summary.
 7. [ ] Exports (SRT/VTT) + presets + `init`.

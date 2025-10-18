@@ -8,6 +8,58 @@ if str(ROOT) not in sys.path:
 
 sys.modules.setdefault("pillow_avif", types.ModuleType("pillow_avif"))
 
+if "typer" not in sys.modules:
+    typer_mod = types.ModuleType("typer")
+
+    class _StubContext:  # pragma: no cover - trivial container
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class _StubTyper:  # pragma: no cover - simplifying CLI usage in tests
+        def __init__(self, *args, **kwargs):
+            self.commands = {}
+
+        def command(self, *args, **kwargs):
+            def decorator(func):
+                self.commands[func.__name__] = func
+                return func
+
+            return decorator
+
+        def callback(self, *args, **kwargs):
+            def decorator(func):
+                self.commands["__callback__"] = func
+                return func
+
+            return decorator
+
+        def add_typer(self, *args, **kwargs):
+            return None
+
+    def _option(default=None, *args, **kwargs):  # pragma: no cover - simple passthrough
+        return default
+
+    def _argument(default=None, *args, **kwargs):  # pragma: no cover - simple passthrough
+        return default
+
+    def _echo(message: str) -> None:  # pragma: no cover - print helper
+        print(message)
+
+    class _BadParameter(ValueError):
+        pass
+
+    class _Exit(SystemExit):
+        pass
+
+    typer_mod.Typer = _StubTyper
+    typer_mod.Option = _option
+    typer_mod.Argument = _argument
+    typer_mod.echo = _echo
+    typer_mod.BadParameter = _BadParameter
+    typer_mod.Exit = _Exit
+    typer_mod.Context = _StubContext
+    sys.modules["typer"] = typer_mod
+
 if "httpx" not in sys.modules:
     dummy_httpx = types.ModuleType("httpx")
 

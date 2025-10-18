@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+
 from lecture_summarizer.core.types import Asset, Job, Kind, PdfMode
 from lecture_summarizer.engine.engine import Engine
 from lecture_summarizer.engine.planner import Planner
@@ -9,6 +10,7 @@ from lecture_summarizer.ingest import LocalIngestor, CompositeNormalizer
 from lecture_summarizer.output.cost import CostEstimator
 from lecture_summarizer.render.writer import LatexWriter
 from lecture_summarizer.telemetry import RunMonitor
+from lecture_summarizer import cli as cli_module
 
 
 class _FakeIngestor:
@@ -118,3 +120,44 @@ def test_planner_reports_basic_plan(tmp_path: Path) -> None:
     assert report.assets, "Planner should discover local file assets"
     assert report.kind == Kind.DOCUMENT
     assert report.modality in {"pdf", "image"}
+
+
+def test_cli_summarize_command(tmp_path, monkeypatch, capsys) -> None:
+    sample = tmp_path / "demo.pdf"
+    sample.write_text("stub")
+
+    outputs = tmp_path / "out"
+
+    class _StubProvider:
+        instances: list["_StubProvider"] = []
+
+        def __init__(self, *, api_key: str, model: str, **_: object) -> None:
+            self.api_key = api_key
+            self.model = model
+            self.calls = []
+            _StubProvider.instances.append(self)
+
+        def supports(self, capability: str) -> bool:
+            return True
+
+        def transcribe(self, *, instruction: str, assets, modality: str, meta: dict) -> str:  # noqa: ANN001
+            self.calls.append({"instruction": instruction, "assets": assets, "modality": modality, "meta": meta})
+            return "Body text"
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(cli_module, "GeminiProvider", _StubProvider)
+
+    cli_module.summarize(
+        source=sample,
+        output_dir=outputs,
+        kind="auto",
+        model=None,
+        pdf_mode="pdf",
+        recursive=False,
+        skip_existing=True,
+    )
+    captured = capsys.readouterr()
+    assert "Wrote" in captured.out
+    expected = outputs / sample.stem / f"{sample.stem}-transcribed.tex"
+    assert expected.exists()
+    assert _StubProvider.instances and _StubProvider.instances[0].calls
