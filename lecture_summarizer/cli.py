@@ -13,6 +13,9 @@ from .api import (
 from .pipeline import PDFMode
 from .constants import OUTPUT_DIR
 from .video import VideoEncoderPreference
+from .core.types import Job as CoreJob, Kind as CoreKind, PdfMode as CorePdfMode
+from .engine.planner import Planner
+from .ingest import LocalIngestor, PassthroughNormalizer
 
 
 _CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"], "allow_interspersed_args": True}
@@ -353,6 +356,56 @@ def transcribe(
         summary_path=summary_path,
         video_encoder=video_encoder,
     )
+
+
+@app.command(help="Preview ingestion and chunk planning without running transcription.")
+def plan(  # noqa: D401 - short CLI help already provided
+    source: Path = typer.Argument(..., help="File, directory, or URL to inspect."),
+    recursive: bool = typer.Option(False, "--recursive/--no-recursive", help="Recurse into directories."),
+    kind: str = typer.Option("auto", "--kind", "-k", case_sensitive=False, help="auto|slides|lecture|document|image|video"),
+    model: str = typer.Option("gemini-2.0-flash", "--model", "-m", help="Model to preview."),
+    pdf_mode: str = typer.Option("auto", "--pdf-mode", "-P", case_sensitive=False, help="auto|pdf|images"),
+    json_output: bool = typer.Option(False, "--json/--no-json", help="Emit JSON instead of human-readable text."),
+):
+    normalized_kind: CoreKind | None
+    if kind.lower() == "auto":
+        normalized_kind = None
+    else:
+        try:
+            normalized_kind = CoreKind(kind.lower())
+        except ValueError as exc:  # noqa: BLE001
+            raise typer.BadParameter("Kind must be one of auto|slides|lecture|document|image|video", param_hint="--kind") from exc
+
+    try:
+        normalized_pdf_mode = CorePdfMode(pdf_mode.lower())
+    except ValueError as exc:  # noqa: BLE001
+        raise typer.BadParameter("PDF mode must be auto|pdf|images", param_hint="--pdf-mode") from exc
+
+    job = CoreJob(
+        source=str(source),
+        recursive=recursive,
+        kind=normalized_kind,
+        pdf_mode=normalized_pdf_mode,
+        output_dir=None,
+        model=model,
+    )
+
+    planner = Planner(ingestor=LocalIngestor(), normalizer=PassthroughNormalizer())
+    report = planner.plan(job)
+
+    if json_output:
+        typer.echo(report.to_json())
+        return
+
+    typer.echo(f"Source: {report.job.source}")
+    typer.echo(f"Kind: {report.kind.value}")
+    typer.echo(f"Modality: {report.modality or 'unknown'}")
+    typer.echo(f"Assets: {len(report.assets)}")
+    for asset in report.assets[:10]:
+        typer.echo(f"  - {asset.media}: {asset.path}")
+    if len(report.assets) > 10:
+        typer.echo(f"  ... {len(report.assets) - 10} more")
+    typer.echo(f"Chunks planned: {len(report.chunks)}")
 
 
 @convert_app.command("md")

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from threading import Lock
 from typing import Dict, Iterable, List
 
@@ -65,14 +67,29 @@ class RunMonitor:
     def __init__(self) -> None:
         self._lock = Lock()
         self._events: List[RequestEvent] = []
+        self._notes: List[Dict[str, object]] = []
 
     def record(self, event: RequestEvent) -> None:
         with self._lock:
             self._events.append(event)
 
+    def note_event(self, name: str, payload: Dict[str, object] | None = None) -> None:
+        with self._lock:
+            self._notes.append(
+                {
+                    "name": name,
+                    "payload": dict(payload or {}),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+
     def events(self) -> List[RequestEvent]:
         with self._lock:
             return list(self._events)
+
+    def notes(self) -> List[Dict[str, object]]:
+        with self._lock:
+            return list(self._notes)
 
     def summarize(self) -> RunSummary:
         events = self.events()
@@ -120,3 +137,14 @@ class RunMonitor:
         from .costs import estimate_costs
 
         return estimate_costs(self.events())
+
+    def flush_summary(self, *, to: Path, cost: "CostEstimator") -> None:
+        summary = self.summarize()
+        costs = cost.estimate(self.events())
+        payload = {
+            "summary": summary.to_dict(),
+            "costs": costs.to_dict(),
+            "notes": self.notes(),
+        }
+        to.parent.mkdir(parents=True, exist_ok=True)
+        to.write_text(json.dumps(payload, indent=2, sort_keys=True))
