@@ -1,42 +1,23 @@
 from __future__ import annotations
-import logging
-from dataclasses import dataclass, replace
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Iterable, Sequence, TypeVar
 
 from natsort import natsorted
-from .config import AppConfig
-from .templates import TemplateLoader
-from .llm import LLMClient
-from .pipeline import Pipeline, Kind, PDFMode
-from .constants import GEMINI_2_FLASH_THINKING_EXP
-from .pdf import guess_pdf_kind
-from .utils import slugify
-from .telemetry import RunMonitor, RunSummary
-from .costs import CostSummary
-from .video import VideoEncoderPreference
 
+from .config import AppConfig
+from .constants import GEMINI_2_FLASH_THINKING_EXP
+from .llm import LLMClient
+from .telemetry import RunMonitor
+from .templates import TemplateLoader
 
 T = TypeVar("T")
 
 
-logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class RunReport:
-    summary: RunSummary
-    costs: CostSummary
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "summary": self.summary.to_dict(),
-            "costs": self.costs.to_dict(),
-        }
-
-
 def _run_parallel(work_items: Sequence[T], *, max_workers: int, fn: Callable[[T], None]) -> None:
+    """Execute *fn* over *work_items* using a bounded worker pool."""
     if not work_items:
         return
     worker_count = min(max_workers, len(work_items))
@@ -50,598 +31,72 @@ def _run_parallel(work_items: Sequence[T], *, max_workers: int, fn: Callable[[T]
             future.result()
 
 
-def _log_summary(pipeline: Pipeline, context: str) -> RunReport:
-    summary = pipeline.monitor.summarize()
-    if summary.total_requests == 0:
-        costs = pipeline.monitor.costs()
-        setattr(pipeline, "last_cost_summary", costs)
-        return RunReport(summary=summary, costs=costs)
-    cost_summary = pipeline.monitor.costs()
-    setattr(pipeline, "last_cost_summary", cost_summary)
-    payload = {
-        "context": context,
-        **summary.to_dict(),
-        "costs": cost_summary.to_dict(),
-    }
-    logger.info("run_summary %s", payload)
-    return RunReport(summary=summary, costs=cost_summary)
-
-
-_KIND_ALIASES: dict[str, Kind] = {
-    "slides": Kind.SLIDES,
-    "slide": Kind.SLIDES,
-    "deck": Kind.SLIDES,
-    "presentation": Kind.SLIDES,
-    "lecture": Kind.LECTURE,
-    "lesson": Kind.LECTURE,
-    "notes": Kind.LECTURE,
-    "document": Kind.DOCUMENT,
-    "doc": Kind.DOCUMENT,
-    "generic": Kind.DOCUMENT,
-    "worksheet": Kind.DOCUMENT,
-    "handout": Kind.DOCUMENT,
-    "paper": Kind.DOCUMENT,
-    "article": Kind.DOCUMENT,
-    "form": Kind.DOCUMENT,
-    "image": Kind.IMAGE,
-    "img": Kind.IMAGE,
-    "video": Kind.VIDEO,
-    "vid": Kind.VIDEO,
-}
-
-
-def _resolve_kind(value: Kind | str | None) -> Kind:
-    if isinstance(value, Kind):
-        return value
-    if value is None:
-        return Kind.DOCUMENT
-    key = value.lower()
-    if key == "auto":
-        raise ValueError("'auto' must be handled before calling _resolve_kind")
-    if key in _KIND_ALIASES:
-        return _KIND_ALIASES[key]
-    raise ValueError(f"Unknown kind '{value}'. Expected one of: {', '.join(sorted(_KIND_ALIASES))} or 'auto'")
-
-
-def _mk(
-    ctx_output_dir: Path | None = None,
-    save_intermediates: bool | None = None,
-    monitor: RunMonitor | None = None,
-    quota: QuotaMonitor | None = None,
-    video_encoder: VideoEncoderPreference | str | None = None,
-) -> Pipeline:
-    cfg = AppConfig.from_env()
-    if ctx_output_dir:
-        cfg = replace(cfg, output_dir=Path(ctx_output_dir))
-    if save_intermediates is not None:
-        cfg = replace(cfg, save_intermediates=save_intermediates)
-    if video_encoder is not None:
-        requested_encoder = VideoEncoderPreference.parse(video_encoder)
-        cfg = replace(cfg, video_encoder_preference=requested_encoder)
-    llm = LLMClient(api_key=cfg.api_key, recorder=monitor, quota=quota)
-    return Pipeline(cfg=cfg, llm=llm, templates=TemplateLoader(cfg.templates_dir))
-
-
-def TranscribeSlides(
-    source,
-    outputDir: Path | None = None,
-    lectureNumPattern: str | None = r".*(\d+).*",
-    excludeLectureNums: list[int] = [],
-    skipExisting: bool = True,
-    model: str | None = None,
-    pdfMode: PDFMode = PDFMode.IMAGES,
-    monitor: RunMonitor | None = None,
-    quota: QuotaMonitor | None = None,
-):
-    pl = _mk(outputDir, monitor=monitor, quota=quota)
-    active_model = model or pl.cfg.default_model
-    resolved_root = Path(outputDir).expanduser() if outputDir else None
-    paths = _coerce_pdfs(source)
-    work_queue: list[Path] = []
-
-    for p in _filter_by_pattern(paths, lectureNumPattern, excludeLectureNums):
-        out_base = pl.output_base_for(source=p, override_root=resolved_root)
-        out_tex = out_base / f"{p.stem}-transcribed.tex"
-        if skipExisting and out_tex.exists():
-            continue
-        work_queue.append(p)
-
-    def _worker(pdf_path: Path) -> None:
-        pl.transcribe_pdf(
-            pdf=pdf_path,
-            kind=Kind.SLIDES,
-            model=active_model,
-            mode=pdfMode,
-            output_root=resolved_root,
-        )
-
-    _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
-    if monitor is None:
-        return _log_summary(pl, "TranscribeSlides")
-    return None
-
-
-def TranscribeLectures(
-    source,
-    outputDir: Path | None = None,
-    lectureNumPattern: str = r".*(\d+).*",
-    excludeLectureNums: list[int] = [],
-    skipExisting: bool = True,
-    model: str | None = None,
-    pdfMode: PDFMode = PDFMode.IMAGES,
-    monitor: RunMonitor | None = None,
-    quota: QuotaMonitor | None = None,
-):
-    pl = _mk(outputDir, monitor=monitor, quota=quota)
-    active_model = model or pl.cfg.default_model
-    resolved_root = Path(outputDir).expanduser() if outputDir else None
-    paths = _coerce_pdfs(source)
-    work_queue: list[Path] = []
-
-    for p in _filter_by_pattern(paths, lectureNumPattern, excludeLectureNums):
-        out_base = pl.output_base_for(source=p, override_root=resolved_root)
-        out_tex = out_base / f"{p.stem}-transcribed.tex"
-        if skipExisting and out_tex.exists():
-            continue
-        work_queue.append(p)
-
-    def _worker(pdf_path: Path) -> None:
-        pl.transcribe_pdf(
-            pdf=pdf_path,
-            kind=Kind.LECTURE,
-            model=active_model,
-            mode=pdfMode,
-            output_root=resolved_root,
-        )
-
-    _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
-    if monitor is None:
-        return _log_summary(pl, "TranscribeLectures")
-    return None
-
-
-def TranscribeDocuments(
-    source,
-    outputDir: Path | None = None,
-    skipExisting: bool = True,
-    outputName: str | None = None,
-    recursive: bool = False,
-    model: str | None = None,
-    pdfMode: PDFMode = PDFMode.IMAGES,
-    monitor: RunMonitor | None = None,
-    quota: QuotaMonitor | None = None,
-):
-    pl = _mk(outputDir, monitor=monitor, quota=quota)
-    active_model = model or pl.cfg.default_model
-    resolved_root = Path(outputDir).expanduser() if outputDir else None
-    paths = _coerce_pdfs(source, recursive=recursive)
-    work_queue: list[tuple[Path, str]] = []
-
-    for p in paths:
-        out_name = outputName or f"{p.stem}-transcribed"
-        out_base = pl.output_base_for(source=p, override_root=resolved_root)
-        out_tex = out_base / f"{out_name}.tex"
-        if skipExisting and out_tex.exists():
-            continue
-        work_queue.append((p, out_name))
-
-    def _worker(item: tuple[Path, str]) -> None:
-        pdf_path, out_name = item
-        pl.transcribe_pdf(
-            pdf=pdf_path,
-            kind=Kind.DOCUMENT,
-            model=active_model,
-            output_name=out_name,
-            mode=pdfMode,
-            output_root=resolved_root,
-        )
-
-    _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
-    if monitor is None:
-        return _log_summary(pl, "TranscribeDocuments")
-    return None
-
-
-def TranscribeImages(
-    source,
-    outputDir: Path | None = None,
-    filePattern: str = "*.png",
-    separateOutputs: bool = True,
-    skipExisting: bool = True,
-    model: str | None = None,
-    monitor: RunMonitor | None = None,
-    quota: QuotaMonitor | None = None,
-):
-    pl = _mk(outputDir, monitor=monitor, quota=quota)
-    active_model = model or pl.cfg.default_model
-    resolved_root = Path(outputDir).expanduser() if outputDir else None
-    imgs = _coerce_images(source, pattern=filePattern)
-    if not separateOutputs:
-        pl.transcribe_images(images=imgs, kind=Kind.IMAGE, model=active_model, output_dir=resolved_root, bulk=True)
-        return
-    work_queue: list[Path] = []
-    for img in imgs:
-        out_dir = pl.output_base_for(source=img, override_root=resolved_root)
-        out_tex = out_dir / f"{img.stem}-transcribed.tex"
-        if skipExisting and out_tex.exists():
-            continue
-        work_queue.append(img)
-
-    def _worker(image_path: Path) -> None:
-        pl.transcribe_images(images=[image_path], kind=Kind.IMAGE, model=active_model, output_dir=resolved_root, bulk=False)
-
-    _run_parallel(work_queue, max_workers=pl.cfg.max_workers, fn=_worker)
-    if monitor is None:
-        return _log_summary(pl, "TranscribeImages")
-    return None
-
-
-def TranscribeVideos(
-    source,
-    outputDir: Path | None = None,
-    filePattern: str = "*.mp4",
-    skipExisting: bool = True,
-    model: str | None = None,
-    tokenLimit: int | None = None,
-    saveIntermediates: bool | None = None,
-    monitor: RunMonitor | None = None,
-    quota: QuotaMonitor | None = None,
-    videoEncoder: VideoEncoderPreference | str | None = None,
-):
-    pl = _mk(
-        outputDir,
-        save_intermediates=saveIntermediates,
-        monitor=monitor,
-        quota=quota,
-        video_encoder=videoEncoder,
-    )
-    active_model = model or pl.cfg.default_model
-    resolved_root = Path(outputDir).expanduser() if outputDir else None
-    videos = _coerce_videos(source, pattern=filePattern)
-    if not videos:
-        return
-    effective_limit = tokenLimit if tokenLimit and tokenLimit > 0 else pl.cfg.video_token_limit
-    pl.transcribe_videos(
-        videos=videos,
-        model=active_model,
-        output_dir=resolved_root,
-        skip_existing=skipExisting,
-        token_limit=effective_limit,
-    )
-    if monitor is None:
-        return _log_summary(pl, "TranscribeVideos")
-    return None
-
-
-def TranscribeAuto(
-    source,
-    outputDir: Path | None = None,
-    skipExisting: bool = True,
-    recursive: bool = False,
-    model: str | None = None,
-    pdfMode: PDFMode = PDFMode.IMAGES,
-    kind: Kind | str | None = "auto",
-    includeImages: bool = False,
-    imagePattern: str = "*.png",
-    includeVideo: bool = True,
-    videoPattern: str = "*.mp4",
-    videoModel: str | None = None,
-    videoTokenLimit: int | None = None,
-    saveIntermediates: bool | None = None,
-    videoEncoder: VideoEncoderPreference | str | None = None,
-):
-    """Transcribe PDFs (and optionally images) with automatic prompt selection."""
-
-    pl = _mk(outputDir, save_intermediates=saveIntermediates, video_encoder=videoEncoder)
-    active_model = model or pl.cfg.default_model
-
-    forced_kind: Kind | None
-    if isinstance(kind, str) and kind.lower() == "auto":
-        forced_kind = None
-    elif kind is None:
-        forced_kind = None
-    else:
-        forced_kind = _resolve_kind(kind)
-    if forced_kind == Kind.VIDEO:
-        includeVideo = True
-
-    resolved_root = Path(outputDir).expanduser() if outputDir else None
-    did_process = False
-
-    def _is_video_file(path: Path) -> bool:
-        return path.is_file() and path.suffix.lower() in _VIDEO_EXTENSIONS
-
-    video_seen: set[Path] = set()
-    video_sources: list[Path] = []
-
-    def _enqueue_video(candidate: Path) -> None:
-        if not _is_video_file(candidate):
-            return
-        try:
-            resolved = candidate.resolve()
-        except FileNotFoundError:
-            resolved = candidate
-        if resolved in video_seen:
-            return
-        video_seen.add(resolved)
-        video_sources.append(resolved)
-
-    direct_video_input = False
-    if isinstance(source, list):
-        list_paths = [Path(item) for item in source]
-        if list_paths and all(_is_video_file(p) for p in list_paths):
-            direct_video_input = True
-        for lp in list_paths:
-            _enqueue_video(lp)
-    elif isinstance(source, (str, Path)):
-        src_path = Path(source)
-        if _is_video_file(src_path):
-            direct_video_input = True
-            _enqueue_video(src_path)
-
-    if direct_video_input:
-        includeVideo = True
-
-    active_video_model = videoModel or active_model
-    if videoTokenLimit is not None and videoTokenLimit <= 0:
-        raise ValueError("videoTokenLimit must be a positive integer")
-    active_video_token_limit = videoTokenLimit or pl.cfg.video_token_limit
-    pdf_error: Exception | None = None
-    paths: list[Path] = []
-    if not direct_video_input:
-        try:
-            paths = _coerce_pdfs(source, recursive=recursive)
-        except ValueError as exc:
-            pdf_error = exc
-            paths = []
-
-    if pdf_error and not includeVideo and not video_sources:
-        raise pdf_error
-
-    if includeVideo:
-        def _collect_from_directory(target: Path) -> None:
-            for vid in _coerce_videos(target, pattern=videoPattern, recursive=recursive):
-                _enqueue_video(vid)
-
-        if isinstance(source, list):
-            for item in source:
-                item_path = Path(item)
-                if item_path.is_dir():
-                    _collect_from_directory(item_path)
-        elif isinstance(source, (str, Path)):
-            src_path = Path(source)
-            if src_path.is_dir():
-                _collect_from_directory(src_path)
-
-    video_sources = natsorted(video_sources)
-
-    if paths:
-        did_process = True
-        work_queue: list[tuple[Path, Kind, str, Path]] = []
-        for p in paths:
-            inferred = forced_kind or _resolve_kind(guess_pdf_kind(p))
-            out_name = f"{p.stem}-transcribed"
-            out_dir = pl.output_base_for(source=p, override_root=resolved_root)
-            out_tex = out_dir / f"{out_name}.tex"
-            if skipExisting and out_tex.exists():
-                logger.info(
-                    "Skipping %s (existing outputs). Use --no-skip-existing to regenerate.",
-                    p.name,
-                )
-                continue
-            work_queue.append((p, inferred, out_name, out_dir))
-
-        if work_queue:
-            worker_count = min(pl.cfg.max_workers, len(work_queue))
-            if worker_count > 1:
-                def _worker(item: tuple[Path, Kind, str, Path]) -> Path:
-                    pdf_path, inferred_kind, out_name, out_dir = item
-                    pl.transcribe_pdf(
-                        pdf=pdf_path,
-                        kind=inferred_kind,
-                        model=active_model,
-                        output_name=out_name,
-                        mode=pdfMode,
-                        output_root=resolved_root,
-                    )
-                    return out_dir / f"{out_name}.tex"
-
-                with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                    futures = {executor.submit(_worker, item): item for item in work_queue}
-                    for future in as_completed(futures):
-                        output_path = future.result()
-                        logger.info("Saved %s", output_path)
-            else:
-                progress = pl._progress()
-                with progress:
-                    files_task = progress.add_task("Files", total=len(work_queue)) if len(work_queue) > 1 else None
-                    for pdf_path, inferred_kind, out_name, out_dir in work_queue:
-                        pl.transcribe_pdf(
-                            pdf=pdf_path,
-                            kind=inferred_kind,
-                            model=active_model,
-                            output_name=out_name,
-                            mode=pdfMode,
-                            progress=progress,
-                            output_root=resolved_root,
-                            files_task=files_task,
-                        )
-                        logger.info("Saved %s", out_dir / (out_name + '.tex'))
-
-    if includeImages:
-        image_sources: list[Path] = []
-        if isinstance(source, (str, Path)):
-            src_path = Path(source)
-            if src_path.is_dir():
-                image_sources = _coerce_images(src_path, pattern=imagePattern)
-            elif src_path.is_file() and src_path.suffix.lower() in _IMAGE_EXTENSIONS:
-                image_sources = [src_path]
-        elif isinstance(source, list):
-            for item in source:
-                path = Path(item)
-                if path.is_file() and path.suffix.lower() in _IMAGE_EXTENSIONS:
-                    image_sources.append(path)
-                elif path.is_dir():
-                    image_sources.extend(_coerce_images(path, pattern=imagePattern))
-
-        if image_sources:
-            image_sources = natsorted(list(dict.fromkeys(image_sources)))
-            TranscribeImages(
-                image_sources,
-                outputDir=outputDir,
-                filePattern=imagePattern,
-                separateOutputs=True,
-                skipExisting=skipExisting,
-                model=model,
-                monitor=pl.monitor,
-            )
-            did_process = True
-
-    if includeVideo and video_sources:
-        TranscribeVideos(
-            video_sources,
-            outputDir=outputDir,
-            filePattern=videoPattern,
-            skipExisting=skipExisting,
-            model=active_video_model,
-            tokenLimit=active_video_token_limit,
-            monitor=pl.monitor,
-            videoEncoder=videoEncoder,
-        )
-        did_process = True
-
-    if not paths and not did_process:
-        logger.info("No PDF files found to transcribe.")
-
-    return _log_summary(pl, "TranscribeAuto")
-
-
 def LatexToMarkdown(
-    source,
+    source: Iterable[str | Path] | str | Path,
     outputDir: Path | None = None,
     filePattern: str = "*.tex",
     skipExisting: bool = True,
     model: str | None = None,
-):
-    pl = _mk(outputDir)
-    active_model = model or GEMINI_2_FLASH_THINKING_EXP
-    resolved_root = Path(outputDir).expanduser() if outputDir else None
+) -> None:
+    """Convert LaTeX sources to Markdown using Gemini."""
+    cfg = AppConfig.from_sources()
+    if outputDir is not None:
+        cfg = replace(cfg, output_dir=Path(outputDir).expanduser())
+    monitor = RunMonitor()
+    llm = LLMClient(api_key=cfg.api_key, recorder=monitor, quota=None)
+    loader = TemplateLoader(cfg.templates_dir)
+    prompt = loader.latex_to_md_prompt()
     tex_files = _coerce_tex(source, pattern=filePattern)
-    for t in tex_files:
-        out_dir = pl.output_base_for(source=t, override_root=resolved_root)
-        out_md = out_dir / f"{t.stem}.md"
-        if skipExisting and out_md.exists():
+    default_model = model or GEMINI_2_FLASH_THINKING_EXP
+
+    for tex_file in tex_files:
+        out_dir = cfg.output_dir or tex_file.parent
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{tex_file.stem}.md"
+        if skipExisting and out_path.exists():
             continue
-        pl.latex_to_markdown(tex_file=t, model=active_model, output_dir=resolved_root, output_name=t.stem)
+        latex_text = tex_file.read_text()
+        markdown = llm.latex_to_markdown(model=default_model, prompt=prompt, latex_text=latex_text, metadata={"source": str(tex_file)})
+        out_path.write_text(markdown + "\n")
 
 
 def LatexToJson(
-    source,
+    source: Iterable[str | Path] | str | Path,
     outputDir: Path | None = None,
     filePattern: str = "*.tex",
     skipExisting: bool = True,
     model: str | None = None,
     recursive: bool = False,
-):
-    pl = _mk(outputDir)
-    active_model = model or GEMINI_2_FLASH_THINKING_EXP
-    resolved_root = Path(outputDir).expanduser() if outputDir else None
+) -> None:
+    """Convert LaTeX tables/structured content into JSON via Gemini."""
+    cfg = AppConfig.from_sources()
+    if outputDir is not None:
+        cfg = replace(cfg, output_dir=Path(outputDir).expanduser())
+    monitor = RunMonitor()
+    llm = LLMClient(api_key=cfg.api_key, recorder=monitor, quota=None)
+    loader = TemplateLoader(cfg.templates_dir)
+    prompt = loader.latex_to_json_prompt()
     tex_files = _coerce_tex(source, pattern=filePattern, recursive=recursive)
-    for t in tex_files:
-        out_dir = pl.output_base_for(source=t, override_root=resolved_root)
-        out_json = out_dir / f"{t.stem}.json"
-        if skipExisting and out_json.exists():
+    default_model = model or GEMINI_2_FLASH_THINKING_EXP
+
+    for tex_file in tex_files:
+        out_dir = cfg.output_dir or tex_file.parent
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{tex_file.stem}.json"
+        if skipExisting and out_path.exists():
             continue
-        pl.latex_to_json(tex_file=t, model=active_model, output_dir=resolved_root, output_name=t.stem)
+        latex_text = tex_file.read_text()
+        json_text = llm.latex_to_json(model=default_model, prompt=prompt, latex_text=latex_text, metadata={"source": str(tex_file)})
+        out_path.write_text(json_text.strip() + "\n")
 
 
-# ---- helpers ----
-from pathlib import Path
-import re
-
-
-_PDF_EXTENSION = ".pdf"
-_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}
-_VIDEO_EXTENSIONS = {
-    ".mp4",
-    ".mov",
-    ".m4v",
-    ".mkv",
-    ".webm",
-    ".avi",
-    ".mpg",
-    ".mpeg",
-    ".wmv",
-    ".flv",
-}
-
-
-def _coerce_pdfs(source, recursive: bool = False) -> list[Path]:
+def _coerce_tex(source: Iterable[str | Path] | str | Path, pattern: str, recursive: bool = False) -> list[Path]:
     if isinstance(source, (str, Path)):
-        p = Path(source)
-        if p.is_file():
-            if p.suffix.lower() != _PDF_EXTENSION:
-                raise ValueError(f"Expected a PDF file, got '{p}'")
-            return [p]
-        files = p.rglob("*.pdf") if recursive else p.glob("*.pdf")
-        return natsorted(list(files))
-    if isinstance(source, list):
-        out: list[Path] = []
-        for s in source:
-            path = Path(s)
-            if path.suffix.lower() != _PDF_EXTENSION:
-                raise ValueError(f"Expected a PDF file, got '{path}'")
-            out.append(path)
-        return natsorted(out)
-    raise ValueError("source must be Path|str|list")
-
-
-def _coerce_images(source, pattern: str) -> list[Path]:
-    if isinstance(source, (str, Path)):
-        p = Path(source)
-        if p.is_file():
-            return [p] if p.suffix.lower() in _IMAGE_EXTENSIONS else []
-        paths = [x for x in p.glob(pattern) if x.suffix.lower() in _IMAGE_EXTENSIONS]
-        return natsorted(paths)
-    if isinstance(source, list):
-        return natsorted([Path(s) for s in source if Path(s).suffix.lower() in _IMAGE_EXTENSIONS])
-    raise ValueError("source must be Path|str|list")
-
-
-def _coerce_tex(source, pattern: str, recursive: bool = False) -> list[Path]:
-    if isinstance(source, (str, Path)):
-        p = Path(source)
-        if p.is_file():
-            return [p]
-        globber = p.rglob if recursive else p.glob
-        return natsorted(list(globber(pattern)))
-    if isinstance(source, list):
-        return natsorted([Path(s) for s in source])
-    raise ValueError("source must be Path|str|list")
-
-
-def _coerce_videos(source, pattern: str, recursive: bool = False) -> list[Path]:
-    if isinstance(source, (str, Path)):
-        p = Path(source)
-        if p.is_file():
-            return [p] if p.suffix.lower() in _VIDEO_EXTENSIONS else []
-        globber = p.rglob if recursive else p.glob
-        paths = [x for x in globber(pattern) if x.suffix.lower() in _VIDEO_EXTENSIONS]
-        return natsorted(paths)
-    if isinstance(source, list):
-        return natsorted([Path(s) for s in source if Path(s).suffix.lower() in _VIDEO_EXTENSIONS])
-    raise ValueError("source must be Path|str|list")
-
-
-def _filter_by_pattern(paths: list[Path], pat: str | None, exclude: list[int]) -> list[Path]:
-    if pat is None:
-        return natsorted(paths)
-    out: list[Path] = []
-    for p in paths:
-        m = re.findall(pat, p.name)
-        if not m or len(m) != 1:
-            raise ValueError(f"Could not extract single lecture number from {p.name}")
-        num = int(m[0])
-        if num not in exclude:
-            out.append(p)
-    return natsorted(out)
+        path = Path(source)
+        if path.is_file():
+            return [path]
+        globber = path.rglob if recursive else path.glob
+        return natsorted(globber(pattern))
+    if isinstance(source, Iterable):
+        return natsorted(Path(item) for item in source)
+    raise ValueError("source must be a path, string, or iterable of paths")

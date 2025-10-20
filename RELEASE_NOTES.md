@@ -16,6 +16,7 @@
 - CLI documentation updated to highlight presets, exports, and run summary artifacts.
 - Cost estimation now loads pricing data from `pricing.yaml`, with per-model overrides.
 - Default CLI command now routes through the new engine; `transcribe` remains as a friendly alias.
+- Removed legacy `Pipeline` API; engine-based CLI and components are now the supported surface area.
 
 ### Testing
 

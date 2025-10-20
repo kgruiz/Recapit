@@ -12,7 +12,7 @@ Lecture Summarizer is a modular toolkit for turning slide decks, lecture handout
 - **Resumable video ingestion** – manifests record normalized MP4 hashes, chunk ranges, and file URIs so reruns with `--skip-existing` only process dirty chunks.
 - **Auto classification** – invoke the tool without subcommands (or via `transcribe`) and heuristics choose the right prompt for slides, notes, worksheets, or documents.
 - **Image-first PDF handling** – every PDF is rasterized to per-page PNGs by default for consistent transcription; opt into direct PDF ingestion with `--pdf-mode pdf` or `PDFMode.PDF` when your chosen model supports it.
-- **Drop-in CLI & library** – invoke the Typer CLI from the shell or call the same functionality from Python without global state.
+- **Drop-in CLI** – invoke the Typer CLI from the shell with zero boilerplate and steer behaviour through presets or configuration files.
 - **Structured outputs** – cleaned LaTeX lands beside the source file by default; flip `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` on if you also want raw model dumps.
 
 ## Requirements
@@ -92,31 +92,6 @@ Every run writes:
 - Optional `.srt`/`.vtt` files when `--export` is provided.
 
 Use `--hide-summary`, `--detailed-costs`, and `--summary-path` to adjust the console summary behaviour.
-
-## Python API
-
-Every CLI command is backed by the same importable API. Common entry points:
-
-```python
-from lecture_summarizer import (
-    TranscribeAuto,
-    TranscribeDocuments,
-    TranscribeLectures,
-    LatexToMarkdown,
-)
-
-docs = "/path/to/pdfs"
-TranscribeDocuments(docs, recursive=True)
-
-# Or let the library auto-detect slides vs. documents
-TranscribeAuto("/path/to/mixed", recursive=True, includeImages=True)
-```
-
-An API call automatically:
-1. Loads configuration from the environment.
-2. Applies per-model rate limits.
-3. Rasterizes PDFs to per-page images by default, with optional direct PDF ingestion when you pass `PDFMode.PDF` or `PDFMode.AUTO` and your model supports native PDFs.
-4. Writes combined raw output (`full-response/{name}.txt`) and cleaned LaTeX (`{name}.tex`).
 
 ## Output Structure
 
