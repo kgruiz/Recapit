@@ -27,7 +27,7 @@ Thanks for your interest in improving Lecture Summarizer! This document outlines
 3. Run the project checks before each commit/push:
    ```shell
    python -m compileall lecture_summarizer run.py
-   # add project-specific tests/linters here as they become available
+   pytest
    ```
 4. Verify that the CLI still works for the scenario you are touching (e.g., run `lecture-summarizer --help` or a sample command against fixture data).
 5. Open a pull request describing the motivation, approach, and testing performed.
@@ -42,10 +42,11 @@ Thanks for your interest in improving Lecture Summarizer! This document outlines
 
 ### Templates & Prompts
 
-Prompt templates in `templates/` are part of the API surface. When modifying them:
-- Explain rationale in the PR description.
+Prompt strategies live under `lecture_summarizer/prompts/` and look for optional overrides in `templates/`. When modifying them:
+- Explain the rationale in the PR description.
 - Keep formatting consistent; avoid trailing spaces.
-- Ensure the loader caches remain valid (file names must match the functions in `TemplateLoader`).
+- Update strategy classes and any corresponding override files together so `TemplateLoader` caching stays valid.
+- Add or adjust tests when prompt behaviour changes rendered output.
 
 ## Testing & Validation
 

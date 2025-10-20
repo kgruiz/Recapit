@@ -8,7 +8,8 @@ Lecture Summarizer is a modular toolkit for turning slide decks, lecture handout
 - **Parallel processing** – document/image transcription and video chunk uploads run across configurable worker pools to shrink wall-clock time on larger batches.
 - **Quota-aware throttling** – shared token buckets and a quota monitor keep per-model RPM/TPM and upload concurrency within Gemini’s published limits, automatically backing off when 429s appear.
 - **Telemetry & cost tracking** – every request records tokens, duration, and metadata; CLI runs print a summary (with optional per-model breakdowns) and persist a JSON report with token usage and estimated spend.
-- **Smart defaults** – works out of the box with built-in prompts and LaTeX preambles, but you can drop override files in `templates/` when you need fine control.
+- **Smart defaults** – works out of the box with built-in prompts and LaTeX preambles; override prompts via `templates/` or custom strategies in `prompts/` when you need fine control.
+- **Resumable video ingestion** – manifests record normalized MP4 hashes, chunk ranges, and file URIs so reruns with `--skip-existing` only process dirty chunks.
 - **Auto classification** – invoke the tool without subcommands (or via `transcribe`) and heuristics choose the right prompt for slides, notes, worksheets, or documents.
 - **Image-first PDF handling** – every PDF is rasterized to per-page PNGs by default for consistent transcription; opt into direct PDF ingestion with `--pdf-mode pdf` or `PDFMode.PDF` when your chosen model supports it.
 - **Drop-in CLI & library** – invoke the Typer CLI from the shell or call the same functionality from Python without global state.
@@ -51,9 +52,9 @@ Environment variables:
 | `LECTURE_SUMMARIZER_MAX_VIDEO_WORKERS` | Optional. Control the maximum number of parallel video chunk workers (defaults to `3`). |
 | `LECTURE_SUMMARIZER_VIDEO_ENCODER` | Optional. Override the encoder used for video normalization (`auto`, `cpu`, `nvenc`, `videotoolbox`, `qsv`, `amf`). `auto` probes available FFmpeg hardware encoders and prefers GPU paths when they work. |
 
-All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
+All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). Strategy classes live under `lecture_summarizer/prompts/` and look for matching `*-prompt.txt` files before falling back to the compiled defaults. The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
 
-Prefer configuration files? Run `lecture-summarizer init` to create `lecture-summarizer.toml`; it stores defaults for `default_model`, `output_dir`, `exports`, and per-preset overrides. Environment variables still take precedence so you can mix-and-match as needed.
+Prefer configuration files? Run `lecture-summarizer init` to create `lecture-summarizer.yaml`; it stores defaults for `default_model`, `output_dir`, `exports`, video chunk parameters, and per-preset overrides. CLI flags override environment variables, and environment variables override the YAML file, giving you explicit precedence: `CLI > ENV > YAML`.
 
 ## CLI Usage
 
@@ -68,9 +69,6 @@ lecture-summarizer plan https://example.com/report.pdf --json
 
 # Run the new engine with sensible defaults
 lecture-summarizer summarize input/lecture.mp4 --export srt --preset quality
-
-# Traditional batch transcription (existing pipeline)
-lecture-summarizer /path/to/materials --recursive --include-images
 
 # Generate a starter config
 lecture-summarizer init
@@ -90,7 +88,7 @@ Every run writes:
 - `<slug>/<slug>-transcribed.tex` – cleaned LaTeX body content.
 - `run-summary.json` – totals, estimated spend, and a list of output artifacts.
 - `run-events.ndjson` – per-request telemetry (one JSON object per API call).
-- `chunks.json` – manifest for normalized video assets (video inputs only).
+- `chunks.json` – manifest for normalized video assets (video inputs only); manifests include hashes and chunk response paths so reruns with `--skip-existing` honor prior work.
 - Optional `.srt`/`.vtt` files when `--export` is provided.
 
 Use `--hide-summary`, `--detailed-costs`, and `--summary-path` to adjust the console summary behaviour.

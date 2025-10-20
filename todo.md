@@ -433,7 +433,7 @@ class GeminiProvider:
    * Wire preset/YAML configuration through `AppConfig`, including media-resolution and token-limit overrides.
 4. [x] **Prompt strategies & templates**
    * Move default prompts into `prompts/` strategies, add enriched video instructions, and support user overrides per Section 7.
-5. [ ] **Tests & docs**
+5. [x] **Tests & docs**
    * Add unit/integration coverage for new ingestion paths (URL size split, YouTube download vs passthrough, manifest resume) and end-to-end engine runs.
    * Update README/CONTRIBUTING/release notes to document the unified pipeline, resumability, and configuration hierarchy.
 

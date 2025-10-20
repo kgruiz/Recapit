@@ -19,6 +19,7 @@ from lecture_summarizer.ingest import (
     DriveIngestor,
     CompositeIngestor,
 )
+from lecture_summarizer.ingest.youtube import YouTubeDownload
 from lecture_summarizer.video import VideoChunk, VideoChunkPlan, VideoMetadata, EncoderSpec, VideoEncoderPreference
 
 
@@ -90,6 +91,46 @@ def test_url_ingestor_fetches_remote_pdf(tmp_path: Path) -> None:
     assert asset.source_kind == SourceKind.URL
     assert asset.path.exists()
     assert asset.meta["size_bytes"] > 0
+
+
+def test_url_ingestor_inline_adds_cache_key(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("lecture_summarizer.ingest.url._INLINE_THRESHOLD", 64)
+    remote_dir = tmp_path / "remote"
+    remote_dir.mkdir()
+    payload = remote_dir / "small.pdf"
+    payload.write_bytes(b"inline-bytes")
+
+    with _serve_directory(remote_dir) as base_url:
+        url = f"{base_url}/small.pdf"
+        ingestor = URLIngestor(cache_dir=tmp_path / "cache")
+        job = _job_for(url)
+        assets = ingestor.discover(job)
+
+    asset = assets[0]
+    assert asset.meta["inline_bytes"] == b"inline-bytes"
+    assert asset.meta["size_bytes"] == len(b"inline-bytes")
+    assert "upload_cache_key" in asset.meta
+
+
+def test_url_ingestor_streams_when_over_threshold(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("lecture_summarizer.ingest.url._INLINE_THRESHOLD", 8)
+    remote_dir = tmp_path / "remote"
+    remote_dir.mkdir()
+    payload = remote_dir / "large.pdf"
+    payload.write_bytes(b"x" * 32)
+
+    with _serve_directory(remote_dir) as base_url:
+        url = f"{base_url}/large.pdf"
+        ingestor = URLIngestor(cache_dir=tmp_path / "cache")
+        job = _job_for(url)
+        assets = ingestor.discover(job)
+
+    asset = assets[0]
+    assert "inline_bytes" not in asset.meta
+    assert asset.meta["size_bytes"] == 32
+    assert asset.path.exists()
+    assert asset.path.read_bytes() == b"x" * 32
+    assert "upload_cache_key" in asset.meta
 
 
 def test_composite_normalizer_rasterizes_pdf(tmp_path: Path) -> None:
@@ -185,6 +226,80 @@ def test_composite_normalizer_video_chunk_manifest(tmp_path: Path) -> None:
     assert manifest_path.parent.name == "manifests"
     data = json.loads(manifest_path.read_text())
     assert len(data["chunks"]) == 2
+
+
+class _StubYouTubeDownloader:
+    def __init__(self, tmp_path: Path) -> None:
+        self._tmp_path = tmp_path
+        self.calls: list[str] = []
+
+    def download(self, url: str, *, target_dir: Path) -> YouTubeDownload:
+        self.calls.append(url)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        video_path = target_dir / "downloaded.mp4"
+        video_path.write_text("downloaded")
+        return YouTubeDownload(path=video_path, info={"id": "demo123", "duration": 45})
+
+
+def test_composite_normalizer_downloads_youtube(tmp_path: Path) -> None:
+    def fake_normalize(path: Path, output_dir: Path, encoder_chain=None):
+        normalized = output_dir / f"{path.stem}-normalized.mp4"
+        normalized.parent.mkdir(parents=True, exist_ok=True)
+        normalized.write_text("normalized")
+        return types.SimpleNamespace(
+            path=normalized,
+            encoder=EncoderSpec(VideoEncoderPreference.CPU, "libx264", tuple(), False),
+            reused_existing=False,
+        )
+
+    def fake_probe(path: Path) -> VideoMetadata:
+        return VideoMetadata(
+            path=path,
+            duration_seconds=30.0,
+            size_bytes=256,
+            fps=24.0,
+            width=1280,
+            height=720,
+            video_codec="h264",
+            audio_codec="aac",
+            audio_sample_rate=44100,
+        )
+
+    def fake_plan(metadata: VideoMetadata, **kwargs) -> VideoChunkPlan:
+        chunk_dir: Path = kwargs["chunk_dir"]
+        chunk_dir.mkdir(parents=True, exist_ok=True)
+        normalized_path: Path = kwargs["normalized_path"]
+        chunk_path = chunk_dir / "chunk-0.mp4"
+        chunk_path.write_text("chunk")
+        chunk = VideoChunk(index=0, start_seconds=0.0, end_seconds=30.0, path=chunk_path, source=normalized_path)
+        return VideoChunkPlan(metadata=metadata, normalized_path=normalized_path, chunks=[chunk], manifest_path=kwargs.get("manifest_path"))
+
+    downloader = _StubYouTubeDownloader(tmp_path)
+    normalizer = CompositeNormalizer(
+        video_root=tmp_path / "video",
+        video_normalizer=fake_normalize,
+        video_probe=fake_probe,
+        video_planner=fake_plan,
+        youtube_downloader=downloader,
+    )
+
+    asset = Asset(
+        path=Path("https://youtu.be/demo"),
+        media="video",
+        source_kind=SourceKind.YOUTUBE,
+        mime="video/*",
+        meta={"pass_through": False},
+    )
+    job = _job_for("https://youtu.be/demo")
+    normalizer.prepare(job)
+    chunks = normalizer.normalize([asset], PdfMode.AUTO)
+
+    assert downloader.calls == [asset.path.as_posix()]
+    assert chunks
+    meta = chunks[0].meta
+    assert meta["downloaded"] is True
+    assert meta["youtube_id"] == "demo123"
+    assert Path(meta["source_video"]).exists()
 
 
 def test_youtube_ingestor_passthrough() -> None:
