@@ -50,6 +50,10 @@ class CompositeNormalizer:
         capability_checker: Callable[[str], bool] | None = None,
         pdf_renderer: Callable[[Path, Path, str | None], Sequence[Path]] | None = None,
         youtube_downloader: YouTubeDownloader | None = None,
+        max_chunk_seconds: float | None = None,
+        max_chunk_bytes: int | None = None,
+        token_limit: int | None = None,
+        tokens_per_second: float | None = None,
     ) -> None:
         self._fallback_image_root = Path(image_root or Path(tempfile.gettempdir()) / "lecture-pdf-pages")
         self._fallback_image_root.mkdir(parents=True, exist_ok=True)
@@ -64,6 +68,10 @@ class CompositeNormalizer:
         self._pdf_renderer = pdf_renderer or pdf_to_png
         self._youtube_downloader = youtube_downloader
         self._resolved_pdf_mode: PdfMode | None = None
+        self._max_chunk_seconds = float(max_chunk_seconds) if max_chunk_seconds else DEFAULT_MAX_CHUNK_SECONDS
+        self._max_chunk_bytes = int(max_chunk_bytes) if max_chunk_bytes else DEFAULT_MAX_CHUNK_BYTES
+        self._token_limit = int(token_limit) if token_limit else None
+        self._tokens_per_second = float(tokens_per_second) if tokens_per_second else DEFAULT_TOKENS_PER_SECOND
 
     # Optional hook used by Engine/Planner
     def prepare(self, job: Job) -> None:  # pragma: no cover - simple setter
@@ -189,9 +197,10 @@ class CompositeNormalizer:
         plan = self._video.planner(
             metadata,
             normalized_path=normalized_path,
-            max_seconds=DEFAULT_MAX_CHUNK_SECONDS,
-            max_bytes=DEFAULT_MAX_CHUNK_BYTES,
-            tokens_per_second=DEFAULT_TOKENS_PER_SECOND,
+            max_seconds=self._max_chunk_seconds,
+            max_bytes=self._max_chunk_bytes,
+            token_limit=self._token_limit,
+            tokens_per_second=self._tokens_per_second,
             chunk_dir=chunk_dir,
             manifest_path=manifest_path,
         )

@@ -48,3 +48,4 @@ class Job:
     preset: str | None = None
     export: list[str] | None = None
     skip_existing: bool = True
+    media_resolution: str | None = None

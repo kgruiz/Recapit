@@ -54,6 +54,7 @@ class Engine:
                 "skip_existing": job.skip_existing,
                 "output_base": str(base),
                 "output_name": output_name,
+                "media_resolution": job.media_resolution,
             },
         )
 

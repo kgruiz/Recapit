@@ -428,7 +428,7 @@ class GeminiProvider:
    * Make `GeminiProvider.transcribe` operate per chunk (one request per video chunk, raw outputs saved under `full-response/chunks/`).
    * Respect `job.skip_existing` when manifests/raw responses exist; reuse cached `file_uri`s instead of re-uploading.
    * Emit chunk-aware telemetry (`chunk_index`, manifest path, response path) and align NDJSON schema with Section 16.
-3. [ ] **CLI unification & config**
+3. [x] **CLI unification & config**
    * Point the default command and `transcribe` alias at the new engine (legacy behind a temporary flag, then remove).
    * Wire preset/YAML configuration through `AppConfig`, including media-resolution and token-limit overrides.
 4. [ ] **Prompt strategies & templates**

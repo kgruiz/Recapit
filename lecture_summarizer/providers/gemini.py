@@ -69,8 +69,8 @@ class GeminiProvider:
         parts, event_assets = self._build_media_parts(assets)
         parts.append(self._types.Part(text=instruction))
 
-        config = getattr(self._types, "GenerateContentConfig", None)
-        if config is None:
+        config_ctor = getattr(self._types, "GenerateContentConfig", None)
+        if config_ctor is None:
             raise RuntimeError("types module missing GenerateContentConfig")
 
         content_ctor = getattr(self._types, "Content", None)
@@ -79,10 +79,14 @@ class GeminiProvider:
 
         request = content_ctor(parts=parts)
         started = datetime.now(timezone.utc)
+        config_kwargs: dict[str, object] = {}
+        media_resolution = meta.get("media_resolution") if meta else None
+        if media_resolution:
+            config_kwargs["media_resolution"] = self._resolve_media_resolution(media_resolution)
         resp = self._client.models.generate_content(
             model=self._model,
             contents=request,
-            config=config(),
+            config=config_ctor(**config_kwargs),
         )
         finished = datetime.now(timezone.utc)
         text = getattr(resp, "text", "") or ""
@@ -275,6 +279,15 @@ class GeminiProvider:
                 metadata=metadata_payload,
             )
         )
+
+    def _resolve_media_resolution(self, value: str):
+        media_enum = getattr(self._types, "MediaResolution", None)
+        if media_enum is None:
+            return value
+        resolved = getattr(media_enum, value, None)
+        if resolved is not None:
+            return resolved
+        return value
 
     def _transcribe_chunks(self, instruction: str, assets: list[Asset], modality: str, meta: dict) -> str:
         if not assets:
