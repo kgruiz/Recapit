@@ -1,5 +1,7 @@
 output/
+!recapit/output/
 input/
 .cache/
 AGENTS.md
 .cache/
+gemini-api-docs.md
