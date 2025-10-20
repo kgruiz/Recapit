@@ -420,20 +420,20 @@ class GeminiProvider:
 
 ## 25) Migration work still outstanding
 
-1. **Normalization parity**
+1. [ ] **Normalization parity**
    * Replace `_normalize_pdf` placeholders with `pdf_to_png` rendering, capability-aware AUTO fallback, and reuse of native PDFs when supported.
    * Implement YouTube download + normalization via `yt-dlp`, cache manifests, and chunk long videos by default.
    * Teach `URLIngestor` to branch on `Content-Length` (inline ≤ 20 MB, Files API otherwise) and tag assets for upload reuse; add proper Drive metadata hashes for resumability.
-2. **Provider/engine loop**
+2. [ ] **Provider/engine loop**
    * Make `GeminiProvider.transcribe` operate per chunk (one request per video chunk, raw outputs saved under `full-response/chunks/`).
    * Respect `job.skip_existing` when manifests/raw responses exist; reuse cached `file_uri`s instead of re-uploading.
    * Emit chunk-aware telemetry (`chunk_index`, manifest path, response path) and align NDJSON schema with Section 16.
-3. **CLI unification & config**
+3. [ ] **CLI unification & config**
    * Point the default command and `transcribe` alias at the new engine (legacy behind a temporary flag, then remove).
    * Wire preset/YAML configuration through `AppConfig`, including media-resolution and token-limit overrides.
-4. **Prompt strategies & templates**
+4. [ ] **Prompt strategies & templates**
    * Move default prompts into `prompts/` strategies, add enriched video instructions, and support user overrides per Section 7.
-5. **Tests & docs**
+5. [ ] **Tests & docs**
    * Add unit/integration coverage for new ingestion paths (URL size split, YouTube download vs passthrough, manifest resume) and end-to-end engine runs.
    * Update README/CONTRIBUTING/release notes to document the unified pipeline, resumability, and configuration hierarchy.
 
