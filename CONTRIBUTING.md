@@ -1,6 +1,6 @@
-# Contributing to Lecture Summarizer
+# Contributing to Recapit
 
-Thanks for your interest in improving Lecture Summarizer! This document outlines how to set up a development environment, coding standards, and expectations for pull requests.
+Thanks for your interest in improving Recapit! This document outlines how to set up a development environment, coding standards, and expectations for pull requests.
 
 ## Quick Start
 
@@ -18,7 +18,7 @@ Thanks for your interest in improving Lecture Summarizer! This document outlines
 
 - Python 3.10+
 - Poppler (required by `pdf2image` for rasterization)
-- Google Gemini access with permissions for the models listed in `lecture_summarizer/constants.py`
+- Google Gemini access with permissions for the models listed in `recapit/constants.py`
 
 ## Development Workflow
 
@@ -26,10 +26,10 @@ Thanks for your interest in improving Lecture Summarizer! This document outlines
 2. Make focused changes with clear commits (see "Commit Messages").
 3. Run the project checks before each commit/push:
    ```shell
-   python -m compileall lecture_summarizer run.py
+   python -m compileall recapit run.py
    pytest
    ```
-4. Verify that the CLI still works for the scenario you are touching (e.g., run `lecture-summarizer --help` or a sample command against fixture data).
+4. Verify that the CLI still works for the scenario you are touching (e.g., run `recapit --help` or a sample command against fixture data).
 5. Open a pull request describing the motivation, approach, and testing performed.
 
 ## Coding Standards
@@ -38,11 +38,11 @@ Thanks for your interest in improving Lecture Summarizer! This document outlines
 - Keep code ASCII unless existing files require otherwise.
 - Add concise comments only when logic is non-obvious.
 - Avoid global state; leverage the modular pipeline and configuration helpers.
-- Follow existing directory structure (`lecture_summarizer/`, `templates/`, etc.).
+- Follow existing directory structure (`recapit/`, `templates/`, etc.).
 
 ### Templates & Prompts
 
-Prompt strategies live under `lecture_summarizer/prompts/` and look for optional overrides in `templates/`. When modifying them:
+Prompt strategies live under `recapit/prompts/` and look for optional overrides in `templates/`. When modifying them:
 - Explain the rationale in the PR description.
 - Keep formatting consistent; avoid trailing spaces.
 - Update strategy classes and any corresponding override files together so `TemplateLoader` caching stays valid.

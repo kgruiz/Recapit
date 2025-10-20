@@ -1,6 +1,6 @@
-# Lecture Summarizer
+# Recapit
 
-Lecture Summarizer is a modular toolkit for turning slide decks, lecture handouts, PDFs, and standalone images into cleaned LaTeX, Markdown, or JSON outputs using Google Gemini models. It provides a drop-in CLI, a reusable Python API, and pipelines that handle image conversion, per-model rate limiting, and template-driven prompts.
+Recapit is a modular toolkit for turning slide decks, lecture handouts, PDFs, and standalone images into cleaned LaTeX, Markdown, or JSON outputs using Google Gemini models. It provides a drop-in CLI, a reusable Python API, and pipelines that handle image conversion, per-model rate limiting, and template-driven prompts.
 
 ## Highlights
 
@@ -13,7 +13,7 @@ Lecture Summarizer is a modular toolkit for turning slide decks, lecture handout
 - **Auto classification** – invoke the tool without subcommands (or via `transcribe`) and heuristics choose the right prompt for slides, notes, worksheets, or documents.
 - **Image-first PDF handling** – every PDF is rasterized to per-page PNGs by default for consistent transcription; opt into direct PDF ingestion with `--pdf-mode pdf` or `PDFMode.PDF` when your chosen model supports it.
 - **Drop-in CLI** – invoke the Typer CLI from the shell with zero boilerplate and steer behaviour through presets or configuration files.
-- **Structured outputs** – cleaned LaTeX lands beside the source file by default; flip `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` on if you also want raw model dumps.
+- **Structured outputs** – cleaned LaTeX lands beside the source file by default; flip `RECAPIT_SAVE_FULL_RESPONSE` on if you also want raw model dumps.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ Lecture Summarizer is a modular toolkit for turning slide decks, lecture handout
 
 ```shell
 # clone the repository first
-cd lecture-summarizer
+cd recapit
 
 # Recommended: uv for editable installs
 uv pip install -e .
@@ -43,42 +43,44 @@ Environment variables:
 | Setting | Description |
 | --- | --- |
 | `GEMINI_API_KEY` | Required. API key picked up by the CLI and Python API via `AppConfig.from_env`. |
-| `LECTURE_SUMMARIZER_DEFAULT_MODEL` | Optional. Override the default transcription model (defaults to `gemini-2.5-flash-lite`). |
-| `LECTURE_SUMMARIZER_OUTPUT_DIR` | Optional. Override the base output directory (defaults to each input's parent directory). |
-| `LECTURE_SUMMARIZER_TEMPLATES_DIR` | Optional. Point to an alternate prompt template directory. |
-| `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` | Optional. Set to `1`/`true` to also write raw model text under `full-response/`. |
-| `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES` | Optional. Set to `1`/`true` to retain normalized videos, chunk MP4s, and manifests for debugging/re-use. |
-| `LECTURE_SUMMARIZER_MAX_WORKERS` | Optional. Control the maximum number of parallel document/image workers (defaults to `4`). |
-| `LECTURE_SUMMARIZER_MAX_VIDEO_WORKERS` | Optional. Control the maximum number of parallel video chunk workers (defaults to `3`). |
-| `LECTURE_SUMMARIZER_VIDEO_ENCODER` | Optional. Override the encoder used for video normalization (`auto`, `cpu`, `nvenc`, `videotoolbox`, `qsv`, `amf`). `auto` probes available FFmpeg hardware encoders and prefers GPU paths when they work. |
+| `RECAPIT_DEFAULT_MODEL` | Optional. Override the default transcription model (defaults to `gemini-2.5-flash-lite`). |
+| `RECAPIT_OUTPUT_DIR` | Optional. Override the base output directory (defaults to each input's parent directory). |
+| `RECAPIT_TEMPLATES_DIR` | Optional. Point to an alternate prompt template directory. |
+| `RECAPIT_SAVE_FULL_RESPONSE` | Optional. Set to `1`/`true` to also write raw model text under `full-response/`. |
+| `RECAPIT_SAVE_INTERMEDIATES` | Optional. Set to `1`/`true` to retain normalized videos, chunk MP4s, and manifests for debugging/re-use. |
+| `RECAPIT_MAX_WORKERS` | Optional. Control the maximum number of parallel document/image workers (defaults to `4`). |
+| `RECAPIT_MAX_VIDEO_WORKERS` | Optional. Control the maximum number of parallel video chunk workers (defaults to `3`). |
+| `RECAPIT_VIDEO_ENCODER` | Optional. Override the encoder used for video normalization (`auto`, `cpu`, `nvenc`, `videotoolbox`, `qsv`, `amf`). `auto` probes available FFmpeg hardware encoders and prefers GPU paths when they work. |
 
-All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). Strategy classes live under `lecture_summarizer/prompts/` and look for matching `*-prompt.txt` files before falling back to the compiled defaults. The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
+Legacy environment variables prefixed with `LECTURE_SUMMARIZER_` remain supported for backward compatibility.
 
-Prefer configuration files? Run `lecture-summarizer init` to create `lecture-summarizer.yaml`; it stores defaults for `default_model`, `output_dir`, `exports`, video chunk parameters, and per-preset overrides. CLI flags override environment variables, and environment variables override the YAML file, giving you explicit precedence: `CLI > ENV > YAML`.
+All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). Strategy classes live under `recapit/prompts/` and look for matching `*-prompt.txt` files before falling back to the compiled defaults. The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
+
+Prefer configuration files? Run `recapit init` to create `recapit.yaml`; it stores defaults for `default_model`, `output_dir`, `exports`, video chunk parameters, and per-preset overrides. CLI flags override environment variables, and environment variables override the YAML file, giving you explicit precedence: `CLI > ENV > YAML`.
 
 ## CLI Usage
 
-After installation the `lecture-summarizer` command becomes available. Export `GEMINI_API_KEY` first, then explore the commands below.
+After installation the `recapit` command becomes available. Export `GEMINI_API_KEY` first, then explore the commands below.
 
 ```shell
 export GEMINI_API_KEY="..."
 
 # Inspect how an asset will be processed (no API calls)
-lecture-summarizer plan input/video.mp4
-lecture-summarizer plan https://example.com/report.pdf --json
+recapit plan input/video.mp4
+recapit plan https://example.com/report.pdf --json
 
 # Run the new engine with sensible defaults
-lecture-summarizer summarize input/lecture.mp4 --export srt --preset quality
+recapit summarize input/lecture.mp4 --export srt --preset quality
 
 # Generate a starter config
-lecture-summarizer init
+recapit init
 
 # Post-processing helpers
-lecture-summarizer convert md output/course-notes
-lecture-summarizer convert json output/course-notes --recursive
+recapit convert md output/course-notes
+recapit convert json output/course-notes --recursive
 ```
 
-`lecture-summarizer summarize` accepts the same `--kind`/`--pdf-mode` overrides as the legacy pipeline, plus:
+`recapit summarize` accepts the same `--kind`/`--pdf-mode` overrides as the legacy pipeline, plus:
 
 - `--export srt|vtt` to emit subtitle tracks using chunk boundaries.
 - `--preset speed|quality|basic` to adjust defaults (e.g., `speed` forces rasterized PDFs; `quality` prefers native PDF ingestion when the model supports it).
@@ -105,11 +107,11 @@ path/to/slides/
     Lecture01-transcribed.tex
 ```
 
-If `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` is enabled, you'll also see `full-response/lecture01-transcribed.txt` alongside the cleaned LaTeX.
+If `RECAPIT_SAVE_FULL_RESPONSE` (or the legacy `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE`) is enabled, you'll also see `full-response/lecture01-transcribed.txt` alongside the cleaned LaTeX.
 
 Markdown (`*.md`) and JSON (`*.json`) files are written alongside the LaTeX when you run the conversion utilities.
 
-Video inputs produce chunk-aware LaTeX: each chunk is emitted as `\section*{Chunk N (HH:MM:SS–HH:MM:SS)}` inside `<stem>-transcribed.tex`. When `--save-full-response` is active, every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you pass `--save-intermediates` (or set `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`).
+Video inputs produce chunk-aware LaTeX: each chunk is emitted as `\section*{Chunk N (HH:MM:SS–HH:MM:SS)}` inside `<stem>-transcribed.tex`. When `--save-full-response` is active, every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you pass `--save-intermediates` (or set `RECAPIT_SAVE_INTERMEDIATES=1`, legacy `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`).
 Hardware acceleration is enabled automatically when FFmpeg exposes GPU encoders; fall back to `--video-encoder cpu` if you run into driver issues.
 
 Every CLI run additionally writes a JSON telemetry report (default `run-summary.json`). The report contains:
