@@ -103,15 +103,6 @@ DEFAULT_PREAMBLES = {
 }
 
 
-DEFAULT_PROMPTS = {
-    "slides": "Summarize slide content. Keep math as LaTeX.",
-    "lecture": "Summarize the lecture with [MM:SS] timestamps. Include visual cues.",
-    "document": "Summarize the document. Preserve headings. Extract key equations.",
-    "image": "Describe the image with technical details. Convert text to LaTeX if math.",
-    "video": "Transcribe audio and summarize visuals with [MM:SS] timestamps.",
-}
-
-
 class TemplateLoader:
     def __init__(self, base: Path | None = None):
         self.base = Path(base or TEMPLATES_DIR)
@@ -179,10 +170,14 @@ Return only the Markdown.
         return self._load_or_default("latex-to-json-template.txt", default)
 
     @lru_cache(maxsize=None)
-    def prompt(self, name: str) -> str:
+    def prompt(self, name: str, *, default: str) -> str:
         fname = f"{name}-prompt.txt"
         if (text := self._load_optional(fname)) is not None:
             return text
-        if name in DEFAULT_PROMPTS:
-            return DEFAULT_PROMPTS[name]
-        raise FileNotFoundError(f"Prompt template not found for '{name}'. Expected {fname} in {self.base}")
+        return default
+
+
+from .prompts.default import DEFAULT_PROMPTS as _DEFAULT_PROMPTS
+
+# Backwards compatibility: expose default prompts keyed by template name.
+DEFAULT_PROMPTS = {kind.value: prompt for kind, prompt in _DEFAULT_PROMPTS.items()}

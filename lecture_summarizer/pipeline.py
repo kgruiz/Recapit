@@ -33,6 +33,7 @@ from .constants import (
 )
 from .rate_limiter import TokenBucket
 from .templates import TemplateLoader
+from .prompts.default import DEFAULT_PROMPTS
 from .llm import LLMClient
 from .pdf import pdf_to_png, total_pages
 from .clean import strip_code_fences, clean_latex
@@ -161,7 +162,7 @@ class Pipeline:
             pre = self.templates.video_preamble()
         else:
             raise ValueError(kind)
-        prompt_template = self.templates.prompt(kind.value)
+        prompt_template = self.templates.prompt(kind.value, default=DEFAULT_PROMPTS[kind])
         instr = prompt_template.replace("{{PREAMBLE}}", pre)
         return instr, pre
 

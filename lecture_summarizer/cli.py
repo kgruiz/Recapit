@@ -11,6 +11,7 @@ from .engine.planner import Planner
 from .engine import Engine
 from .ingest import CompositeIngestor, CompositeNormalizer
 from .providers import GeminiProvider
+from .prompts import build_prompt_strategies
 from .render.writer import LatexWriter
 from .render.subtitles import SubtitleExporter
 from .templates import TemplateLoader
@@ -37,31 +38,6 @@ convert_app = typer.Typer(
     context_settings=_CONTEXT_SETTINGS,
 )
 app.add_typer(convert_app, name="convert")
-
-
-class _TemplatePromptStrategy:
-    def __init__(self, loader: TemplateLoader, kind: CoreKind) -> None:
-        self.kind = kind
-        self._loader = loader
-
-    def preamble(self) -> str:
-        if self.kind == CoreKind.SLIDES:
-            return self._loader.slide_preamble()
-        if self.kind == CoreKind.LECTURE:
-            return self._loader.lecture_preamble()
-        if self.kind == CoreKind.IMAGE:
-            return self._loader.image_preamble()
-        if self.kind == CoreKind.VIDEO:
-            return self._loader.video_preamble()
-        return self._loader.document_preamble()
-
-    def instruction(self, preamble: str) -> str:
-        prompt = self._loader.prompt(self.kind.value)
-        return prompt.replace("{{PREAMBLE}}", preamble)
-
-
-def _prompt_strategies(loader: TemplateLoader) -> dict[CoreKind, _TemplatePromptStrategy]:
-    return {kind: _TemplatePromptStrategy(loader, kind) for kind in CoreKind}
 
 
 def _merge_presets(cfg: AppConfig) -> dict[str, dict[str, object]]:
@@ -122,7 +98,7 @@ def _execute_summarize(
         raise typer.Exit(code=1) from exc
 
     loader = TemplateLoader(cfg.templates_dir)
-    prompts = _prompt_strategies(loader)
+    prompts = build_prompt_strategies(loader)
 
     preset_map = _merge_presets(cfg)
     preset_key = preset.lower() if preset else "basic"
