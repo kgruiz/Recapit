@@ -10,6 +10,7 @@ from typing import Callable, Iterable, Sequence
 from PIL import Image, ImageDraw
 
 from ..core.types import Asset, Job, PdfMode, SourceKind
+from ..pdf import pdf_to_png
 from ..utils import slugify, ensure_dir
 from ..video import (
     DEFAULT_MAX_CHUNK_BYTES,
@@ -22,6 +23,7 @@ from ..video import (
     probe_video,
     sha256sum,
 )
+from .youtube import YouTubeDownloader, YouTubeDownloadError
 
 
 @dataclass
@@ -45,6 +47,9 @@ class CompositeNormalizer:
         video_probe=probe_video,
         video_planner=plan_video_chunks,
         hash_func=sha256sum,
+        capability_checker: Callable[[str], bool] | None = None,
+        pdf_renderer: Callable[[Path, Path, str | None], Sequence[Path]] | None = None,
+        youtube_downloader: YouTubeDownloader | None = None,
     ) -> None:
         self._fallback_image_root = Path(image_root or Path(tempfile.gettempdir()) / "lecture-pdf-pages")
         self._fallback_image_root.mkdir(parents=True, exist_ok=True)
@@ -55,6 +60,10 @@ class CompositeNormalizer:
         self._job: Job | None = None
         self._last_chunk_info: list[dict] = []
         self._last_manifest_path: Path | None = None
+        self._supports = capability_checker or (lambda _cap: True)
+        self._pdf_renderer = pdf_renderer or pdf_to_png
+        self._youtube_downloader = youtube_downloader
+        self._resolved_pdf_mode: PdfMode | None = None
 
     # Optional hook used by Engine/Planner
     def prepare(self, job: Job) -> None:  # pragma: no cover - simple setter
@@ -63,10 +72,12 @@ class CompositeNormalizer:
     def normalize(self, assets: list[Asset], pdf_mode: PdfMode) -> list[Asset]:
         self._last_chunk_info = []
         self._last_manifest_path = None
+        resolved_pdf_mode = self._resolve_pdf_mode(pdf_mode)
+        self._resolved_pdf_mode = resolved_pdf_mode
         normalized: list[Asset] = []
         for asset in assets:
             if asset.media == "pdf":
-                normalized.extend(self._normalize_pdf(asset, pdf_mode))
+                normalized.extend(self._normalize_pdf(asset, resolved_pdf_mode))
             elif asset.media in {"video", "audio"}:
                 normalized.extend(self._normalize_video(asset))
             else:
@@ -80,21 +91,22 @@ class CompositeNormalizer:
     # PDF handling
     # ------------------------------------------------------------------
     def _normalize_pdf(self, asset: Asset, pdf_mode: PdfMode) -> list[Asset]:
-        if pdf_mode == PdfMode.PDF or pdf_mode == PdfMode.AUTO:
+        if pdf_mode == PdfMode.PDF:
             return [asset]
+
         if pdf_mode != PdfMode.IMAGES:
             return [asset]
 
-        page_count = self._count_pages(asset)
-        if page_count == 0:
-            return []
-
         output_dir = self._pdf_output_dir(asset)
-        output_dir.mkdir(parents=True, exist_ok=True)
         generated: list[Asset] = []
-        for idx in range(page_count):
-            image_path = output_dir / f"{asset.path.stem}-p{idx:03d}.png"
-            self._render_placeholder(image_path, page_number=idx + 1)
+        try:
+            image_paths = list(self._pdf_renderer(asset.path, output_dir, prefix=asset.path.stem))
+        except Exception:  # noqa: BLE001
+            image_paths = []
+        if not image_paths:
+            image_paths = self._render_placeholders(asset, output_dir)
+
+        for idx, image_path in enumerate(image_paths):
             generated.append(
                 Asset(
                     path=image_path,
@@ -102,7 +114,11 @@ class CompositeNormalizer:
                     page_index=idx,
                     source_kind=asset.source_kind,
                     mime="image/png",
-                    meta={"source_pdf": str(asset.path)},
+                    meta={
+                        "source_pdf": str(asset.path),
+                        "page_index": idx,
+                        "page_total": len(image_paths),
+                    },
                 )
             )
         return generated
@@ -122,6 +138,16 @@ class CompositeNormalizer:
         text = f"Page {page_number}"
         draw.text((40, 40), text, fill="black")
         image.save(path, format="PNG")
+
+    def _render_placeholders(self, asset: Asset, output_dir: Path) -> list[Path]:
+        page_count = max(self._count_pages(asset), 1)
+        ensure_dir(output_dir)
+        paths: list[Path] = []
+        for idx in range(page_count):
+            image_path = output_dir / f"{asset.path.stem}-p{idx:03d}.png"
+            self._render_placeholder(image_path, page_number=idx + 1)
+            paths.append(image_path)
+        return paths
 
     @staticmethod
     def _count_pages(asset: Asset) -> int:
@@ -148,15 +174,18 @@ class CompositeNormalizer:
         if asset.source_kind == SourceKind.YOUTUBE and (asset.meta or {}).get("pass_through"):
             return [asset]
 
-        normalized_dir = self._video_dir(asset)
+        realized_asset = self._materialize_video(asset)
+        normalized_dir = self._video_dir(realized_asset)
         chunk_dir = normalized_dir / "chunks"
         ensure_dir(chunk_dir)
 
-        normalization = self._video.normalizer(asset.path, output_dir=normalized_dir, encoder_chain=self._encoder_chain)
+        normalization = self._video.normalizer(
+            realized_asset.path, output_dir=normalized_dir, encoder_chain=self._encoder_chain
+        )
         normalized_path = Path(getattr(normalization, "path"))
         metadata = self._video.probe(normalized_path)
 
-        manifest_path = self._manifest_path(asset)
+        manifest_path = self._manifest_path(realized_asset)
         plan = self._video.planner(
             metadata,
             normalized_path=normalized_path,
@@ -182,12 +211,17 @@ class CompositeNormalizer:
                 "chunk_end_iso": chunk.end_iso,
                 "manifest_path": str(manifest_path),
                 "normalized_path": str(plan.normalized_path),
-                "source_video": str(asset.path),
+                "source_video": str(realized_asset.path),
+                "source_url": (realized_asset.meta or {}).get("source_url"),
             }
+            if realized_asset.meta:
+                for key in ("youtube_id", "duration_seconds", "size_bytes", "downloaded"):
+                    if realized_asset.meta.get(key) is not None:
+                        meta[key] = realized_asset.meta[key]
             chunk_asset = Asset(
                 path=chunk.path,
                 media="video",
-                source_kind=asset.source_kind,
+                source_kind=realized_asset.source_kind,
                 mime="video/mp4",
                 meta=meta,
             )
@@ -210,7 +244,7 @@ class CompositeNormalizer:
 
     def _manifest_path(self, asset: Asset) -> Path:
         root = self._job_root()
-        return root / "chunks.json"
+        return ensure_dir(root / "manifests") / f"{slugify(asset.path.stem or 'video')}.json"
 
     def _job_root(self) -> Path:
         if self._job is None:
@@ -275,3 +309,52 @@ class CompositeNormalizer:
         if self._last_manifest_path is not None:
             paths.append(self._last_manifest_path)
         return paths
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _resolve_pdf_mode(self, requested: PdfMode) -> PdfMode:
+        if requested == PdfMode.AUTO:
+            if self._supports("pdf"):
+                return PdfMode.PDF
+            if self._supports("image"):
+                return PdfMode.IMAGES
+            raise RuntimeError("Provider does not support PDF or image ingestion")
+        return requested
+
+    def _materialize_video(self, asset: Asset) -> Asset:
+        if asset.source_kind != SourceKind.YOUTUBE:
+            return asset
+
+        meta = dict(asset.meta or {})
+        if meta.get("pass_through"):
+            return asset
+
+        downloader = self._youtube_downloader or YouTubeDownloader()
+        target_dir = self._job_root() / "downloads" / "youtube"
+        ensure_dir(target_dir)
+
+        try:
+            result = downloader.download(asset.path.as_posix(), target_dir=target_dir)
+        except YouTubeDownloadError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise YouTubeDownloadError(str(exc)) from exc
+
+        info = result.info or {}
+        meta.update(
+            {
+                "downloaded": True,
+                "source_url": meta.get("source_url", asset.path.as_posix()),
+                "youtube_id": info.get("id"),
+                "duration_seconds": info.get("duration"),
+                "size_bytes": result.path.stat().st_size if result.path.exists() else None,
+            }
+        )
+        return Asset(
+            path=result.path,
+            media="video",
+            source_kind=asset.source_kind,
+            mime="video/mp4",
+            meta=meta,
+        )

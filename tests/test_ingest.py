@@ -181,9 +181,9 @@ def test_composite_normalizer_video_chunk_manifest(tmp_path: Path) -> None:
     descriptors = normalizer.chunk_descriptors()
     assert len(descriptors) == 2
 
-    manifest_path = tmp_path / "clip" / "chunks.json"
     manifest_path = Path(chunks[0].meta["manifest_path"])
-    data = json.loads(Path(manifest_path).read_text())
+    assert manifest_path.parent.name == "manifests"
+    data = json.loads(manifest_path.read_text())
     assert len(data["chunks"]) == 2
 
 
@@ -194,7 +194,8 @@ def test_youtube_ingestor_passthrough() -> None:
     assert len(assets) == 1
     asset = assets[0]
     assert asset.media == "video"
-    assert asset.meta["pass_through"] is True
+    assert asset.meta["pass_through"] is False
+    assert asset.meta["source_url"] == job.source
 
 
 class _StubDownloader:

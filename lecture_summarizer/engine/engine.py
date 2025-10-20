@@ -33,7 +33,7 @@ class Engine:
 
         kind = job.kind or self._infer_kind(assets)
         assets = self.normalizer.normalize(assets, job.pdf_mode)
-        modality = self._modality_for(assets, job.pdf_mode)
+        modality = self._modality_for(assets)
         
         strategy = self.prompts[kind]
         preamble = strategy.preamble()
@@ -91,10 +91,15 @@ class Engine:
             return Kind.SLIDES
         return Kind.DOCUMENT
 
-    def _modality_for(self, assets: list[Asset], pdf_mode: PdfMode) -> str:
-        if assets and assets[0].media in {"video", "audio"}:
+    def _modality_for(self, assets: list[Asset]) -> str:
+        if not assets:
+            return "image"
+        first = assets[0]
+        if first.media in {"video", "audio"}:
             return "video"
-        return "pdf" if pdf_mode == PdfMode.PDF else "image"
+        if first.media == "pdf":
+            return "pdf"
+        return "image"
 
     @staticmethod
     def _slug(value: str) -> str:

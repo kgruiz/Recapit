@@ -4,7 +4,7 @@ from .local import LocalIngestor
 from .url import URLIngestor
 from .router import CompositeIngestor
 from .normalize import CompositeNormalizer
-from .youtube import YouTubeIngestor
+from .youtube import YouTubeIngestor, YouTubeDownloader, YouTubeDownload, YouTubeDownloadError
 from .drive import DriveIngestor
 
 __all__ = [
@@ -13,5 +13,8 @@ __all__ = [
     "CompositeIngestor",
     "CompositeNormalizer",
     "YouTubeIngestor",
+    "YouTubeDownloader",
+    "YouTubeDownload",
+    "YouTubeDownloadError",
     "DriveIngestor",
 ]

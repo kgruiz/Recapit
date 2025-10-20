@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..core.types import Asset, Job, SourceKind
+from ..video import sha256sum
 
 
 class DriveDownloader(Protocol):
@@ -34,11 +35,11 @@ class DriveIngestor:
 
         destination = self._cache_dir / file_id
         if destination.exists():
-            return [self._to_asset(destination)]
+            return [self._to_asset(destination, file_id)]
 
         downloader = self._resolve_downloader()
         downloaded = downloader.download(file_id, destination)
-        return [self._to_asset(downloaded)]
+        return [self._to_asset(downloaded, file_id)]
 
     def _resolve_downloader(self) -> DriveDownloader:
         if self._downloader is not None:
@@ -81,7 +82,7 @@ class DriveIngestor:
         return _DefaultDownloader(service, self._cache_dir)
 
     @staticmethod
-    def _to_asset(path: Path) -> Asset:
+    def _infer_media(path: Path) -> tuple[str, str]:
         mime = "application/octet-stream"
         if path.suffix.lower() == ".pdf":
             media = "pdf"
@@ -97,4 +98,13 @@ class DriveIngestor:
             mime = "audio/mpeg"
         else:
             media = "pdf"
-        return Asset(path=path, media=media, source_kind=SourceKind.DRIVE, mime=mime)
+        return media, mime
+
+    def _to_asset(self, path: Path, file_id: str) -> Asset:
+        media, mime = self._infer_media(path)
+        meta = {
+            "drive_file_id": file_id,
+            "sha256": sha256sum(path),
+            "size_bytes": path.stat().st_size if path.exists() else None,
+        }
+        return Asset(path=path, media=media, source_kind=SourceKind.DRIVE, mime=mime, meta=meta)

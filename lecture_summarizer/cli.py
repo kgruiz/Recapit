@@ -429,7 +429,10 @@ def plan(  # noqa: D401 - short CLI help already provided
         model=model,
     )
 
-    planner = Planner(ingestor=CompositeIngestor(), normalizer=CompositeNormalizer())
+    planner = Planner(
+        ingestor=CompositeIngestor(),
+        normalizer=CompositeNormalizer(capability_checker=lambda cap: cap in {"pdf", "image", "video", "audio"}),
+    )
     report = planner.plan(job)
 
     if json_output:
@@ -490,8 +493,8 @@ def summarize(  # noqa: D401
     prompts = _prompt_strategies(loader)
 
     monitor = RunMonitor()
-    normalizer = CompositeNormalizer()
     provider = GeminiProvider(api_key=cfg.api_key, model=active_model, monitor=monitor)
+    normalizer = CompositeNormalizer(capability_checker=provider.supports)
     engine = Engine(
         ingestor=CompositeIngestor(),
         normalizer=normalizer,

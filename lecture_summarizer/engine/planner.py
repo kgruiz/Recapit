@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from ..core.types import Job, Kind, PdfMode, Asset
+from ..core.types import Job, Kind, Asset
 from ..core.contracts import Ingestor, Normalizer
 
 
@@ -65,7 +65,7 @@ class Planner:
         assets = self._ingestor.discover(job)
         normalized = self._normalizer.normalize(assets, job.pdf_mode)
         kind = (job.kind or self._infer_kind(assets)) if assets else (job.kind or Kind.DOCUMENT)
-        modality = self._determine_modality(normalized, job.pdf_mode)
+        modality = self._determine_modality(normalized)
         chunk_info = getattr(self._normalizer, "chunk_descriptors", None)
         chunks = chunk_info() if callable(chunk_info) else []
         return PlanReport(job=job, assets=assets, normalized=normalized, kind=kind, modality=modality, chunks=chunks)
@@ -79,9 +79,12 @@ class Planner:
         return Kind.DOCUMENT
 
     @staticmethod
-    def _determine_modality(assets: list[Asset], pdf_mode: PdfMode) -> str | None:
+    def _determine_modality(assets: list[Asset]) -> str | None:
         if not assets:
             return None
-        if assets[0].media in {"video", "audio"}:
+        first = assets[0]
+        if first.media in {"video", "audio"}:
             return "video"
-        return "pdf" if pdf_mode == PdfMode.PDF else "image"
+        if first.media == "pdf":
+            return "pdf"
+        return "image"
