@@ -1,4 +1,4 @@
-from lecture_summarizer.templates import DEFAULT_PROMPTS
+from recapit.templates import DEFAULT_PROMPTS
 
 
 def test_default_prompts_have_no_quotes_or_trailing_whitespace() -> None:

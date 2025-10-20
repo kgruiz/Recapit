@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lecture_summarizer.core.types import Asset, Job, Kind, PdfMode
-from lecture_summarizer.engine.engine import Engine
-from lecture_summarizer.engine.planner import Planner
-from lecture_summarizer.ingest import LocalIngestor, CompositeNormalizer
-from lecture_summarizer.output.cost import CostEstimator
-from lecture_summarizer.render.writer import LatexWriter
-from lecture_summarizer.telemetry import RunMonitor
-from lecture_summarizer import cli as cli_module
+from recapit.core.types import Asset, Job, Kind, PdfMode
+from recapit.engine.engine import Engine
+from recapit.engine.planner import Planner
+from recapit.ingest import LocalIngestor, CompositeNormalizer
+from recapit.output.cost import CostEstimator
+from recapit.render.writer import LatexWriter
+from recapit.telemetry import RunMonitor
+from recapit import cli as cli_module
 
 
 class _FakeIngestor:

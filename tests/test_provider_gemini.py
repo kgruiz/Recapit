@@ -5,9 +5,9 @@ import types
 
 import pytest
 
-from lecture_summarizer.core.types import Asset, SourceKind
-from lecture_summarizer.providers.gemini import GeminiProvider
-from lecture_summarizer.telemetry import RunMonitor
+from recapit.core.types import Asset, SourceKind
+from recapit.providers.gemini import GeminiProvider
+from recapit.telemetry import RunMonitor
 
 
 class _FakeTypes:

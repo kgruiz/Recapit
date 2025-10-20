@@ -1,4 +1,4 @@
-from lecture_summarizer import TranscribeDocuments
+from recapit import TranscribeDocuments
 from pathlib import Path
 
 if __name__ == "__main__":

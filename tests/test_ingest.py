@@ -10,8 +10,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from lecture_summarizer.core.types import Asset, Job, PdfMode, SourceKind
-from lecture_summarizer.ingest import (
+from recapit.core.types import Asset, Job, PdfMode, SourceKind
+from recapit.ingest import (
     LocalIngestor,
     URLIngestor,
     CompositeNormalizer,
@@ -19,8 +19,8 @@ from lecture_summarizer.ingest import (
     DriveIngestor,
     CompositeIngestor,
 )
-from lecture_summarizer.ingest.youtube import YouTubeDownload
-from lecture_summarizer.video import VideoChunk, VideoChunkPlan, VideoMetadata, EncoderSpec, VideoEncoderPreference
+from recapit.ingest.youtube import YouTubeDownload
+from recapit.video import VideoChunk, VideoChunkPlan, VideoMetadata, EncoderSpec, VideoEncoderPreference
 
 
 def _make_pdf(path: Path, pages: int = 1) -> None:
@@ -94,7 +94,7 @@ def test_url_ingestor_fetches_remote_pdf(tmp_path: Path) -> None:
 
 
 def test_url_ingestor_inline_adds_cache_key(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("lecture_summarizer.ingest.url._INLINE_THRESHOLD", 64)
+    monkeypatch.setattr("recapit.ingest.url._INLINE_THRESHOLD", 64)
     remote_dir = tmp_path / "remote"
     remote_dir.mkdir()
     payload = remote_dir / "small.pdf"
@@ -113,7 +113,7 @@ def test_url_ingestor_inline_adds_cache_key(monkeypatch, tmp_path: Path) -> None
 
 
 def test_url_ingestor_streams_when_over_threshold(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("lecture_summarizer.ingest.url._INLINE_THRESHOLD", 8)
+    monkeypatch.setattr("recapit.ingest.url._INLINE_THRESHOLD", 8)
     remote_dir = tmp_path / "remote"
     remote_dir.mkdir()
     payload = remote_dir / "large.pdf"

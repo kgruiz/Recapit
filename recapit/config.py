@@ -4,6 +4,18 @@ from typing import Optional, Any
 import os
 import yaml
 
+
+def _get_env(*names: str) -> str | None:
+    """Return the first non-empty environment variable value among the provided names."""
+    for key in names:
+        value = os.getenv(key)
+        if value is None:
+            continue
+        if value == "":
+            continue
+        return value
+    return None
+
 from .constants import (
     DEFAULT_MODEL,
     TEMPLATES_DIR,
@@ -71,7 +83,7 @@ class AppConfig:
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
 
-        env_config = os.getenv("LECTURE_SUMMARIZER_CONFIG")
+        env_config = _get_env("RECAPIT_CONFIG", "LECTURE_SUMMARIZER_CONFIG")
         candidates: list[Path] = []
         if config_path is not None:
             candidates.append(Path(config_path).expanduser())
@@ -80,8 +92,8 @@ class AppConfig:
         else:
             candidates.extend(
                 [
-                    Path("lecture-summarizer.yaml"),
-                    Path("lecture-summarizer.yml"),
+                    Path("recapit.yaml"),
+                    Path("recapit.yml"),
                 ]
             )
 
@@ -135,44 +147,50 @@ class AppConfig:
         pricing_file = _coerce_path(config_data.get("pricing_file"))
 
         # Environment overrides
-        output_dir_env = os.getenv("LECTURE_SUMMARIZER_OUTPUT_DIR")
-        if output_dir_env:
+        output_dir_env = _get_env("RECAPIT_OUTPUT_DIR", "LECTURE_SUMMARIZER_OUTPUT_DIR")
+        if output_dir_env is not None:
             output_dir = Path(output_dir_env).expanduser()
 
-        templates_dir_env = os.getenv("LECTURE_SUMMARIZER_TEMPLATES_DIR")
-        if templates_dir_env:
+        templates_dir_env = _get_env("RECAPIT_TEMPLATES_DIR", "LECTURE_SUMMARIZER_TEMPLATES_DIR")
+        if templates_dir_env is not None:
             templates_dir = Path(templates_dir_env).expanduser()
 
-        default_model_env = os.getenv("LECTURE_SUMMARIZER_DEFAULT_MODEL")
-        if default_model_env:
+        default_model_env = _get_env("RECAPIT_DEFAULT_MODEL", "LECTURE_SUMMARIZER_DEFAULT_MODEL")
+        if default_model_env is not None:
             default_model = default_model_env
 
-        save_full_env = os.getenv("LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE")
+        save_full_env = _get_env("RECAPIT_SAVE_FULL_RESPONSE", "LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE")
         if save_full_env is not None:
             save_full_response = _as_bool(save_full_env)
 
-        save_inter_env = os.getenv("LECTURE_SUMMARIZER_SAVE_INTERMEDIATES")
+        save_inter_env = _get_env("RECAPIT_SAVE_INTERMEDIATES", "LECTURE_SUMMARIZER_SAVE_INTERMEDIATES")
         if save_inter_env is not None:
             save_intermediates = _as_bool(save_inter_env)
 
-        video_token_env = os.getenv("LECTURE_SUMMARIZER_VIDEO_TOKEN_LIMIT")
-        if video_token_env:
+        video_token_env = _get_env("RECAPIT_VIDEO_TOKEN_LIMIT", "LECTURE_SUMMARIZER_VIDEO_TOKEN_LIMIT")
+        if video_token_env is not None:
             token_override = _as_int(video_token_env, minimum=1)
             if token_override is not None:
                 video_token_limit = token_override
 
-        def _parse_workers(env_var: str, default: int) -> int:
-            raw = os.getenv(env_var)
-            if not raw:
-                return default
-            parsed = _as_int(raw, minimum=1)
-            assert parsed is not None
-            return parsed
+        def _parse_workers(*env_vars: str, default: int) -> int:
+            for env_var in env_vars:
+                raw = _get_env(env_var)
+                if raw is None:
+                    continue
+                parsed = _as_int(raw, minimum=1)
+                assert parsed is not None
+                return parsed
+            return default
 
-        max_workers = _parse_workers("LECTURE_SUMMARIZER_MAX_WORKERS", DEFAULT_MAX_WORKERS)
-        max_video_workers = _parse_workers("LECTURE_SUMMARIZER_MAX_VIDEO_WORKERS", DEFAULT_MAX_VIDEO_WORKERS)
+        max_workers = _parse_workers("RECAPIT_MAX_WORKERS", "LECTURE_SUMMARIZER_MAX_WORKERS", default=DEFAULT_MAX_WORKERS)
+        max_video_workers = _parse_workers(
+            "RECAPIT_MAX_VIDEO_WORKERS",
+            "LECTURE_SUMMARIZER_MAX_VIDEO_WORKERS",
+            default=DEFAULT_MAX_VIDEO_WORKERS,
+        )
 
-        encoder_env = os.getenv("LECTURE_SUMMARIZER_VIDEO_ENCODER", encoder_pref)
+        encoder_env = _get_env("RECAPIT_VIDEO_ENCODER", "LECTURE_SUMMARIZER_VIDEO_ENCODER") or encoder_pref
         video_encoder_preference = VideoEncoderPreference.parse(encoder_env)
 
         # Presets from configuration (lowercase keys)

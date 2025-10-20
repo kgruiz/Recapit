@@ -29,7 +29,7 @@ class CostEstimator:
                 data = self._read_yaml(path)
         else:
             try:
-                with resources.files("lecture_summarizer").joinpath("pricing.yaml").open("r", encoding="utf-8") as handle:
+                with resources.files("recapit").joinpath("pricing.yaml").open("r", encoding="utf-8") as handle:
                     data = yaml.safe_load(handle)
             except FileNotFoundError:
                 data = None

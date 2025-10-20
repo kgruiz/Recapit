@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
-from lecture_summarizer.constants import GEMINI_2_5_FLASH
-from lecture_summarizer.telemetry import RequestEvent, RunMonitor
+from recapit.constants import GEMINI_2_5_FLASH
+from recapit.telemetry import RequestEvent, RunMonitor
 
 
 def make_event(**kwargs) -> RequestEvent:

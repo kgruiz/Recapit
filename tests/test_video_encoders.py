@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from lecture_summarizer.video import (
+from recapit.video import (
     VideoEncoderPreference,
     normalize_video,
     select_encoder_chain,
@@ -13,7 +13,7 @@ from lecture_summarizer.video import (
 
 def test_select_encoder_chain_auto_prefers_available_hardware(monkeypatch):
     monkeypatch.setattr(
-        "lecture_summarizer.video._ffmpeg_encoder_names",
+        "recapit.video._ffmpeg_encoder_names",
         lambda: {"h264_nvenc"},
     )
     chain, diagnostics = select_encoder_chain(VideoEncoderPreference.AUTO)
@@ -24,7 +24,7 @@ def test_select_encoder_chain_auto_prefers_available_hardware(monkeypatch):
 
 def test_select_encoder_chain_auto_falls_back_when_missing(monkeypatch):
     monkeypatch.setattr(
-        "lecture_summarizer.video._ffmpeg_encoder_names",
+        "recapit.video._ffmpeg_encoder_names",
         lambda: set(),
     )
     chain, diagnostics = select_encoder_chain(VideoEncoderPreference.AUTO)
@@ -34,7 +34,7 @@ def test_select_encoder_chain_auto_falls_back_when_missing(monkeypatch):
 
 def test_select_encoder_chain_specific_preference_handles_missing(monkeypatch):
     monkeypatch.setattr(
-        "lecture_summarizer.video._ffmpeg_encoder_names",
+        "recapit.video._ffmpeg_encoder_names",
         lambda: set(),
     )
     chain, diagnostics = select_encoder_chain(VideoEncoderPreference.VIDEOTOOLBOX)
@@ -45,7 +45,7 @@ def test_select_encoder_chain_specific_preference_handles_missing(monkeypatch):
 def test_normalize_video_falls_back_to_cpu_on_failure(monkeypatch, tmp_path):
     # Pretend both NVENC and libx264 are available so the chain tries NVENC first.
     monkeypatch.setattr(
-        "lecture_summarizer.video._ffmpeg_encoder_names",
+        "recapit.video._ffmpeg_encoder_names",
         lambda: {"h264_nvenc", "libx264"},
     )
     chain, _ = select_encoder_chain(VideoEncoderPreference.NVENC)
@@ -65,7 +65,7 @@ def test_normalize_video_falls_back_to_cpu_on_failure(monkeypatch, tmp_path):
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    monkeypatch.setattr("lecture_summarizer.video.subprocess.run", fake_run)
+    monkeypatch.setattr("recapit.video.subprocess.run", fake_run)
 
     result = normalize_video(input_path, output_dir=output_dir, encoder_chain=chain)
     assert result.encoder.codec == "libx264"

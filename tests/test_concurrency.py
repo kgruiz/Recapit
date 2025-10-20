@@ -2,7 +2,7 @@ import threading
 
 import pytest
 
-from lecture_summarizer.api import _run_parallel
+from recapit.api import _run_parallel
 
 
 def test_run_parallel_executes_concurrently():

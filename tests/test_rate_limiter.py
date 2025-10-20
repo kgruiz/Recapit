@@ -1,7 +1,7 @@
 import threading
 import time
 
-from lecture_summarizer.rate_limiter import TokenBucket
+from recapit.rate_limiter import TokenBucket
 
 
 def test_token_bucket_blocks_when_limit_exceeded():

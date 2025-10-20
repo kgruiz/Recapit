@@ -366,14 +366,14 @@ def plan(  # noqa: D401 - short CLI help already provided
 
 @app.command(help="Create a starter configuration file in the current directory.")
 def init(
-    path: Path = typer.Option(Path("lecture-summarizer.yaml"), "--path", help="Where to write the config file"),
+    path: Path = typer.Option(Path("recapit.yaml"), "--path", help="Where to write the config file"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing file"),
 ):
     target = path.expanduser()
     if target.exists() and not force:
         raise typer.BadParameter(f"{target} already exists; use --force to overwrite", param_hint="--force")
 
-    content = """# Lecture Summarizer configuration\n# Adjust defaults for the summarize command.\n# Available presets live under presets.<name>.\n\ndefaults:\n  model: \"gemini-2.0-flash\"\n  output_dir: \"output\"\n  exports: [\"srt\"]\n\nsave:\n  full_response: false\n  intermediates: true\n\nvideo:\n  token_limit: 300000\n  tokens_per_second: 300\n  max_chunk_seconds: 7200\n  max_chunk_bytes: 524288000\n  encoder: \"auto\"\n  media_resolution: \"default\"\n\npresets:\n  speed:\n    pdf_mode: \"images\"\n  quality:\n    pdf_mode: \"pdf\"\n"""
+    content = """# Recapit configuration\n# Adjust defaults for the summarize command.\n# Available presets live under presets.<name>.\n\ndefaults:\n  model: \"gemini-2.0-flash\"\n  output_dir: \"output\"\n  exports: [\"srt\"]\n\nsave:\n  full_response: false\n  intermediates: true\n\nvideo:\n  token_limit: 300000\n  tokens_per_second: 300\n  max_chunk_seconds: 7200\n  max_chunk_bytes: 524288000\n  encoder: \"auto\"\n  media_resolution: \"default\"\n\npresets:\n  speed:\n    pdf_mode: \"images\"\n  quality:\n    pdf_mode: \"pdf\"\n"""
     target.write_text(content)
     typer.echo(f"Wrote {target}")
 
