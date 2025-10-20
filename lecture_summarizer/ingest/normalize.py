@@ -196,12 +196,18 @@ class CompositeNormalizer:
             manifest_path=manifest_path,
         )
 
-        manifest_path = self._write_manifest(plan, asset)
+        manifest_path, manifest_payload = self._write_manifest(plan, asset)
         self._last_manifest_path = manifest_path
+        manifest_chunks = {
+            int(entry.get("index")): entry
+            for entry in manifest_payload.get("chunks", [])
+            if isinstance(entry, dict) and "index" in entry
+        }
 
         chunk_total = len(plan.chunks)
         chunk_assets: list[Asset] = []
         for chunk in plan.chunks:
+            manifest_entry = manifest_chunks.get(chunk.index, {})
             meta = {
                 "chunk_index": chunk.index,
                 "chunk_total": chunk_total,
@@ -213,6 +219,9 @@ class CompositeNormalizer:
                 "normalized_path": str(plan.normalized_path),
                 "source_video": str(realized_asset.path),
                 "source_url": (realized_asset.meta or {}).get("source_url"),
+                "response_path": manifest_entry.get("response_path"),
+                "status": manifest_entry.get("status"),
+                "file_uri": manifest_entry.get("file_uri"),
             }
             if realized_asset.meta:
                 for key in ("youtube_id", "duration_seconds", "size_bytes", "downloaded"):
@@ -233,6 +242,7 @@ class CompositeNormalizer:
                     "end_seconds": chunk.end_seconds,
                     "path": str(chunk.path),
                     "manifest_path": str(manifest_path),
+                    "response_path": manifest_entry.get("response_path"),
                 }
             )
         return chunk_assets
@@ -263,7 +273,20 @@ class CompositeNormalizer:
     def _write_manifest(self, plan: VideoChunkPlan, asset: Asset) -> Path:
         manifest_path = plan.manifest_path or self._manifest_path(asset)
         ensure_dir(manifest_path.parent)
-        created = datetime.now(timezone.utc).isoformat()
+        created_time = datetime.now(timezone.utc)
+        existing_payload: dict | None = None
+        existing_chunks: dict[int, dict] = {}
+        if manifest_path.exists():
+            try:
+                existing_payload = json.loads(manifest_path.read_text())
+                existing_chunks = {
+                    int(entry.get("index")): dict(entry)
+                    for entry in existing_payload.get("chunks", [])
+                    if isinstance(entry, dict) and "index" in entry
+                }
+            except (OSError, json.JSONDecodeError):  # pragma: no cover - defensive
+                existing_payload = None
+
         chunks = [
             {
                 "index": chunk.index,
@@ -272,8 +295,9 @@ class CompositeNormalizer:
                 "start_iso": chunk.start_iso,
                 "end_iso": chunk.end_iso,
                 "path": str(chunk.path),
-                "status": "pending",
-                "response_path": None,
+                "status": existing_chunks.get(chunk.index, {}).get("status", "pending"),
+                "response_path": existing_chunks.get(chunk.index, {}).get("response_path"),
+                "file_uri": existing_chunks.get(chunk.index, {}).get("file_uri"),
             }
             for chunk in plan.chunks
         ]
@@ -293,10 +317,11 @@ class CompositeNormalizer:
             "tokens_per_second": DEFAULT_TOKENS_PER_SECOND,
             "video_metadata_defaults": {"fps": 1},
             "chunks": chunks,
-            "created_utc": created,
+            "created_utc": (existing_payload or {}).get("created_utc") or created_time.isoformat(),
+            "updated_utc": datetime.now(timezone.utc).isoformat(),
         }
         manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
-        return manifest_path
+        return manifest_path, payload
 
     def _safe_hash(self, path: Path) -> str:
         try:

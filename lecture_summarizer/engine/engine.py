@@ -39,26 +39,32 @@ class Engine:
         preamble = strategy.preamble()
         instruction = strategy.instruction(preamble)
 
+        base_root = Path(job.output_dir) if job.output_dir else Path(".") / "output"
+        source_slug = self._slug(Path(job.source).stem if "://" not in job.source else "remote")
+        base = base_root / source_slug
+        output_name = f"{self._slug(Path(job.source).stem)}-transcribed"
+
         text = self.provider.transcribe(
             instruction=instruction,
             assets=assets,
             modality=modality,
-            meta={"kind": kind.value, "source": job.source},
+            meta={
+                "kind": kind.value,
+                "source": job.source,
+                "skip_existing": job.skip_existing,
+                "output_base": str(base),
+                "output_name": output_name,
+            },
         )
 
-        base_root = job.output_dir or Path(".") / "output"
-        source_slug = self._slug(Path(job.source).stem if "://" not in job.source else "remote")
-        base = base_root / source_slug
-        name = f"{self._slug(Path(job.source).stem)}-transcribed"
-
-        output_path = self.writer.write_latex(base=base, name=name, preamble=preamble, body=text)
+        output_path = self.writer.write_latex(base=base, name=output_name, preamble=preamble, body=text)
 
         subtitle_paths: list[Path] = []
         if self.subtitles is not None and job.export:
             chunk_info_fn = getattr(self.normalizer, "chunk_descriptors", None)
             chunk_info = chunk_info_fn() if callable(chunk_info_fn) else []
             for fmt in job.export:
-                rendered = self.subtitles.write(fmt, base=base, name=name, text=text, chunks=chunk_info)
+                rendered = self.subtitles.write(fmt, base=base, name=output_name, text=text, chunks=chunk_info)
                 if rendered is not None:
                     subtitle_paths.append(rendered)
 

@@ -203,6 +203,8 @@ class RunMonitor:
                         "video_start": (event.metadata or {}).get("chunk_start_seconds"),
                         "video_end": (event.metadata or {}).get("chunk_end_seconds"),
                         "file_uri": (event.metadata or {}).get("file_uri"),
+                        "manifest_path": (event.metadata or {}).get("manifest_path"),
+                        "response_path": (event.metadata or {}).get("response_path"),
                     }
                     handle.write(json.dumps(line, sort_keys=True) + "\n")
 

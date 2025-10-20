@@ -424,7 +424,7 @@ class GeminiProvider:
    * Replace `_normalize_pdf` placeholders with `pdf_to_png` rendering, capability-aware AUTO fallback, and reuse of native PDFs when supported.
    * Implement YouTube download + normalization via `yt-dlp`, cache manifests, and chunk long videos by default.
    * Teach `URLIngestor` to branch on `Content-Length` (inline ≤ 20 MB, Files API otherwise) and tag assets for upload reuse; add proper Drive metadata hashes for resumability.
-2. [ ] **Provider/engine loop**
+2. [x] **Provider/engine loop**
    * Make `GeminiProvider.transcribe` operate per chunk (one request per video chunk, raw outputs saved under `full-response/chunks/`).
    * Respect `job.skip_existing` when manifests/raw responses exist; reuse cached `file_uri`s instead of re-uploading.
    * Emit chunk-aware telemetry (`chunk_index`, manifest path, response path) and align NDJSON schema with Section 16.
