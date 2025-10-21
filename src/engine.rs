@@ -119,34 +119,6 @@ impl Engine {
         );
         let modality = modality_for(&normalized);
 
-        let prompt = self.prompts.get(&kind).expect("prompt strategy missing");
-        let preamble = prompt.preamble();
-        let instruction = prompt.instruction(&preamble);
-
-        self.emit(
-            "transcribe",
-            ProgressKind::Transcribe,
-            0,
-            normalized.len() as u64,
-            modality.to_string(),
-        );
-        let meta = serde_json::json!({
-            "kind": kind.as_str(),
-            "source": job.source,
-            "skip_existing": job.skip_existing,
-            "media_resolution": job.media_resolution,
-        });
-        let text = self
-            .provider
-            .transcribe(&instruction, &normalized, modality, &meta)?;
-        self.emit(
-            "transcribe",
-            ProgressKind::Transcribe,
-            normalize_total,
-            normalize_total,
-            "done",
-        );
-
         let base = job
             .output_dir
             .clone()
@@ -166,6 +138,37 @@ impl Engine {
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("output")
+        );
+
+        let prompt = self.prompts.get(&kind).expect("prompt strategy missing");
+        let preamble = prompt.preamble();
+        let instruction = prompt.instruction(&preamble);
+
+        self.emit(
+            "transcribe",
+            ProgressKind::Transcribe,
+            0,
+            normalized.len() as u64,
+            modality.to_string(),
+        );
+        let base_dir_str = base_dir.to_string_lossy().to_string();
+        let meta = serde_json::json!({
+            "kind": kind.as_str(),
+            "source": job.source,
+            "skip_existing": job.skip_existing,
+            "media_resolution": job.media_resolution,
+            "output_base": base_dir_str,
+            "output_name": output_name,
+        });
+        let text = self
+            .provider
+            .transcribe(&instruction, &normalized, modality, &meta)?;
+        self.emit(
+            "transcribe",
+            ProgressKind::Transcribe,
+            normalize_total,
+            normalize_total,
+            "done",
         );
 
         self.emit("write", ProgressKind::Write, 0, 1, "latex");

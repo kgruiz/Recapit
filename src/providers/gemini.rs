@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::{anyhow, Context, Result};
@@ -7,12 +8,14 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_LENGTH, CONTENT_TYPE};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
+use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use crate::constants::{model_capabilities, DEFAULT_MODEL};
 use crate::core::{Asset, Provider, SourceKind};
 use crate::telemetry::{RequestEvent, RunMonitor};
+use crate::utils::ensure_dir;
 
 const INLINE_THRESHOLD_BYTES: usize = 20 * 1024 * 1024;
 
@@ -45,8 +48,8 @@ impl GeminiProvider {
         }
     }
 
-    fn part_for_asset(&self, asset: &Asset) -> Result<(Value, HashMap<String, Value>)> {
-        let mut metadata = HashMap::new();
+    fn part_for_asset(&self, asset: &Asset) -> Result<(Value, Map<String, Value>)> {
+        let mut metadata = Map::new();
         if let Some(obj) = asset.meta.as_object() {
             for (key, value) in obj {
                 metadata.insert(key.clone(), value.clone());
@@ -229,40 +232,27 @@ impl GeminiProvider {
             mime_type: mime.to_string(),
         })
     }
-}
 
-impl Provider for GeminiProvider {
-    fn supports(&self, capability: &str) -> bool {
-        let table = model_capabilities();
-        table
-            .get(self.model.as_str())
-            .or_else(|| table.get(DEFAULT_MODEL))
-            .map(|caps| caps.iter().any(|cap| *cap == capability))
-            .unwrap_or(true)
-    }
-
-    fn transcribe(
+    fn generate(
         &self,
         instruction: &str,
-        assets: &[Asset],
+        assets: &[&Asset],
         modality: &str,
-        meta: &serde_json::Value,
-    ) -> Result<String> {
+        meta: &Value,
+    ) -> Result<(String, Vec<Map<String, Value>>)> {
         let mut parts = Vec::new();
-        let mut event_metadata = HashMap::new();
-        if let Some(obj) = meta.as_object() {
-            for (key, value) in obj {
-                event_metadata.insert(key.clone(), value.clone());
-            }
-        }
-        parts.push(json!({"text": instruction}));
+        let mut asset_metadata = Vec::new();
+        let mut event_metadata = meta.as_object().cloned().unwrap_or_default();
+
         for asset in assets {
             let (part, metadata) = self.part_for_asset(asset)?;
-            for (key, value) in metadata {
-                event_metadata.entry(key).or_insert(value);
+            for (key, value) in metadata.iter() {
+                event_metadata.entry(key.clone()).or_insert(value.clone());
             }
+            asset_metadata.push(metadata);
             parts.push(part);
         }
+        parts.push(json!({"text": instruction}));
 
         let request = json!({
             "contents": [
@@ -328,6 +318,21 @@ impl Provider for GeminiProvider {
             .and_then(|v| v.as_u64())
             .map(|v| v as u32);
 
+        let asset_values: Vec<Value> = asset_metadata
+            .iter()
+            .map(|meta| Value::Object(meta.clone()))
+            .collect();
+        event_metadata.insert("assets".into(), Value::Array(asset_values));
+        if let Some(uri) = asset_metadata
+            .iter()
+            .find_map(|meta| meta.get("file_uri").and_then(|v| v.as_str()))
+        {
+            event_metadata
+                .entry("file_uri".to_string())
+                .or_insert(Value::String(uri.to_string()));
+        }
+
+        let metadata_map: HashMap<String, Value> = event_metadata.clone().into_iter().collect();
         self.monitor.record(RequestEvent {
             model: self.model.clone(),
             modality: modality.to_string(),
@@ -336,9 +341,236 @@ impl Provider for GeminiProvider {
             input_tokens,
             output_tokens,
             total_tokens,
-            metadata: event_metadata,
+            metadata: metadata_map,
         });
 
+        Ok((text, asset_metadata))
+    }
+
+    fn transcribe_chunks(
+        &self,
+        instruction: &str,
+        assets: &[&Asset],
+        modality: &str,
+        meta: &Value,
+    ) -> Result<String> {
+        if assets.is_empty() {
+            return Ok(String::new());
+        }
+
+        let base = meta_string(meta, "output_base")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("output"));
+        let name = meta_string(meta, "output_name").unwrap_or_else(|| "output".into());
+        let skip_existing = meta_bool(meta, "skip_existing").unwrap_or(false);
+        let chunk_dir = base.join("full-response").join("chunks");
+        ensure_dir(&chunk_dir)?;
+
+        let manifest_path = assets
+            .iter()
+            .filter_map(|asset| meta_string(&asset.meta, "manifest_path"))
+            .map(PathBuf::from)
+            .next()
+            .unwrap_or_else(|| base.join("chunks.json"));
+
+        let mut manifest = load_manifest(&manifest_path);
+        let chunks_array = manifest_chunks(&mut manifest)?;
+        let mut chunk_index_lookup = HashMap::new();
+        for (idx, entry) in chunks_array.iter().enumerate() {
+            if let Some(index) = entry.get("index").and_then(|v| v.as_u64()) {
+                chunk_index_lookup.insert(index, idx);
+            }
+        }
+
+        let mut responses = Vec::new();
+        for asset in assets {
+            let chunk_index = meta_u64(&asset.meta, "chunk_index").unwrap_or(0);
+            let entry_index = chunk_index_lookup.get(&chunk_index).copied();
+            let entry = if let Some(idx) = entry_index {
+                chunks_array.get_mut(idx).unwrap()
+            } else {
+                chunks_array.push(Value::Object(Map::new()));
+                let idx = chunks_array.len() - 1;
+                chunk_index_lookup.insert(chunk_index, idx);
+                chunks_array.get_mut(idx).unwrap()
+            };
+
+            let entry_obj = entry
+                .as_object_mut()
+                .ok_or_else(|| anyhow!("manifest chunk entry not object"))?;
+            entry_obj.insert("index".into(), Value::from(chunk_index));
+            entry_obj.insert(
+                "path".into(),
+                Value::String(asset.path.to_string_lossy().to_string()),
+            );
+            entry_obj.insert(
+                "start_seconds".into(),
+                meta_f64(&asset.meta, "chunk_start_seconds")
+                    .map(Value::from)
+                    .unwrap_or(Value::Null),
+            );
+            entry_obj.insert(
+                "end_seconds".into(),
+                meta_f64(&asset.meta, "chunk_end_seconds")
+                    .map(Value::from)
+                    .unwrap_or(Value::Null),
+            );
+
+            let response_path = entry_obj
+                .get("response_path")
+                .and_then(|v| v.as_str())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| chunk_dir.join(format!("{name}-chunk{chunk_index:02}.txt")));
+            entry_obj.insert(
+                "response_path".into(),
+                Value::String(response_path.to_string_lossy().to_string()),
+            );
+
+            if skip_existing && response_path.exists() {
+                let text = fs::read_to_string(&response_path)?;
+                responses.push(text.trim().to_string());
+                entry_obj.insert("status".into(), Value::String("done".into()));
+                self.monitor.note_event(
+                    "chunk.skip",
+                    json!({
+                        "chunk_index": chunk_index,
+                        "manifest_path": manifest_path,
+                        "response_path": response_path,
+                    }),
+                );
+                continue;
+            }
+
+            let mut chunk_meta_map = meta.as_object().cloned().unwrap_or_default();
+            chunk_meta_map.insert("chunk_index".into(), Value::from(chunk_index));
+            chunk_meta_map.insert("chunk_total".into(), Value::from(assets.len() as u64));
+            if let Some(start) = meta_f64(&asset.meta, "chunk_start_seconds") {
+                chunk_meta_map.insert("chunk_start_seconds".into(), Value::from(start));
+            }
+            if let Some(end) = meta_f64(&asset.meta, "chunk_end_seconds") {
+                chunk_meta_map.insert("chunk_end_seconds".into(), Value::from(end));
+            }
+            chunk_meta_map.insert(
+                "manifest_path".into(),
+                Value::String(manifest_path.to_string_lossy().to_string()),
+            );
+            chunk_meta_map.insert(
+                "response_path".into(),
+                Value::String(response_path.to_string_lossy().to_string()),
+            );
+
+            let chunk_meta_value = Value::Object(chunk_meta_map.clone());
+            let (text, event_assets) = self.generate(
+                instruction,
+                std::slice::from_ref(asset),
+                modality,
+                &chunk_meta_value,
+            )?;
+            save_chunk_text(&response_path, &text)?;
+            entry_obj.insert("status".into(), Value::String("done".into()));
+            if let Some(file_uri) = event_assets
+                .first()
+                .and_then(|meta| meta.get("file_uri"))
+                .and_then(|v| v.as_str())
+            {
+                entry_obj.insert("file_uri".into(), Value::String(file_uri.to_string()));
+            }
+            responses.push(text.trim().to_string());
+        }
+
+        write_manifest(&manifest_path, &mut manifest)?;
+        Ok(responses.join("\n\n"))
+    }
+}
+
+impl Provider for GeminiProvider {
+    fn supports(&self, capability: &str) -> bool {
+        let table = model_capabilities();
+        table
+            .get(self.model.as_str())
+            .or_else(|| table.get(DEFAULT_MODEL))
+            .map(|caps| caps.iter().any(|cap| *cap == capability))
+            .unwrap_or(true)
+    }
+
+    fn transcribe(
+        &self,
+        instruction: &str,
+        assets: &[Asset],
+        modality: &str,
+        meta: &serde_json::Value,
+    ) -> Result<String> {
+        let mut chunk_assets: Vec<&Asset> = assets
+            .iter()
+            .filter(|asset| meta_u64(&asset.meta, "chunk_index").is_some())
+            .collect();
+        if !chunk_assets.is_empty() {
+            chunk_assets.sort_by_key(|asset| meta_u64(&asset.meta, "chunk_index").unwrap_or(0));
+            return self.transcribe_chunks(instruction, &chunk_assets, modality, meta);
+        }
+
+        let asset_refs: Vec<&Asset> = assets.iter().collect();
+        let (text, _) = self.generate(instruction, &asset_refs, modality, meta)?;
         Ok(text)
     }
+}
+
+fn meta_u64(value: &Value, key: &str) -> Option<u64> {
+    value.as_object()?.get(key)?.as_u64()
+}
+
+fn meta_f64(value: &Value, key: &str) -> Option<f64> {
+    value.as_object()?.get(key)?.as_f64()
+}
+
+fn meta_bool(value: &Value, key: &str) -> Option<bool> {
+    value.as_object()?.get(key)?.as_bool()
+}
+
+fn meta_string(value: &Value, key: &str) -> Option<String> {
+    value.as_object()?.get(key)?.as_str().map(|s| s.to_string())
+}
+
+fn load_manifest(path: &Path) -> Value {
+    if let Ok(text) = fs::read_to_string(path) {
+        serde_json::from_str(&text).unwrap_or_else(|_| json!({"version": 1, "chunks": []}))
+    } else {
+        json!({"version": 1, "chunks": []})
+    }
+}
+
+fn manifest_chunks(manifest: &mut Value) -> Result<&mut Vec<Value>> {
+    let obj = manifest
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("manifest payload must be an object"))?;
+    let entry = obj
+        .entry("chunks")
+        .or_insert_with(|| Value::Array(Vec::new()));
+    entry
+        .as_array_mut()
+        .ok_or_else(|| anyhow!("manifest chunks must be an array"))
+}
+
+fn save_chunk_text(path: &Path, text: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        ensure_dir(parent)?;
+    }
+    let mut content = text.trim_end_matches('\n').to_string();
+    content.push('\n');
+    fs::write(path, content)?;
+    Ok(())
+}
+
+fn write_manifest(path: &Path, manifest: &mut Value) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        ensure_dir(parent)?;
+    }
+    let now = OffsetDateTime::now_utc().format(&Rfc3339)?;
+    if let Some(obj) = manifest.as_object_mut() {
+        obj.entry("created_utc")
+            .or_insert_with(|| Value::String(now.clone()));
+        obj.insert("updated_utc".into(), Value::String(now));
+    }
+    fs::write(path, serde_json::to_string_pretty(manifest)?)?;
+    Ok(())
 }
