@@ -1,11 +1,20 @@
-use crate::core::{Ingestor, Job, Normalizer, PromptStrategy, Provider, Writer};
-use crate::telemetry::RunMonitor;
-use anyhow::Result;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+use anyhow::Result;
+use serde_json::json;
 use tokio::sync::mpsc::UnboundedSender;
 
-#[allow(dead_code)]
-#[derive(Clone, Debug)]
+use crate::config::AppConfig;
+use crate::core::{Asset, Ingestor, Job, Kind, Normalizer, PromptStrategy, Provider, Writer};
+use crate::cost::CostEstimator;
+use crate::prompts::TemplatePromptStrategy;
+use crate::render::subtitles::SubtitleExporter;
+use crate::telemetry::RunMonitor;
+use crate::templates::TemplateLoader;
+use crate::utils::slugify;
+
+#[derive(Debug, Clone)]
 pub enum ProgressKind {
     Discover,
     Normalize,
@@ -14,7 +23,7 @@ pub enum ProgressKind {
     Write,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct Progress {
     pub task: String,
     pub kind: ProgressKind,
@@ -23,139 +32,197 @@ pub struct Progress {
     pub status: String,
 }
 
-pub struct Engine<I, N, P, W>
-where
-    I: Ingestor,
-    N: Normalizer,
-    P: Provider,
-    W: Writer,
-{
-    pub ingestor: I,
-    pub normalizer: N,
-    pub provider: P,
-    pub writer: W,
+pub struct Engine {
+    pub ingestor: Box<dyn Ingestor>,
+    pub normalizer: Box<dyn Normalizer>,
+    pub prompts: HashMap<Kind, Box<dyn PromptStrategy>>,
+    pub provider: Box<dyn Provider>,
+    pub writer: Box<dyn Writer>,
     pub monitor: RunMonitor,
-    pub tx: UnboundedSender<Progress>,
+    pub cost: CostEstimator,
+    pub subtitles: Option<SubtitleExporter>,
+    pub progress: UnboundedSender<Progress>,
 }
 
-impl<I, N, P, W> Engine<I, N, P, W>
-where
-    I: Ingestor,
-    N: Normalizer,
-    P: Provider,
-    W: Writer,
-{
-    pub async fn run(&self, job: &Job, prompt: &dyn PromptStrategy) -> Result<Option<PathBuf>> {
-        let _ = self.monitor.elapsed();
-        self.normalizer.prepare(job)?;
-        self.tx
-            .send(Progress {
-                task: "discover".into(),
-                kind: ProgressKind::Discover,
-                current: 0,
-                total: 1,
-                status: "start".into(),
-            })
-            .ok();
+impl Engine {
+    pub fn new(
+        ingestor: Box<dyn Ingestor>,
+        normalizer: Box<dyn Normalizer>,
+        provider: Box<dyn Provider>,
+        writer: Box<dyn Writer>,
+        progress: UnboundedSender<Progress>,
+        monitor: RunMonitor,
+        cost: CostEstimator,
+        config: &AppConfig,
+    ) -> Result<Self> {
+        let loader = TemplateLoader::new(config.templates_dir.clone());
+        let mut prompts = HashMap::new();
+        for kind in [
+            Kind::Slides,
+            Kind::Lecture,
+            Kind::Document,
+            Kind::Image,
+            Kind::Video,
+        ] {
+            prompts.insert(
+                kind,
+                Box::new(TemplatePromptStrategy::new(loader.clone(), kind)) as _,
+            );
+        }
+        Ok(Self {
+            ingestor,
+            normalizer,
+            prompts,
+            provider,
+            writer,
+            monitor,
+            cost,
+            subtitles: Some(SubtitleExporter::default()),
+            progress,
+        })
+    }
 
+    pub async fn run(&mut self, job: &Job) -> Result<Option<PathBuf>> {
+        self.normalizer.prepare(job)?;
+        self.emit("discover", ProgressKind::Discover, 0, 1, "start");
         let assets = self.ingestor.discover(job)?;
         if assets.is_empty() {
+            self.monitor
+                .note_event("discover.empty", json!({"source": job.source.clone()}));
             return Ok(None);
         }
 
-        self.tx
-            .send(Progress {
-                task: "normalize".into(),
-                kind: ProgressKind::Normalize,
-                current: 0,
-                total: assets.len() as u64,
-                status: "queue".into(),
-            })
-            .ok();
+        let kind = job.kind.unwrap_or_else(|| infer_kind(&assets));
+        self.emit(
+            "normalize",
+            ProgressKind::Normalize,
+            0,
+            assets.len() as u64,
+            "queue",
+        );
         let normalized = self.normalizer.normalize(&assets, job.pdf_mode)?;
+        let modality = modality_for(&normalized);
 
-        let modality = normalized
-            .first()
-            .map(|a| match a.media.as_str() {
-                "video" | "audio" => "video",
-                "pdf" => "pdf",
-                _ => "image",
-            })
-            .unwrap_or("image");
-
+        let prompt = self.prompts.get(&kind).expect("prompt strategy missing");
         let preamble = prompt.preamble();
         let instruction = prompt.instruction(&preamble);
 
-        self.tx
-            .send(Progress {
-                task: "transcribe".into(),
-                kind: ProgressKind::Transcribe,
-                current: 0,
-                total: normalized.len() as u64,
-                status: modality.into(),
-            })
-            .ok();
-        let _ = self.provider.supports(modality);
-        let text = self.provider.transcribe(
-            &instruction,
-            &normalized,
-            modality,
-            &serde_json::json!({
-                "kind": job.kind.map(|k| format!("{:?}", k)),
-                "source": job.source,
-                "media_resolution": job.media_resolution,
-                "skip_existing": job.skip_existing,
-            }),
-        )?;
+        self.emit(
+            "transcribe",
+            ProgressKind::Transcribe,
+            0,
+            normalized.len() as u64,
+            modality.to_string(),
+        );
+        let meta = serde_json::json!({
+            "kind": kind.as_str(),
+            "source": job.source,
+            "skip_existing": job.skip_existing,
+            "media_resolution": job.media_resolution,
+        });
+        let text = self
+            .provider
+            .transcribe(&instruction, &normalized, modality, &meta)?;
 
         let base = job
             .output_dir
             .clone()
             .unwrap_or_else(|| Path::new("output").to_path_buf());
-        let source_slug = if job.source.contains("://") {
-            slugify("remote")
+        let source_slug = slugify(if job.source.contains("://") {
+            "remote"
         } else {
-            let source_path = Path::new(&job.source);
-            slugify(
-                source_path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("source"),
-            )
-        };
-        let base_dir = base.join(source_slug);
-        let out_name = Path::new(&job.source)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "transcript".to_string());
+            Path::new(&job.source)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("source")
+        });
+        let base_dir = base.join(&source_slug);
+        let output_name = format!(
+            "{}-transcribed",
+            Path::new(&job.source)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("output")
+        );
 
-        self.tx
-            .send(Progress {
-                task: "write".into(),
-                kind: ProgressKind::Write,
-                current: 0,
-                total: 1,
-                status: "latex".into(),
-            })
-            .ok();
-        let path = self
+        self.emit("write", ProgressKind::Write, 0, 1, "latex");
+        let output_path = self
             .writer
-            .write_latex(&base_dir, &out_name, &preamble, &text)?;
-        Ok(Some(path))
+            .write_latex(&base_dir, &output_name, &preamble, &text)?;
+
+        let mut extra_files = Vec::new();
+        if let Some(subtitles) = &self.subtitles {
+            if !job.export.is_empty() {
+                let chunks = self.normalizer.chunk_descriptors();
+                for fmt in &job.export {
+                    if let Some(path) =
+                        subtitles.write(fmt, &base_dir, &output_name, &text, &chunks)?
+                    {
+                        extra_files.push(path);
+                    }
+                }
+            }
+        }
+
+        let artifacts = self.normalizer.artifact_paths();
+        let mut files = vec![output_path.clone()];
+        files.extend(artifacts.clone());
+        files.extend(extra_files.clone());
+
+        let limits = crate::constants::rate_limits_per_minute();
+        let limit_map = limits
+            .into_iter()
+            .map(|(k, v)| (k, Some(v)))
+            .collect::<HashMap<_, _>>();
+        let events_path = base_dir.join("run-events.ndjson");
+        self.monitor.flush_summary(
+            &base_dir.join("run-summary.json"),
+            &self.cost,
+            job,
+            &files,
+            &limit_map,
+            Some(&events_path),
+        )?;
+
+        Ok(Some(output_path))
+    }
+
+    fn emit(
+        &self,
+        task: &str,
+        kind: ProgressKind,
+        current: u64,
+        total: u64,
+        status: impl Into<String>,
+    ) {
+        let _ = self.progress.send(Progress {
+            task: task.into(),
+            kind,
+            current,
+            total,
+            status: status.into(),
+        });
     }
 }
 
-fn slugify(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
-                c
-            } else {
-                '-'
-            }
+fn infer_kind(assets: &[Asset]) -> Kind {
+    if let Some(first) = assets.first() {
+        match first.media.as_str() {
+            "video" => return Kind::Lecture,
+            "image" => return Kind::Slides,
+            _ => {}
+        }
+    }
+    Kind::Document
+}
+
+fn modality_for(assets: &[Asset]) -> &str {
+    assets
+        .first()
+        .map(|asset| match asset.media.as_str() {
+            "video" | "audio" => "video",
+            "pdf" => "pdf",
+            _ => "image",
         })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string()
+        .unwrap_or("image")
 }

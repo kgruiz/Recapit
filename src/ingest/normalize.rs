@@ -1,0 +1,275 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use anyhow::{bail, Result};
+use serde_json::{json, Value};
+use time::OffsetDateTime;
+
+use crate::core::{Asset, Job, PdfMode, SourceKind};
+use crate::pdf::pdf_to_png;
+use crate::utils::{ensure_dir, slugify};
+use crate::video::{
+    plan_video_chunks, probe_video, select_encoder_chain, sha256sum, VideoChunkPlan,
+    VideoEncoderPreference, DEFAULT_MAX_CHUNK_BYTES, DEFAULT_MAX_CHUNK_SECONDS,
+    DEFAULT_TOKENS_PER_SECOND,
+};
+
+pub struct CompositeNormalizer {
+    image_root: PathBuf,
+    video_root: PathBuf,
+    encoder_preference: VideoEncoderPreference,
+    max_chunk_seconds: f64,
+    max_chunk_bytes: u64,
+    token_limit: Option<u32>,
+    tokens_per_second: f64,
+    supports: Box<dyn Fn(&str) -> bool + Send + Sync>,
+    job: Option<Job>,
+    chunk_info: Vec<Value>,
+    manifest_path: Option<PathBuf>,
+}
+
+impl CompositeNormalizer {
+    pub fn new(
+        image_root: Option<PathBuf>,
+        video_root: Option<PathBuf>,
+        encoder_preference: VideoEncoderPreference,
+        max_chunk_seconds: Option<f64>,
+        max_chunk_bytes: Option<u64>,
+        token_limit: Option<u32>,
+        tokens_per_second: Option<f64>,
+        capability_checker: Option<Box<dyn Fn(&str) -> bool + Send + Sync>>,
+    ) -> Result<Self> {
+        let image_root =
+            image_root.unwrap_or_else(|| std::env::temp_dir().join("recapit-pdf-pages"));
+        let video_root = video_root.unwrap_or_else(|| std::env::temp_dir().join("recapit-video"));
+        ensure_dir(&image_root)?;
+        ensure_dir(&video_root)?;
+        Ok(Self {
+            image_root,
+            video_root,
+            encoder_preference,
+            max_chunk_seconds: max_chunk_seconds.unwrap_or(DEFAULT_MAX_CHUNK_SECONDS),
+            max_chunk_bytes: max_chunk_bytes.unwrap_or(DEFAULT_MAX_CHUNK_BYTES),
+            token_limit,
+            tokens_per_second: tokens_per_second.unwrap_or(DEFAULT_TOKENS_PER_SECOND),
+            supports: capability_checker.unwrap_or_else(|| Box::new(|_| true)),
+            job: None,
+            chunk_info: Vec::new(),
+            manifest_path: None,
+        })
+    }
+
+    fn normalize_inner(&mut self, assets: &[Asset], pdf_mode: PdfMode) -> Result<Vec<Asset>> {
+        self.chunk_info.clear();
+        self.manifest_path = None;
+        let resolved = self.resolve_pdf_mode(pdf_mode)?;
+        let mut normalized = Vec::new();
+        for asset in assets {
+            match asset.media.as_str() {
+                "pdf" => normalized.extend(self.normalize_pdf(asset, resolved.clone())?),
+                "video" | "audio" => normalized.extend(self.normalize_video(asset)?),
+                _ => normalized.push(asset.clone()),
+            }
+        }
+        Ok(normalized)
+    }
+
+    fn normalize_pdf(&self, asset: &Asset, mode: PdfMode) -> Result<Vec<Asset>> {
+        match mode {
+            PdfMode::Pdf => Ok(vec![asset.clone()]),
+            PdfMode::Auto => Ok(vec![asset.clone()]),
+            PdfMode::Images => {
+                let output_dir = self.pdf_output_dir(asset);
+                let prefix = asset
+                    .path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "page".into());
+                let pages = match pdf_to_png(&asset.path, &output_dir, Some(&prefix)) {
+                    Ok(pages) => pages,
+                    Err(_) => return Ok(vec![asset.clone()]),
+                };
+                let mut result = Vec::new();
+                for (idx, page) in pages.iter().enumerate() {
+                    result.push(Asset {
+                        path: page.clone(),
+                        media: "image".into(),
+                        page_index: Some(idx as u32),
+                        source_kind: asset.source_kind,
+                        mime: Some("image/png".into()),
+                        meta: json!({
+                            "source_pdf": asset.path,
+                            "page_index": idx,
+                            "page_total": pages.len(),
+                        }),
+                    });
+                }
+                Ok(result)
+            }
+        }
+    }
+
+    fn pdf_output_dir(&self, asset: &Asset) -> PathBuf {
+        let slug = asset
+            .path
+            .file_stem()
+            .map(|s| slugify(&s.to_string_lossy()))
+            .unwrap_or_else(|| "document".into());
+        self.job_root().join("page-images").join(slug)
+    }
+
+    fn job_root(&self) -> PathBuf {
+        if let Some(job) = &self.job {
+            if let Some(output_dir) = &job.output_dir {
+                let slug = if job.source.contains("://") {
+                    "remote".to_string()
+                } else {
+                    job.source
+                        .rsplit_once('/')
+                        .map(|(_, tail)| tail.to_string())
+                        .unwrap_or_else(|| job.source.clone())
+                };
+                return output_dir.join(slugify(slug));
+            }
+        }
+        self.video_root.clone()
+    }
+
+    fn resolve_pdf_mode(&self, requested: PdfMode) -> Result<PdfMode> {
+        if let PdfMode::Auto = requested {
+            if (self.supports)("pdf") {
+                return Ok(PdfMode::Pdf);
+            }
+            if (self.supports)("image") {
+                return Ok(PdfMode::Images);
+            }
+            bail!("Provider does not support PDF or image ingestion");
+        }
+        Ok(requested)
+    }
+
+    fn normalize_video(&mut self, asset: &Asset) -> Result<Vec<Asset>> {
+        if asset.source_kind == SourceKind::Youtube {
+            if asset.meta.get("pass_through").and_then(|v| v.as_bool()) == Some(true) {
+                return Ok(vec![asset.clone()]);
+            }
+        }
+
+        let job_root = self.job_root();
+        ensure_dir(&job_root)?;
+        let slug = asset
+            .path
+            .file_stem()
+            .map(|s| slugify(&s.to_string_lossy()))
+            .unwrap_or_else(|| "video".into());
+        let normalized_dir = job_root
+            .join("pickles")
+            .join("video-chunks")
+            .join(slug.clone());
+        ensure_dir(&normalized_dir)?;
+
+        let encoder_specs = select_encoder_chain(self.encoder_preference.clone());
+        let normalization =
+            crate::video::normalize_video(&asset.path, &normalized_dir, &encoder_specs)?;
+        let normalized_path = normalization.path.clone();
+        let metadata = probe_video(&normalized_path)?;
+        let manifest_path = job_root.join("manifests").join(format!("{slug}.json"));
+
+        ensure_dir(manifest_path.parent().unwrap())?;
+        let chunk_plan = plan_video_chunks(
+            &metadata,
+            &normalized_path,
+            self.max_chunk_seconds,
+            self.max_chunk_bytes,
+            self.token_limit,
+            self.tokens_per_second,
+            &normalized_dir.join("chunks"),
+            Some(manifest_path.clone()),
+        )?;
+        self.write_manifest(&chunk_plan, asset, &manifest_path)?;
+        self.manifest_path = Some(manifest_path.clone());
+
+        let chunk_total = chunk_plan.chunks.len();
+        let mut outputs = Vec::new();
+        for chunk in &chunk_plan.chunks {
+            let meta = json!({
+                "chunk_index": chunk.index,
+                "chunk_total": chunk_total,
+                "chunk_start_seconds": chunk.start_seconds,
+                "chunk_end_seconds": chunk.end_seconds,
+                "manifest_path": manifest_path,
+                "normalized_path": chunk_plan.normalized_path,
+                "source_video": asset.path,
+            });
+            outputs.push(Asset {
+                path: chunk.path.clone(),
+                media: "video".into(),
+                page_index: None,
+                source_kind: asset.source_kind,
+                mime: Some("video/mp4".into()),
+                meta: meta.clone(),
+            });
+            self.chunk_info.push(meta);
+        }
+        Ok(outputs)
+    }
+
+    fn write_manifest(
+        &self,
+        plan: &VideoChunkPlan,
+        asset: &Asset,
+        manifest_path: &Path,
+    ) -> Result<()> {
+        ensure_dir(manifest_path.parent().unwrap())?;
+        let mut chunks = Vec::<Value>::new();
+        for chunk in &plan.chunks {
+            chunks.push(json!({
+                "index": chunk.index,
+                "start_seconds": chunk.start_seconds,
+                "end_seconds": chunk.end_seconds,
+                "start_iso": crate::video::seconds_to_iso(chunk.start_seconds),
+                "end_iso": crate::video::seconds_to_iso(chunk.end_seconds),
+                "path": chunk.path,
+                "status": "pending",
+            }));
+        }
+        let source_hash = sha256sum(&asset.path)?;
+        let normalized_hash = sha256sum(&plan.normalized_path)?;
+        let payload = json!({
+            "version": 1,
+            "source": asset.path,
+            "source_hash": format!("sha256:{source_hash}"),
+            "source_kind": asset.source_kind,
+            "normalized": plan.normalized_path,
+            "normalized_hash": format!("sha256:{normalized_hash}"),
+            "duration_seconds": plan.metadata.duration_seconds,
+            "size_bytes": plan.metadata.size_bytes,
+            "fps": plan.metadata.fps,
+            "tokens_per_second": self.tokens_per_second,
+            "created_utc": OffsetDateTime::now_utc(),
+            "updated_utc": OffsetDateTime::now_utc(),
+            "chunks": chunks,
+        });
+        fs::write(manifest_path, serde_json::to_string_pretty(&payload)?)?;
+        Ok(())
+    }
+}
+
+impl crate::core::Normalizer for CompositeNormalizer {
+    fn prepare(&mut self, job: &Job) -> Result<()> {
+        self.job = Some(job.clone());
+        Ok(())
+    }
+
+    fn normalize(&mut self, assets: &[Asset], pdf_mode: PdfMode) -> Result<Vec<Asset>> {
+        self.normalize_inner(assets, pdf_mode)
+    }
+
+    fn chunk_descriptors(&self) -> Vec<Value> {
+        self.chunk_info.clone()
+    }
+
+    fn artifact_paths(&self) -> Vec<PathBuf> {
+        self.manifest_path.clone().into_iter().collect()
+    }
+}

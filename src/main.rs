@@ -1,63 +1,27 @@
 mod cli;
 mod config;
+mod constants;
 mod core;
+mod cost;
 mod engine;
 mod ingest;
 mod pdf;
+mod prompts;
 mod providers;
 mod render;
 mod telemetry;
 mod templates;
 mod tui;
+mod utils;
 mod video;
 
 use clap::Parser;
 use core::{Job, Kind, PdfMode};
 use engine::{Engine, Progress, ProgressKind};
+use ingest::{CompositeIngestor, CompositeNormalizer};
 use providers::gemini::GeminiProvider;
 use render::writer::LatexWriter;
-use telemetry::RunMonitor;
 use tokio::sync::mpsc;
-
-struct SimplePrompt {
-    kind: Kind,
-}
-
-impl core::PromptStrategy for SimplePrompt {
-    fn preamble(&self) -> String {
-        match self.kind {
-            Kind::Slides => templates::slide_preamble().to_string(),
-            Kind::Lecture => templates::lecture_preamble().to_string(),
-            Kind::Image => templates::image_preamble().to_string(),
-            Kind::Video => templates::video_preamble().to_string(),
-            Kind::Document => templates::document_preamble().to_string(),
-        }
-    }
-
-    fn instruction(&self, preamble: &str) -> String {
-        let kind = match self.kind {
-            Kind::Slides => "slides",
-            Kind::Lecture => "lecture",
-            Kind::Image => "image",
-            Kind::Video => "video",
-            Kind::Document => "document",
-        };
-        templates::default_prompt(kind, preamble)
-    }
-}
-
-struct Normalizer;
-
-impl core::Normalizer for Normalizer {
-    fn normalize(
-        &self,
-        assets: &[core::Asset],
-        pdf_mode: PdfMode,
-    ) -> anyhow::Result<Vec<core::Asset>> {
-        let _ = pdf_mode;
-        Ok(assets.to_vec())
-    }
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -82,18 +46,38 @@ async fn main() -> anyhow::Result<()> {
 
             let tui_handle = tokio::spawn(tui::run_tui(rx));
 
-            let ingestor = ingest::CompositeIngestor;
-            let normalizer = Normalizer;
-            let provider = GeminiProvider::new(cfg.api_key.clone(), model.clone());
-            let writer = LatexWriter::new();
-            let engine = Engine {
-                ingestor,
-                normalizer,
-                provider,
-                writer,
-                monitor: RunMonitor::new(),
-                tx: tx.clone(),
+            let monitor = telemetry::RunMonitor::new();
+            let provider = GeminiProvider::new(cfg.api_key.clone(), model.clone(), monitor.clone());
+            let normalizer = CompositeNormalizer::new(
+                None,
+                None,
+                cfg.video_encoder_preference,
+                Some(cfg.video_max_chunk_seconds),
+                Some(cfg.video_max_chunk_bytes),
+                cfg.video_token_limit,
+                Some(cfg.video_tokens_per_second),
+                None,
+            )?;
+            let ingestor = CompositeIngestor::new()?;
+            let cost = cost::CostEstimator::from_path(
+                cfg.pricing_file.as_deref(),
+                cfg.pricing_defaults.clone(),
+            )?;
+            let exports = if export.is_empty() {
+                cfg.exports.clone()
+            } else {
+                export.clone()
             };
+            let mut engine = Engine::new(
+                Box::new(ingestor),
+                Box::new(normalizer),
+                Box::new(provider),
+                Box::new(LatexWriter::new()),
+                tx.clone(),
+                monitor.clone(),
+                cost,
+                &cfg,
+            )?;
 
             tx.send(Progress {
                 task: "bootstrap".into(),
@@ -112,15 +96,12 @@ async fn main() -> anyhow::Result<()> {
                 output_dir,
                 model,
                 preset: None,
-                export,
+                export: exports,
                 skip_existing,
-                media_resolution: cfg.video_media_resolution.clone(),
+                media_resolution: Some(cfg.media_resolution.clone()),
             };
 
-            let prompt = SimplePrompt {
-                kind: job.kind.unwrap_or(Kind::Document),
-            };
-            let result = engine.run(&job, &prompt).await?;
+            let result = engine.run(&job).await?;
             if let Some(path) = result {
                 tx.send(Progress {
                     task: "done".into(),

@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use serde_json::Value;
+use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "lowercase")]
 pub enum Kind {
     Slides,
     Lecture,
@@ -10,14 +12,50 @@ pub enum Kind {
     Video,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+impl Kind {
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.to_lowercase().as_str() {
+            "slides" => Some(Self::Slides),
+            "lecture" => Some(Self::Lecture),
+            "document" => Some(Self::Document),
+            "image" => Some(Self::Image),
+            "video" => Some(Self::Video),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Kind::Slides => "slides",
+            Kind::Lecture => "lecture",
+            Kind::Document => "document",
+            Kind::Image => "image",
+            Kind::Video => "video",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum PdfMode {
     Auto,
     Images,
     Pdf,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+impl PdfMode {
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.to_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "images" => Some(Self::Images),
+            "pdf" => Some(Self::Pdf),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SourceKind {
     Local,
     Url,
@@ -32,10 +70,17 @@ pub struct Asset {
     pub page_index: Option<u32>,
     pub source_kind: SourceKind,
     pub mime: Option<String>,
-    pub meta: serde_json::Value,
+    #[serde(default)]
+    pub meta: Value,
 }
 
-#[allow(dead_code)]
+impl Asset {
+    pub fn with_meta(mut self, meta: Value) -> Self {
+        self.meta = meta;
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Job {
     pub source: String,
@@ -55,20 +100,18 @@ pub trait Ingestor: Send + Sync {
 }
 
 pub trait Normalizer: Send + Sync {
-    fn prepare(&self, _job: &Job) -> anyhow::Result<()> {
+    fn prepare(&mut self, _job: &Job) -> anyhow::Result<()> {
         Ok(())
     }
 
-    fn normalize(&self, assets: &[Asset], pdf_mode: PdfMode) -> anyhow::Result<Vec<Asset>>;
+    fn normalize(&mut self, assets: &[Asset], pdf_mode: PdfMode) -> anyhow::Result<Vec<Asset>>;
 
-    #[allow(dead_code)]
-    fn chunk_descriptors(&self) -> Vec<serde_json::Value> {
-        vec![]
+    fn chunk_descriptors(&self) -> Vec<Value> {
+        Vec::new()
     }
 
-    #[allow(dead_code)]
     fn artifact_paths(&self) -> Vec<PathBuf> {
-        vec![]
+        Vec::new()
     }
 }
 
@@ -78,7 +121,6 @@ pub trait PromptStrategy: Send + Sync {
 }
 
 pub trait Provider: Send + Sync {
-    #[allow(dead_code)]
     fn supports(&self, capability: &str) -> bool;
 
     fn transcribe(
@@ -86,14 +128,14 @@ pub trait Provider: Send + Sync {
         instruction: &str,
         assets: &[Asset],
         modality: &str,
-        meta: &serde_json::Value,
+        meta: &Value,
     ) -> anyhow::Result<String>;
 }
 
 pub trait Writer: Send + Sync {
     fn write_latex(
         &self,
-        base: &std::path::Path,
+        base: &Path,
         name: &str,
         preamble: &str,
         body: &str,
