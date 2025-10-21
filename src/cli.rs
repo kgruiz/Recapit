@@ -38,4 +38,41 @@ pub enum Command {
         #[arg(long, default_value = "auto")]
         pdf_mode: String,
     },
+    /// Conversion utilities
+    Convert {
+        #[command(subcommand)]
+        command: ConvertCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConvertCommand {
+    /// Convert LaTeX sources to Markdown using Gemini
+    LatexToMd {
+        source: PathBuf,
+        #[arg(short = 'o', long)]
+        output_dir: Option<PathBuf>,
+        #[arg(long, default_value = "*.tex")]
+        file_pattern: String,
+        #[arg(long, default_value_t = true)]
+        skip_existing: bool,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long, default_value_t = false)]
+        recursive: bool,
+    },
+    /// Convert LaTeX tables or structured content to JSON using Gemini
+    LatexToJson {
+        source: PathBuf,
+        #[arg(short = 'o', long)]
+        output_dir: Option<PathBuf>,
+        #[arg(long, default_value = "*.tex")]
+        file_pattern: String,
+        #[arg(long, default_value_t = true)]
+        skip_existing: bool,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long, default_value_t = false)]
+        recursive: bool,
+    },
 }
