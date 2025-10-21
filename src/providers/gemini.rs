@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use time::OffsetDateTime;
 
 use crate::constants::{model_capabilities, DEFAULT_MODEL};
-use crate::core::{Asset, Provider};
+use crate::core::{Asset, Provider, SourceKind};
 use crate::telemetry::{RequestEvent, RunMonitor};
 
 const INLINE_THRESHOLD_BYTES: usize = 20 * 1024 * 1024;
@@ -62,6 +62,25 @@ impl GeminiProvider {
                     .map(|s| s.to_string())
             })
             .unwrap_or_else(|| "application/octet-stream".to_string());
+
+        if asset.source_kind == SourceKind::Youtube
+            && asset.meta.get("pass_through").and_then(|v| v.as_bool()) == Some(true)
+        {
+            if let Some(url) = asset
+                .meta
+                .get("source_url")
+                .and_then(|value| value.as_str())
+            {
+                metadata.insert("file_uri".into(), Value::String(url.to_string()));
+                let part = json!({
+                    "file_data": {
+                        "file_uri": url,
+                        "mime_type": mime,
+                    }
+                });
+                return Ok((part, metadata));
+            }
+        }
 
         if let Some(inline_bytes) = asset
             .meta

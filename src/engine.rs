@@ -91,6 +91,14 @@ impl Engine {
                 .note_event("discover.empty", json!({"source": job.source.clone()}));
             return Ok(None);
         }
+        let discover_total = assets.len() as u64;
+        self.emit(
+            "discover",
+            ProgressKind::Discover,
+            discover_total,
+            discover_total,
+            "done",
+        );
 
         let kind = job.kind.unwrap_or_else(|| infer_kind(&assets));
         self.emit(
@@ -101,6 +109,14 @@ impl Engine {
             "queue",
         );
         let normalized = self.normalizer.normalize(&assets, job.pdf_mode)?;
+        let normalize_total = normalized.len() as u64;
+        self.emit(
+            "normalize",
+            ProgressKind::Normalize,
+            normalize_total,
+            normalize_total,
+            "done",
+        );
         let modality = modality_for(&normalized);
 
         let prompt = self.prompts.get(&kind).expect("prompt strategy missing");
@@ -123,6 +139,13 @@ impl Engine {
         let text = self
             .provider
             .transcribe(&instruction, &normalized, modality, &meta)?;
+        self.emit(
+            "transcribe",
+            ProgressKind::Transcribe,
+            normalize_total,
+            normalize_total,
+            "done",
+        );
 
         let base = job
             .output_dir
@@ -149,6 +172,7 @@ impl Engine {
         let output_path = self
             .writer
             .write_latex(&base_dir, &output_name, &preamble, &text)?;
+        self.emit("write", ProgressKind::Write, 1, 1, "done");
 
         let mut extra_files = Vec::new();
         if let Some(subtitles) = &self.subtitles {
