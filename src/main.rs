@@ -8,6 +8,7 @@ mod ingest;
 mod pdf;
 mod prompts;
 mod providers;
+mod quota;
 mod render;
 mod telemetry;
 mod templates;
@@ -20,6 +21,7 @@ use core::{Job, Kind, PdfMode};
 use engine::{Engine, Progress, ProgressKind};
 use ingest::{CompositeIngestor, CompositeNormalizer};
 use providers::gemini::GeminiProvider;
+use quota::{QuotaConfig, QuotaMonitor};
 use render::writer::LatexWriter;
 use tokio::sync::mpsc;
 
@@ -47,7 +49,32 @@ async fn main() -> anyhow::Result<()> {
             let tui_handle = tokio::spawn(tui::run_tui(rx));
 
             let monitor = telemetry::RunMonitor::new();
-            let provider = GeminiProvider::new(cfg.api_key.clone(), model.clone(), monitor.clone());
+            let request_limits = crate::constants::rate_limits_per_minute()
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect();
+            let token_limits = crate::constants::token_limits_per_minute()
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect();
+            let quota = QuotaMonitor::new(QuotaConfig::new(request_limits, token_limits));
+
+            let capability_table = crate::constants::model_capabilities();
+            let model_key = model.clone();
+            let capability_checker = move |capability: &str| {
+                capability_table
+                    .get(model_key.as_str())
+                    .or_else(|| capability_table.get(crate::constants::DEFAULT_MODEL))
+                    .map(|caps| caps.iter().any(|c| *c == capability))
+                    .unwrap_or(true)
+            };
+
+            let provider = GeminiProvider::new(
+                cfg.api_key.clone(),
+                model.clone(),
+                monitor.clone(),
+                Some(quota.clone()),
+            );
             let normalizer = CompositeNormalizer::new(
                 None,
                 None,
@@ -56,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
                 Some(cfg.video_max_chunk_bytes),
                 cfg.video_token_limit,
                 Some(cfg.video_tokens_per_second),
-                None,
+                Some(Box::new(capability_checker)),
             )?;
             let ingestor = CompositeIngestor::new()?;
             let cost = cost::CostEstimator::from_path(

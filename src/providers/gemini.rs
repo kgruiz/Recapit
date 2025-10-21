@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::thread;
 
 use anyhow::{anyhow, Context, Result};
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -25,6 +26,7 @@ pub struct GeminiProvider {
     http: Client,
     monitor: RunMonitor,
     upload_cache: Mutex<HashMap<String, CachedUpload>>,
+    quota: Option<crate::quota::QuotaMonitor>,
 }
 
 #[derive(Clone)]
@@ -34,7 +36,12 @@ struct CachedUpload {
 }
 
 impl GeminiProvider {
-    pub fn new(api_key: String, model: String, monitor: RunMonitor) -> Self {
+    pub fn new(
+        api_key: String,
+        model: String,
+        monitor: RunMonitor,
+        quota: Option<crate::quota::QuotaMonitor>,
+    ) -> Self {
         let http = Client::builder()
             .timeout(std::time::Duration::from_secs(600))
             .build()
@@ -45,6 +52,7 @@ impl GeminiProvider {
             http,
             monitor,
             upload_cache: Mutex::new(HashMap::new()),
+            quota,
         }
     }
 
@@ -173,6 +181,12 @@ impl GeminiProvider {
             HeaderValue::from_str(mime)?,
         );
 
+        if let Some(quota) = &self.quota {
+            if let Some(delay) = quota.register_request("files") {
+                thread::sleep(delay);
+            }
+        }
+
         let start_resp = self
             .http
             .post(&start_url)
@@ -206,6 +220,19 @@ impl GeminiProvider {
         let upload_length = bytes.len().to_string();
         upload_headers.insert(CONTENT_LENGTH, HeaderValue::from_str(&upload_length)?);
 
+        if let Some(quota) = &self.quota {
+            if let Some(delay) = quota.register_request("files") {
+                thread::sleep(delay);
+            }
+        }
+
+        let guard = match &self.quota {
+            Some(quota) => {
+                Some(quota.track_upload(&asset.path.to_string_lossy(), bytes.len() as u64)?)
+            }
+            None => None,
+        };
+
         let finalize_resp = self
             .http
             .post(&upload_url)
@@ -213,6 +240,8 @@ impl GeminiProvider {
             .body(bytes.to_owned())
             .send()
             .context("uploading file data")?;
+
+        drop(guard);
         if !finalize_resp.status().is_success() {
             return Err(anyhow!(
                 "files:upload finalize failed with status {}",
@@ -267,6 +296,12 @@ impl GeminiProvider {
             "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
             self.model
         );
+
+        if let Some(quota) = &self.quota {
+            if let Some(delay) = quota.register_request(&self.model) {
+                thread::sleep(delay);
+            }
+        }
 
         let started = OffsetDateTime::now_utc();
         let response = self
@@ -333,7 +368,7 @@ impl GeminiProvider {
         }
 
         let metadata_map: HashMap<String, Value> = event_metadata.clone().into_iter().collect();
-        self.monitor.record(RequestEvent {
+        let event = RequestEvent {
             model: self.model.clone(),
             modality: modality.to_string(),
             started_at: started,
@@ -342,7 +377,11 @@ impl GeminiProvider {
             output_tokens,
             total_tokens,
             metadata: metadata_map,
-        });
+        };
+        self.monitor.record(event.clone());
+        if let Some(quota) = &self.quota {
+            quota.register_tokens(&self.model, event.total_tokens);
+        }
 
         Ok((text, asset_metadata))
     }
