@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
-use serde_json::json;
+use anyhow::{Context, Result};
+use serde_json::{json, Value};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::config::AppConfig;
@@ -12,7 +13,7 @@ use crate::prompts::TemplatePromptStrategy;
 use crate::render::subtitles::SubtitleExporter;
 use crate::telemetry::RunMonitor;
 use crate::templates::TemplateLoader;
-use crate::utils::slugify;
+use crate::utils::{ensure_dir, slugify};
 
 #[derive(Debug, Clone)]
 pub enum ProgressKind {
@@ -42,6 +43,10 @@ pub struct Engine {
     pub cost: CostEstimator,
     pub subtitles: Option<SubtitleExporter>,
     pub progress: UnboundedSender<Progress>,
+    save_full_response: bool,
+    save_intermediates: bool,
+    max_workers: usize,
+    max_video_workers: usize,
 }
 
 impl Engine {
@@ -79,6 +84,10 @@ impl Engine {
             cost,
             subtitles: Some(SubtitleExporter::default()),
             progress,
+            save_full_response: config.save_full_response,
+            save_intermediates: config.save_intermediates,
+            max_workers: config.max_workers,
+            max_video_workers: config.max_video_workers,
         })
     }
 
@@ -118,6 +127,7 @@ impl Engine {
             "done",
         );
         let modality = modality_for(&normalized);
+        let chunk_descriptors = self.normalizer.chunk_descriptors();
 
         let base = job
             .output_dir
@@ -159,6 +169,10 @@ impl Engine {
             "media_resolution": job.media_resolution,
             "output_base": base_dir_str,
             "output_name": output_name,
+            "save_full_response": self.save_full_response,
+            "save_intermediates": self.save_intermediates,
+            "max_workers": self.max_workers as u64,
+            "max_video_workers": self.max_video_workers as u64,
         });
         let text = self
             .provider
@@ -178,15 +192,102 @@ impl Engine {
         self.emit("write", ProgressKind::Write, 1, 1, "done");
 
         let mut extra_files = Vec::new();
-        if let Some(subtitles) = &self.subtitles {
-            if !job.export.is_empty() {
-                let chunks = self.normalizer.chunk_descriptors();
-                for fmt in &job.export {
-                    if let Some(path) =
-                        subtitles.write(fmt, &base_dir, &output_name, &text, &chunks)?
-                    {
-                        extra_files.push(path);
+        if self.save_intermediates {
+            extra_files.extend(self.persist_intermediates(
+                &base_dir,
+                &normalized,
+                &chunk_descriptors,
+            )?);
+        }
+        if self.save_full_response {
+            let path = self.persist_full_response(&base_dir, &output_name, &text)?;
+            extra_files.push(path);
+        }
+        for fmt in &job.export {
+            match fmt.as_str() {
+                "srt" | "vtt" => {
+                    if let Some(subtitles) = &self.subtitles {
+                        if let Some(path) = subtitles.write(
+                            fmt,
+                            &base_dir,
+                            &output_name,
+                            &text,
+                            &chunk_descriptors,
+                        )? {
+                            extra_files.push(path);
+                        }
+                    } else {
+                        self.monitor.note_event(
+                            "export.unsupported",
+                            json!({
+                                "format": fmt,
+                                "reason": "subtitles_disabled",
+                            }),
+                        );
                     }
+                }
+                "markdown" | "md" => {
+                    match crate::render::exports::write_markdown(
+                        &base_dir,
+                        &output_name,
+                        &preamble,
+                        &text,
+                    ) {
+                        Ok(path) => extra_files.push(path),
+                        Err(err) => {
+                            self.monitor.note_event(
+                                "export.failed",
+                                json!({
+                                    "format": fmt,
+                                    "error": err.to_string(),
+                                }),
+                            );
+                        }
+                    }
+                }
+                "json" => match crate::render::exports::write_summary_json(
+                    &base_dir,
+                    &output_name,
+                    &preamble,
+                    &text,
+                    &chunk_descriptors,
+                ) {
+                    Ok(path) => extra_files.push(path),
+                    Err(err) => {
+                        self.monitor.note_event(
+                            "export.failed",
+                            json!({
+                                "format": fmt,
+                                "error": err.to_string(),
+                            }),
+                        );
+                    }
+                },
+                "text" | "txt" => match crate::render::exports::write_plaintext(
+                    &base_dir,
+                    &output_name,
+                    &preamble,
+                    &text,
+                ) {
+                    Ok(path) => extra_files.push(path),
+                    Err(err) => {
+                        self.monitor.note_event(
+                            "export.failed",
+                            json!({
+                                "format": fmt,
+                                "error": err.to_string(),
+                            }),
+                        );
+                    }
+                },
+                other => {
+                    self.monitor.note_event(
+                        "export.unsupported",
+                        json!({
+                            "format": other,
+                            "reason": "unknown_format",
+                        }),
+                    );
                 }
             }
         }
@@ -195,6 +296,8 @@ impl Engine {
         let mut files = vec![output_path.clone()];
         files.extend(artifacts.clone());
         files.extend(extra_files.clone());
+
+        self.provider.cleanup()?;
 
         let limits = crate::constants::rate_limits_per_minute();
         let limit_map = limits
@@ -229,6 +332,45 @@ impl Engine {
             total,
             status: status.into(),
         });
+    }
+
+    fn persist_full_response(&self, base_dir: &Path, name: &str, text: &str) -> Result<PathBuf> {
+        let dir = base_dir.join("full-response");
+        ensure_dir(&dir).context("creating full-response directory")?;
+        let path = dir.join(format!("{name}.txt"));
+        let mut content = text.trim_end_matches('\n').to_string();
+        content.push('\n');
+        fs::write(&path, content).with_context(|| format!("writing {}", path.display()))?;
+        Ok(path)
+    }
+
+    fn persist_intermediates(
+        &self,
+        base_dir: &Path,
+        normalized: &[Asset],
+        chunks: &[Value],
+    ) -> Result<Vec<PathBuf>> {
+        let mut files = Vec::new();
+        let dir = base_dir.join("intermediates");
+        ensure_dir(&dir).context("creating intermediates directory")?;
+
+        let normalized_path = dir.join("normalized-assets.json");
+        let normalized_payload =
+            serde_json::to_string_pretty(normalized).context("serializing normalized assets")?;
+        fs::write(&normalized_path, normalized_payload)
+            .with_context(|| format!("writing {}", normalized_path.display()))?;
+        files.push(normalized_path);
+
+        if !chunks.is_empty() {
+            let chunks_path = dir.join("chunks.json");
+            let chunk_payload =
+                serde_json::to_string_pretty(chunks).context("serializing chunk descriptors")?;
+            fs::write(&chunks_path, chunk_payload)
+                .with_context(|| format!("writing {}", chunks_path.display()))?;
+            files.push(chunks_path);
+        }
+
+        Ok(files)
     }
 }
 

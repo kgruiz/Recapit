@@ -9,8 +9,8 @@ use crate::core::{Asset, Job, PdfMode, SourceKind};
 use crate::pdf::pdf_to_png;
 use crate::utils::{ensure_dir, slugify};
 use crate::video::{
-    plan_video_chunks, probe_video, select_encoder_chain, sha256sum, VideoChunkPlan,
-    VideoEncoderPreference, DEFAULT_MAX_CHUNK_BYTES, DEFAULT_MAX_CHUNK_SECONDS,
+    plan_video_chunks, probe_video, select_encoder_chain, sha256sum, NormalizationResult,
+    VideoChunkPlan, VideoEncoderPreference, DEFAULT_MAX_CHUNK_BYTES, DEFAULT_MAX_CHUNK_SECONDS,
     DEFAULT_TOKENS_PER_SECOND,
 };
 
@@ -186,10 +186,15 @@ impl CompositeNormalizer {
             &normalized_dir.join("chunks"),
             Some(manifest_path.clone()),
         )?;
-        self.write_manifest(&chunk_plan, asset, &manifest_path)?;
+        self.write_manifest(&chunk_plan, asset, &normalization, &manifest_path)?;
         self.manifest_path = Some(manifest_path.clone());
 
         let chunk_total = chunk_plan.chunks.len();
+        let downloaded_flag = asset
+            .meta
+            .get("downloaded")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
         let mut outputs = Vec::new();
         for chunk in &chunk_plan.chunks {
             let meta = json!({
@@ -200,6 +205,7 @@ impl CompositeNormalizer {
                 "manifest_path": manifest_path,
                 "normalized_path": chunk_plan.normalized_path,
                 "source_video": asset.path,
+                "downloaded": downloaded_flag,
             });
             outputs.push(Asset {
                 path: chunk.path.clone(),
@@ -218,10 +224,16 @@ impl CompositeNormalizer {
         &self,
         plan: &VideoChunkPlan,
         asset: &Asset,
+        normalization: &NormalizationResult,
         manifest_path: &Path,
     ) -> Result<()> {
         ensure_dir(manifest_path.parent().unwrap())?;
         let mut chunks = Vec::<Value>::new();
+        let downloaded_flag = asset
+            .meta
+            .get("downloaded")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
         for chunk in &plan.chunks {
             chunks.push(json!({
                 "index": chunk.index,
@@ -231,11 +243,12 @@ impl CompositeNormalizer {
                 "end_iso": crate::video::seconds_to_iso(chunk.end_seconds),
                 "path": chunk.path,
                 "status": "pending",
+                "downloaded": downloaded_flag,
             }));
         }
         let source_hash = sha256sum(&asset.path)?;
         let normalized_hash = sha256sum(&plan.normalized_path)?;
-        let payload = json!({
+        let mut payload = json!({
             "version": 1,
             "source": asset.path,
             "source_hash": format!("sha256:{source_hash}"),
@@ -249,7 +262,30 @@ impl CompositeNormalizer {
             "created_utc": OffsetDateTime::now_utc(),
             "updated_utc": OffsetDateTime::now_utc(),
             "chunks": chunks,
+            "downloaded": downloaded_flag,
         });
+        if let Some(obj) = payload.as_object_mut() {
+            if let Some(url) = asset
+                .meta
+                .get("source_url")
+                .and_then(|value| value.as_str())
+            {
+                obj.insert("source_url".into(), json!(url));
+            }
+            if let Some(size_hash) = asset.meta.get("size_hash").and_then(|value| value.as_str()) {
+                obj.insert("source_size_hash".into(), json!(size_hash));
+            }
+            if !normalization.diagnostics.is_empty() {
+                obj.insert(
+                    "normalization_diagnostics".into(),
+                    json!(normalization.diagnostics),
+                );
+            }
+            obj.insert(
+                "normalization_encoder".into(),
+                json!(normalization.encoder.codec),
+            );
+        }
         fs::write(manifest_path, serde_json::to_string_pretty(&payload)?)?;
         Ok(())
     }

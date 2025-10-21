@@ -1,130 +1,169 @@
 # Recapit
 
-Recapit is a modular toolkit for turning slide decks, lecture handouts, PDFs, and standalone images into cleaned LaTeX, Markdown, or JSON outputs using Google Gemini models. It provides a drop-in CLI, a reusable Python API, and pipelines that handle image conversion, per-model rate limiting, and template-driven prompts.
+Recapit is a Rust-first rewrite of the original Python toolkit for turning slide decks, lectures, PDFs, and standalone images into structured summaries with Google Gemini. The binary ships with the same pipelines—YouTube ingestion, preset-aware defaults, telemetry, and quota management—but now bundles a single CLI that orchestrates normalization, chunk planning, uploads, and post-processing exports.
 
 ## Highlights
 
-- **Unified pipelines** – one orchestration layer handles PDF-to-image fan out, optional direct PDF ingestion, LLM interactions, and LaTeX cleanup for slides, lectures, documents, and ad-hoc images.
-- **Parallel processing** – document/image transcription and video chunk uploads run across configurable worker pools to shrink wall-clock time on larger batches.
-- **Quota-aware throttling** – shared token buckets and a quota monitor keep per-model RPM/TPM and upload concurrency within Gemini’s published limits, automatically backing off when 429s appear.
-- **Telemetry & cost tracking** – every request records tokens, duration, and metadata; CLI runs print a summary (with optional per-model breakdowns) and persist a JSON report with token usage and estimated spend.
-- **Smart defaults** – works out of the box with built-in prompts and LaTeX preambles; override prompts via `templates/` or custom strategies in `prompts/` when you need fine control.
-- **Resumable video ingestion** – manifests record normalized MP4 hashes, chunk ranges, and file URIs so reruns with `--skip-existing` only process dirty chunks.
-- **Auto classification** – invoke the tool without subcommands (or via `transcribe`) and heuristics choose the right prompt for slides, notes, worksheets, or documents.
-- **Image-first PDF handling** – every PDF is rasterized to per-page PNGs by default for consistent transcription; opt into direct PDF ingestion with `--pdf-mode pdf` or `PDFMode.PDF` when your chosen model supports it.
-- **Drop-in CLI** – invoke the Typer CLI from the shell with zero boilerplate and steer behaviour through presets or configuration files.
-- **Structured outputs** – cleaned LaTeX lands beside the source file by default; flip `RECAPIT_SAVE_FULL_RESPONSE` on if you also want raw model dumps.
+- **Unified pipelines** – one orchestration layer handles PDF-to-image fan out, optional direct PDF ingestion, Gemini calls, and LaTeX cleanup for slides, lectures, documents, and ad-hoc images.
+- **Preset-aware defaults** – merge `recapit.yaml` presets, built-in profiles (`basic`, `speed`, `quality`), and CLI flags; every run records which overrides were active.
+- **Configurable persistence** – flip `save_full_response`/`save_intermediates` to capture raw chunk text, aggregated transcripts, manifests, and normalized assets alongside finished exports.
+- **Parallel + quota safe** – worker pools for normalization and Gemini uploads honor `max_workers`/`max_video_workers`, while shared token buckets respect published RPM/TPM limits and add jittered backoff for 429/5xx responses.
+- **Telemetry & cost tracking** – every request logs retry metadata, quota sleeps, and usage numbers. CLI runs emit NDJSON event streams plus a roll-up JSON summary that `recapit report cost` can format as text or JSON.
+- **Extensible exports** – `--export` dispatches Markdown, JSON, plaintext, and subtitle helpers (SRT/VTT) so post-processing stays declarative.
+- **Drop-in CLI** – a single binary exposes planner previews, ingestion, reporting, cleanup, and conversion utilities for Markdown/JSON, mirroring the Python Typer commands.
 
 ## Requirements
 
-- Python 3.10+
-- Google Gemini access and a `GEMINI_API_KEY` with permissions for the latest models (e.g. `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-pro`).
-- Poppler (required because PDFs are rasterized to images by default)
+- Rust 1.78+ (or a recent stable toolchain) and `cargo` for building the binary.
+- Google Gemini access and a `GEMINI_API_KEY` with permissions for the `gemini-2.x` family.
+- `ffmpeg` (video/audio normalization) and `poppler` (`pdftoppm` for PDF rasterization).
+- Optional but recommended: `yt-dlp` for resilient YouTube downloads.
 
 ## Installation
 
+Clone the repository and build the binary with Cargo:
+
 ```shell
-# clone the repository first
-cd recapit
+# clone first
+cd Recapit
 
-# Recommended: uv for editable installs
-uv pip install -e .
-
-# or fallback to pip
-python -m pip install -e .
+# build or install locally
+cargo build --release
+# or
+cargo install --path .
 ```
 
-To work on the codebase locally, create a virtual environment (e.g., `uv venv` or `python -m venv .venv`) before installing dependencies.
+During development, run the CLI directly with `cargo run -- summarize …` while preserving the usual debug symbols.
 
 ## Configuration
 
-Environment variables:
+Configuration is layered: **CLI flags > environment variables > `recapit.yaml`**. Generate a starter config with `recapit init` and tweak defaults (model, output directories, exports, presets, video settings).
+
+### Core environment variables
 
 | Setting | Description |
 | --- | --- |
-| `GEMINI_API_KEY` | Required. API key picked up by the CLI and Python API via `AppConfig.from_env`. |
-| `RECAPIT_DEFAULT_MODEL` | Optional. Override the default transcription model (defaults to `gemini-2.5-flash-lite`). |
-| `RECAPIT_OUTPUT_DIR` | Optional. Override the base output directory (defaults to each input's parent directory). |
-| `RECAPIT_TEMPLATES_DIR` | Optional. Point to an alternate prompt template directory. |
-| `RECAPIT_SAVE_FULL_RESPONSE` | Optional. Set to `1`/`true` to also write raw model text under `full-response/`. |
-| `RECAPIT_SAVE_INTERMEDIATES` | Optional. Set to `1`/`true` to retain normalized videos, chunk MP4s, and manifests for debugging/re-use. |
-| `RECAPIT_MAX_WORKERS` | Optional. Control the maximum number of parallel document/image workers (defaults to `4`). |
-| `RECAPIT_MAX_VIDEO_WORKERS` | Optional. Control the maximum number of parallel video chunk workers (defaults to `3`). |
-| `RECAPIT_VIDEO_ENCODER` | Optional. Override the encoder used for video normalization (`auto`, `cpu`, `nvenc`, `videotoolbox`, `qsv`, `amf`). `auto` probes available FFmpeg hardware encoders and prefers GPU paths when they work. |
+| `GEMINI_API_KEY` | Required. API key consumed by the CLI and telemetry recorder. |
+| `RECAPIT_CONFIG` | Optional. Explicit path to a configuration file (defaults to `recapit.yaml` if present). |
+| `RECAPIT_DEFAULT_MODEL` | Override the default transcription model (defaults to `gemini-2.5-flash-lite`). |
+| `RECAPIT_OUTPUT_DIR` | Override the base output directory for summaries (defaults to `./output`). |
+| `RECAPIT_TEMPLATES_DIR` | Point to an alternate prompt template directory. |
+| `RECAPIT_SAVE_FULL_RESPONSE` | Persist aggregated transcripts under `full-response/<slug>.txt` and per-chunk responses when truthy. |
+| `RECAPIT_SAVE_INTERMEDIATES` | Persist manifests, normalized MP4s, and chunk metadata under `intermediates/`. |
+| `RECAPIT_MAX_WORKERS` | Cap concurrent normalization/upload workers (defaults to `4`). |
+| `RECAPIT_MAX_VIDEO_WORKERS` | Cap concurrent video chunk workers (defaults to `3`). |
 
-Legacy environment variables prefixed with `LECTURE_SUMMARIZER_` remain supported for backward compatibility.
+### Video & media tuning
 
-All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). Strategy classes live under `recapit/prompts/` and look for matching `*-prompt.txt` files before falling back to the compiled defaults. The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
+| Setting | Description |
+| --- | --- |
+| `RECAPIT_VIDEO_TOKEN_LIMIT` | Override the per-video token budget (defaults to `300000`). |
+| `RECAPIT_TOKENS_PER_SECOND` | Expected token rate for video chunks (defaults to `300`). |
+| `RECAPIT_VIDEO_MAX_CHUNK_SECONDS` | Maximum chunk length in seconds (defaults to `7200`). |
+| `RECAPIT_VIDEO_MAX_CHUNK_BYTES` | Maximum chunk size in bytes (defaults to `524288000`). |
+| `RECAPIT_VIDEO_MEDIA_RESOLUTION` | Force media resolution hints (`default` or `low`). |
+| `RECAPIT_VIDEO_ENCODER` | Force an FFmpeg encoder (`auto`, `cpu`, `nvenc`, `videotoolbox`, `qsv`, `amf`). |
 
-Prefer configuration files? Run `recapit init` to create `recapit.yaml`; it stores defaults for `default_model`, `output_dir`, `exports`, video chunk parameters, and per-preset overrides. CLI flags override environment variables, and environment variables override the YAML file, giving you explicit precedence: `CLI > ENV > YAML`.
+Legacy variables prefixed with `LECTURE_SUMMARIZER_` remain supported for backwards compatibility.
 
-## CLI Usage
+## CLI overview
 
-After installation the `recapit` command becomes available. Export `GEMINI_API_KEY` first, then explore the commands below.
+Export `GEMINI_API_KEY` before running the binary:
 
 ```shell
-export GEMINI_API_KEY="..."
-
-# Inspect how an asset will be processed (no API calls)
-recapit plan input/video.mp4
-recapit plan https://example.com/report.pdf --json
-
-# Run the new engine with sensible defaults
-recapit summarize input/lecture.mp4 --export srt --preset quality
-
-# Generate a starter config
-recapit init
-
-# Post-processing helpers
-recapit convert md output/course-notes
-recapit convert json output/course-notes --recursive
+export GEMINI_API_KEY="sk-…"
 ```
 
-`recapit summarize` accepts the same `--kind`/`--pdf-mode` overrides as the legacy pipeline, plus:
+### Primary workflows
 
-- `--export srt|vtt` to emit subtitle tracks using chunk boundaries.
-- `--preset speed|quality|basic` to adjust defaults (e.g., `speed` forces rasterized PDFs; `quality` prefers native PDF ingestion when the model supports it).
+```shell
+# Preview ingestion and chunk planning (no Gemini calls)
+recapit planner plan input/video.mp4 --json
+recapit planner ingest syllabus/ --recursive
 
-Every run writes:
-
-- `<slug>/<slug>-transcribed.tex` – cleaned LaTeX body content.
-- `run-summary.json` – totals, estimated spend, and a list of output artifacts.
-- `run-events.ndjson` – per-request telemetry (one JSON object per API call).
-- `chunks.json` – manifest for normalized video assets (video inputs only); manifests include hashes and chunk response paths so reruns with `--skip-existing` honor prior work.
-- Optional `.srt`/`.vtt` files when `--export` is provided.
-
-Use `--hide-summary`, `--detailed-costs`, and `--summary-path` to adjust the console summary behaviour.
-
-## Output Structure
-
-Each source asset produces a slugified directory next to the input. For example, a `Lecture01.pdf` transcription now yields:
+# Run the unified engine
+recapit summarize lectures/week1 --preset quality --export srt,json
+recapit summarize https://www.youtube.com/watch?v=abc123 --preset speed --export markdown
 ```
-path/to/slides/
+
+### Conversion utilities
+
+```shell
+# LaTeX ➜ Markdown or JSON using Gemini
+recapit convert latex-to-md notes/**/*.tex --recursive --skip-existing
+recapit convert latex-to-json tables.tex --output-dir output/json
+```
+
+### Reporting & maintenance
+
+```shell
+# Summaries and cost reporting
+recapit report cost --summary run-summary.json --events run-events.ndjson
+
+# Clean cached normalization artefacts or generated manifests
+recapit cleanup caches --dry-run
+recapit cleanup artifacts ./output/lectures
+```
+
+Each command prints contextual help (`--help`) and accepts `--config` to point at alternate YAML files.
+
+### Export formats
+
+Use `--export` (or preset-defined exports) to generate additional artefacts:
+
+- `srt`, `vtt` – subtitle tracks for video/audio sources.
+- `markdown`, `md` – aggregated transcript written beside the LaTeX output.
+- `json` – structured summary containing the preamble, cleaned text, and chunk metadata.
+- `text`, `txt` – plain-text transcript without LaTeX markup.
+
+Exports are deduplicated automatically; unsupported formats emit `export.unsupported` telemetry events.
+
+## Saved artefacts
+
+Every run creates a slugified directory under the selected output root:
+
+```
+output/
   lecture01/
-    page-images/
-      Lecture01-transcribed-0.png
-      ...
-    Lecture01-transcribed.tex
+    lecture01-transcribed.tex
+    run-summary.json
+    run-events.ndjson
+    full-response/
+      lecture01-transcribed.txt        # only when save_full_response=true
+      chunks/lecture01-chunk00.txt     # per-chunk when full responses are saved
+    intermediates/
+      normalized-assets.json           # when save_intermediates=true
+      chunks.json
+    lecture01-transcribed.srt          # when --export srt
+    lecture01-transcribed.json         # when --export json
 ```
 
-If `RECAPIT_SAVE_FULL_RESPONSE` (or the legacy `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE`) is enabled, you'll also see `full-response/lecture01-transcribed.txt` alongside the cleaned LaTeX.
+Key directories:
 
-Markdown (`*.md`) and JSON (`*.json`) files are written alongside the LaTeX when you run the conversion utilities.
+- `full-response/` – aggregated transcript plus per-chunk outputs (guarded by `save_full_response`).
+- `intermediates/` – manifests and normalized assets for reruns/debugging (guarded by `save_intermediates`).
+- `run-summary.json` – aggregate telemetry/costs for `recapit report cost`.
+- `run-events.ndjson` – detailed per-request logs for auditing and retries.
 
-Video inputs produce chunk-aware LaTeX: each chunk is emitted as `\section*{Chunk N (HH:MM:SS–HH:MM:SS)}` inside `<stem>-transcribed.tex`. When `--save-full-response` is active, every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you pass `--save-intermediates` (or set `RECAPIT_SAVE_INTERMEDIATES=1`, legacy `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`).
-Hardware acceleration is enabled automatically when FFmpeg exposes GPU encoders; fall back to `--video-encoder cpu` if you run into driver issues.
+## Migration from the Python CLI
 
-Every CLI run additionally writes a JSON telemetry report (default `run-summary.json`). The report contains:
+| Capability | Rust CLI status | Notes |
+| --- | --- | --- |
+| Preset-aware defaults & config precedence | ✅ | Same `CLI > ENV > YAML` precedence; presets ship with `basic`, `speed`, `quality`. |
+| YouTube ingestion with caching & fallbacks | ✅ | Requires `yt-dlp` and `ffmpeg`; manifests mirror the Python layout. |
+| Planner previews & ingestion listings | ✅ | `recapit planner plan/ingest` replace the Typer `plan`/`planner` commands. |
+| Markdown/JSON exports | ✅ | Use `--export markdown,json` or presets; subtitles remain available via `srt`/`vtt`. |
+| Telemetry & manifest notes | ✅ | Retry/quota waits are recorded as monitor events; manifests track chunk status and URIs. |
+| Cleanup & reporting utilities | ✅ | `recapit report cost` and `recapit cleanup caches|artifacts` mirror the Python helpers. |
+| Python API | ❌ (not ported) | The Rust binary currently exposes only the CLI; integrate via command invocations.
 
-- Aggregate token counts (input/output/total) and request durations.
-- Per-model breakdowns covering requests, tokens, and estimated cost.
-- A flag noting whether any costs were estimated (e.g., when the API omits token usage and the tool infers values from video duration).
+The Rust toolchain eliminates the need for a managed Python environment—build once with `cargo` and distribute the binary. Dependency differences are primarily limited to system packages (`ffmpeg`, `poppler`, optional `yt-dlp`).
 
 ## Development
 
+- Format with `cargo fmt` and test with `cargo test` (warnings are treated as regressions).
 - Follow the workflow documented in [CONTRIBUTING.md](CONTRIBUTING.md).
-- Linting & formatting: use `python -m compileall` for quick syntax checks, and run any project-specific linters/tests added in the future.
-- Preferred package tooling: `uv` for dependency management, `pnpm` for any JS tooling, `cargo`/`just` for Rust integrations.
+- The project still vendors template files and prompt strategies under `templates/` and `src/prompts/`—customize them as needed.
 
 ## Roadmap Ideas
 

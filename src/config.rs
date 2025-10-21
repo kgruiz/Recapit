@@ -5,6 +5,7 @@ use crate::constants::{
 use crate::video::{VideoEncoderPreference, DEFAULT_MAX_CHUNK_BYTES, DEFAULT_MAX_CHUNK_SECONDS};
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use serde_json::{Map as JsonMap, Value as JsonValue};
 use serde_yaml::Value;
 use std::collections::HashMap;
 use std::env;
@@ -273,6 +274,35 @@ impl AppConfig {
                 .collect(),
         })
     }
+
+    pub fn merged_presets(&self) -> HashMap<String, JsonMap<String, JsonValue>> {
+        let mut merged = builtin_presets();
+        for (name, values) in &self.presets {
+            let mut map = JsonMap::new();
+            for (key, value) in values {
+                if let Ok(converted) = serde_json::to_value(value) {
+                    map.insert(key.clone(), converted);
+                }
+            }
+            merged.insert(name.to_lowercase(), map);
+        }
+        merged
+    }
+}
+
+fn builtin_presets() -> HashMap<String, JsonMap<String, JsonValue>> {
+    let mut presets = HashMap::new();
+    presets.insert("basic".into(), JsonMap::new());
+
+    let mut speed = JsonMap::new();
+    speed.insert("pdf_mode".into(), JsonValue::String("images".into()));
+    presets.insert("speed".into(), speed);
+
+    let mut quality = JsonMap::new();
+    quality.insert("pdf_mode".into(), JsonValue::String("pdf".into()));
+    presets.insert("quality".into(), quality);
+
+    presets
 }
 
 fn resolve_config_path(explicit: Option<&Path>) -> Result<Option<PathBuf>> {

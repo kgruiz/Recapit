@@ -1,36 +1,36 @@
 ## Outstanding Parity Tasks
 
-- [ ] **YouTube ingestion parity**
+- [x] **YouTube ingestion parity**
   - Re-create the Python `YouTubeDownloader` flow: invoke yt‑dlp, cache MP4 outputs, persist metadata (id, duration, size hash), and fall back gracefully when downloads fail.
   - Normalize downloaded videos (ffmpeg faststart, diagnostics) before chunk planning, updating manifests with actual file paths and “downloaded” flags.
   - Surface user-facing warnings when yt‑dlp/FFmpeg are missing, matching the Python CLI messaging.
 
-- [ ] **Preset-aware CLI defaults**
+- [x] **Preset-aware CLI defaults**
   - Port the `_merge_presets` logic and `--preset` flag so `summarize` inherits preset-specific overrides (kind/pdf_mode/exports/media resolution) prior to job creation.
   - Support preset-defined `model`, `recursive`, and export expansions exactly as the Typer command does, including custom presets from `recapit.yaml`.
   - Update help text to list preset names and indicate which fields they override.
 
-- [ ] **Resilient Gemini retries**
+- [x] **Resilient Gemini retries**
   - Implement exponential backoff with jitter for 429/5xx responses, reusing the Python delay caps and logging.
   - Respect quota sleeps + backoff in both the provider and conversion utilities; capture retry counts in telemetry notes.
   - Detect transient Files API states (PROCESSING, INTERNAL) and retry uploads with the same guardrails as `LLMClient._await_active_file`.
 
-- [ ] **Telemetry & manifest polish**
+- [x] **Telemetry & manifest polish**
   - Update manifest entries with response file URIs/status transitions after each chunk, mirroring `_transcribe_chunks` behavior.
   - Record run-monitor “note” events for skips, retries, quota sleeps, and manifest warnings.
   - Emit Files API cleanup hooks (delete temporary uploads where Python does) and include them in run summaries.
 
-- [ ] **Ancillary CLI utilities**
+- [x] **Ancillary CLI utilities**
   - Port Typer commands: `init`, `planner plan`, `planner ingest`, `report cost`, cleanup commands, and any markdown/json post-process helpers.
   - Ensure cost/report commands read the new telemetry outputs and format results identically (including colorized terminal output).
   - Wire command aliases/help descriptions to match the existing docs.
 
-- [ ] **Config toggles & exports**
+- [x] **Config toggles & exports**
   - Honor `save_full_response`/`save_intermediates` by persisting raw model outputs & intermediates under the configured directories.
   - Respect `max_workers`/`max_video_workers` by introducing thread pool limits for normalization/upload tasks, matching Python concurrency semantics.
   - Recreate export pipeline hooks (Markdown/JSON post-processing, subtitles) so exports declared in config/presets dispatch appropriately.
 
-- [ ] **Documentation refresh**
+- [x] **Documentation refresh**
   - Update README and CLI usage guides to reflect the Rust commands, environment variables, conversion utilities, and quota requirements.
   - Provide migration notes for users switching from the Python CLI (feature parity matrix, outstanding gaps, dependency differences).
   - Add examples for `recapit convert`, preset usage, and YouTube workflows once the remaining tasks above land.
