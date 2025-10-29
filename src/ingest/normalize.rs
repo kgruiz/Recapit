@@ -194,6 +194,10 @@ impl CompositeNormalizer {
             self.tokens_per_second,
             &normalized_dir.join("chunks"),
             Some(manifest_path.clone()),
+            self.job
+                .as_ref()
+                .map(|job| job.max_video_workers)
+                .unwrap_or(1),
         )?;
         self.write_manifest(&chunk_plan, &realized, &manifest_path)?;
         self.manifest_path = Some(manifest_path.clone());

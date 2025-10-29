@@ -1,4 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
+use rayon::prelude::*;
+use rayon::ThreadPoolBuilder;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -417,6 +419,7 @@ pub fn plan_video_chunks(
     tokens_per_second: f64,
     chunk_dir: &Path,
     manifest_path: Option<PathBuf>,
+    max_workers: usize,
 ) -> Result<VideoChunkPlan> {
     let bounds = compute_chunk_boundaries(
         metadata,
@@ -441,25 +444,49 @@ pub fn plan_video_chunks(
     }
 
     ensure_dir(chunk_dir)?;
-    let mut chunks = Vec::new();
-    for (idx, (start, end)) in bounds.iter().enumerate() {
-        let chunk_path = chunk_dir.join(format!(
-            "{}-chunk{:02}.mp4",
-            normalized_path
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy(),
-            idx
-        ));
-        extract_segment(normalized_path, &chunk_path, *start, *end)?;
-        chunks.push(VideoChunk {
-            index: idx,
-            start_seconds: *start,
-            end_seconds: *end,
-            path: chunk_path,
-            source: metadata.path.clone(),
-        });
-    }
+    let worker_count = bounds.len().min(max_workers.max(1));
+    let stem = normalized_path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    let chunks: Vec<VideoChunk> = if worker_count <= 1 {
+        bounds
+            .iter()
+            .enumerate()
+            .map(|(idx, (start, end))| {
+                let chunk_path = chunk_dir.join(format!("{stem}-chunk{idx:02}.mp4"));
+                extract_segment(normalized_path, &chunk_path, *start, *end)?;
+                Ok(VideoChunk {
+                    index: idx,
+                    start_seconds: *start,
+                    end_seconds: *end,
+                    path: chunk_path,
+                    source: metadata.path.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        let pool = ThreadPoolBuilder::new().num_threads(worker_count).build()?;
+        pool.install(|| {
+            bounds
+                .par_iter()
+                .enumerate()
+                .map(|(idx, (start, end))| {
+                    let chunk_path = chunk_dir.join(format!("{stem}-chunk{idx:02}.mp4"));
+                    extract_segment(normalized_path, &chunk_path, *start, *end)?;
+                    Ok(VideoChunk {
+                        index: idx,
+                        start_seconds: *start,
+                        end_seconds: *end,
+                        path: chunk_path,
+                        source: metadata.path.clone(),
+                    })
+                })
+                .collect::<Result<Vec<_>>>()
+        })?
+    };
 
     Ok(VideoChunkPlan {
         metadata: metadata.clone(),

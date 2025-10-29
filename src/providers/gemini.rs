@@ -11,6 +11,8 @@ use anyhow::{anyhow, Context, Result};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use rand::Rng;
+use rayon::prelude::*;
+use rayon::ThreadPoolBuilder;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_LENGTH, CONTENT_TYPE};
 use reqwest::StatusCode;
@@ -423,14 +425,47 @@ impl GeminiProvider {
         let mut parts = Vec::new();
         let mut asset_metadata = Vec::new();
         let mut event_metadata = meta.as_object().cloned().unwrap_or_default();
+        let enumerated: Vec<(usize, &Asset)> = assets
+            .iter()
+            .enumerate()
+            .map(|(index, asset)| (index, *asset))
+            .collect();
+        let worker_limit = meta_u64(meta, "max_workers")
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(crate::constants::DEFAULT_MAX_WORKERS)
+            .max(1);
+        let asset_results: Vec<(usize, Value, Map<String, Value>)> =
+            if worker_limit <= 1 || enumerated.len() <= 1 {
+                enumerated
+                    .into_iter()
+                    .map(|(index, asset)| {
+                        let (part, metadata) = self.part_for_asset(asset)?;
+                        Ok((index, part, metadata))
+                    })
+                    .collect::<Result<Vec<_>>>()?
+            } else {
+                let pool = ThreadPoolBuilder::new()
+                    .num_threads(worker_limit.min(enumerated.len()))
+                    .build()?;
+                pool.install(|| {
+                    enumerated
+                        .par_iter()
+                        .map(|(index, asset)| {
+                            let (part, metadata) = self.part_for_asset(asset)?;
+                            Ok((*index, part, metadata))
+                        })
+                        .collect::<Result<Vec<_>>>()
+                })?
+            };
 
-        for asset in assets {
-            let (part, metadata) = self.part_for_asset(asset)?;
+        let mut ordered = asset_results;
+        ordered.sort_by_key(|(index, _, _)| *index);
+        for (_, part, metadata) in ordered {
             for (key, value) in metadata.iter() {
                 event_metadata.entry(key.clone()).or_insert(value.clone());
             }
-            asset_metadata.push(metadata);
             parts.push(part);
+            asset_metadata.push(metadata);
         }
         parts.push(json!({"text": instruction}));
 
@@ -784,8 +819,14 @@ impl GeminiProvider {
             .unwrap_or_else(|| PathBuf::from("output"));
         let name = meta_string(meta, "output_name").unwrap_or_else(|| "output".into());
         let skip_existing = meta_bool(meta, "skip_existing").unwrap_or(false);
-        let chunk_dir = base.join("full-response").join("chunks");
-        ensure_dir(&chunk_dir)?;
+        let save_intermediates = meta_bool(meta, "save_intermediates").unwrap_or(false);
+        let chunk_dir = if save_intermediates {
+            let dir = base.join("full-response").join("chunks");
+            ensure_dir(&dir)?;
+            Some(dir)
+        } else {
+            None
+        };
 
         let manifest_path = assets
             .iter()
@@ -876,15 +917,17 @@ impl GeminiProvider {
                     .unwrap_or(Value::Null),
             );
 
-            let response_path = entry_obj
-                .get("response_path")
-                .and_then(|v| v.as_str())
-                .map(PathBuf::from)
-                .unwrap_or_else(|| chunk_dir.join(format!("{name}-chunk{chunk_index:02}.txt")));
-            entry_obj.insert(
-                "response_path".into(),
-                Value::String(response_path.to_string_lossy().to_string()),
-            );
+            let response_path = chunk_dir
+                .as_ref()
+                .map(|dir| dir.join(format!("{name}-chunk{chunk_index:02}.txt")));
+            if let Some(path) = &response_path {
+                entry_obj.insert(
+                    "response_path".into(),
+                    Value::String(path.to_string_lossy().to_string()),
+                );
+            } else {
+                entry_obj.insert("response_path".into(), Value::Null);
+            }
             if let Some(uri) = asset.meta.get("file_uri").and_then(|value| value.as_str()) {
                 entry_obj.insert("file_uri".into(), Value::String(uri.to_string()));
             }
@@ -896,8 +939,15 @@ impl GeminiProvider {
                 .and_then(|value| value.as_str())
                 .map(|s| s.to_string());
 
-            if skip_existing && response_path.exists() {
-                let text = fs::read_to_string(&response_path)?;
+            if save_intermediates
+                && skip_existing
+                && response_path
+                    .as_ref()
+                    .map(|path| path.exists())
+                    .unwrap_or(false)
+            {
+                let path = response_path.as_ref().unwrap();
+                let text = fs::read_to_string(path)?;
                 responses.push(text.trim().to_string());
                 entry_obj.insert("status".into(), Value::String("done".into()));
                 self.monitor.note_event(
@@ -905,7 +955,7 @@ impl GeminiProvider {
                     json!({
                         "chunk_index": chunk_index,
                         "manifest_path": manifest_path,
-                        "response_path": response_path,
+                        "response_path": path,
                     }),
                 );
                 continue;
@@ -924,10 +974,12 @@ impl GeminiProvider {
                 "manifest_path".into(),
                 Value::String(manifest_path.to_string_lossy().to_string()),
             );
-            chunk_meta_map.insert(
-                "response_path".into(),
-                Value::String(response_path.to_string_lossy().to_string()),
-            );
+            if let Some(path) = &response_path {
+                chunk_meta_map.insert(
+                    "response_path".into(),
+                    Value::String(path.to_string_lossy().to_string()),
+                );
+            }
             if let Some(uri) = existing_file_uri {
                 chunk_meta_map.insert("file_uri".into(), Value::String(uri));
             }
@@ -940,7 +992,9 @@ impl GeminiProvider {
                 modality,
                 &chunk_meta_value,
             )?;
-            save_chunk_text(&response_path, &text)?;
+            if let Some(path) = response_path.as_ref() {
+                save_chunk_text(path, &text)?;
+            }
             entry_obj.insert("status".into(), Value::String("done".into()));
             if let Some(file_uri) = event_assets
                 .first()

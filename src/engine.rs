@@ -1,11 +1,13 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use serde_json::json;
+use serde_json::{json, Map, Value};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::config::AppConfig;
+use crate::conversion::LatexConverter;
 use crate::core::{Asset, Ingestor, Job, Kind, Normalizer, PromptStrategy, Provider, Writer};
 use crate::cost::CostEstimator;
 use crate::prompts::TemplatePromptStrategy;
@@ -42,6 +44,8 @@ pub struct Engine {
     pub cost: CostEstimator,
     pub subtitles: Option<SubtitleExporter>,
     pub progress: UnboundedSender<Progress>,
+    converter: Option<LatexConverter>,
+    templates: TemplateLoader,
 }
 
 impl Engine {
@@ -53,6 +57,7 @@ impl Engine {
         progress: UnboundedSender<Progress>,
         monitor: RunMonitor,
         cost: CostEstimator,
+        converter: Option<LatexConverter>,
         config: &AppConfig,
     ) -> Result<Self> {
         let loader = TemplateLoader::new(config.templates_dir.clone());
@@ -79,6 +84,8 @@ impl Engine {
             cost,
             subtitles: Some(SubtitleExporter::default()),
             progress,
+            converter,
+            templates: loader,
         })
     }
 
@@ -159,6 +166,10 @@ impl Engine {
             "media_resolution": job.media_resolution,
             "output_base": base_dir_str,
             "output_name": output_name,
+            "save_full_response": job.save_full_response,
+            "save_intermediates": job.save_intermediates,
+            "max_workers": job.max_workers,
+            "max_video_workers": job.max_video_workers,
         });
         let text = self
             .provider
@@ -178,6 +189,15 @@ impl Engine {
         self.emit("write", ProgressKind::Write, 1, 1, "done");
 
         let mut extra_files = Vec::new();
+        if job.save_full_response {
+            let full_dir = base_dir.join("full-response");
+            fs::create_dir_all(&full_dir)?;
+            let full_path = full_dir.join(format!("{output_name}.txt"));
+            let mut content = text.trim_end().to_string();
+            content.push('\n');
+            fs::write(&full_path, content)?;
+            extra_files.push(full_path);
+        }
         if let Some(subtitles) = &self.subtitles {
             if !job.export.is_empty() {
                 let chunks = self.normalizer.chunk_descriptors();
@@ -188,6 +208,77 @@ impl Engine {
                         extra_files.push(path);
                     }
                 }
+            }
+        }
+
+        let mut latex_source: Option<String> = None;
+        for fmt in &job.export {
+            let normalized = fmt.trim().to_lowercase();
+            match normalized.as_str() {
+                "markdown" | "md" => {
+                    let target = base_dir.join(format!("{output_name}.md"));
+                    if job.skip_existing && target.exists() {
+                        continue;
+                    }
+                    fs::create_dir_all(&base_dir)?;
+                    if let Some(converter) = &self.converter {
+                        if latex_source.is_none() {
+                            latex_source = Some(fs::read_to_string(&output_path)?);
+                        }
+                        let latex_text = latex_source.as_ref().unwrap();
+                        let mut metadata = Map::new();
+                        metadata.insert(
+                            "source".into(),
+                            Value::String(output_path.to_string_lossy().to_string()),
+                        );
+                        metadata.insert("export".into(), Value::String("markdown".into()));
+                        let prompt = self.templates.latex_to_md_prompt();
+                        let rendered = converter
+                            .latex_to_markdown(&job.model, &prompt, latex_text, metadata)?;
+                        let mut value = rendered.trim_end().to_string();
+                        value.push('\n');
+                        fs::write(&target, value)?;
+                    } else {
+                        let mut content = text.trim().to_string();
+                        content.push('\n');
+                        fs::write(&target, content)?;
+                    }
+                    extra_files.push(target);
+                }
+                "json" => {
+                    let target = base_dir.join(format!("{output_name}.json"));
+                    if job.skip_existing && target.exists() {
+                        continue;
+                    }
+                    fs::create_dir_all(&base_dir)?;
+                    if let Some(converter) = &self.converter {
+                        if latex_source.is_none() {
+                            latex_source = Some(fs::read_to_string(&output_path)?);
+                        }
+                        let latex_text = latex_source.as_ref().unwrap();
+                        let mut metadata = Map::new();
+                        metadata.insert(
+                            "source".into(),
+                            Value::String(output_path.to_string_lossy().to_string()),
+                        );
+                        metadata.insert("export".into(), Value::String("json".into()));
+                        let prompt = self.templates.latex_to_json_prompt();
+                        let rendered =
+                            converter.latex_to_json(&job.model, &prompt, latex_text, metadata)?;
+                        let mut value = rendered.trim_end().to_string();
+                        value.push('\n');
+                        fs::write(&target, value)?;
+                    } else {
+                        let payload = json!({
+                            "source": job.source,
+                            "model": job.model,
+                            "text": text,
+                        });
+                        fs::write(&target, serde_json::to_string_pretty(&payload)?)?;
+                    }
+                    extra_files.push(target);
+                }
+                _ => {}
             }
         }
 

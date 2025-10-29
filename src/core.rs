@@ -94,6 +94,10 @@ pub struct Job {
     pub export: Vec<String>,
     pub skip_existing: bool,
     pub media_resolution: Option<String>,
+    pub save_full_response: bool,
+    pub save_intermediates: bool,
+    pub max_workers: usize,
+    pub max_video_workers: usize,
 }
 
 pub trait Ingestor: Send + Sync {

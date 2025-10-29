@@ -129,6 +129,36 @@ async fn main() -> anyhow::Result<()> {
             exports.sort();
             exports.dedup();
 
+            let mut save_full_response = cfg.save_full_response;
+            if let Some(value) = preset_config
+                .get("save_full_response")
+                .and_then(|v| v.as_bool())
+            {
+                save_full_response = value;
+            }
+            let mut save_intermediates = cfg.save_intermediates;
+            if let Some(value) = preset_config
+                .get("save_intermediates")
+                .and_then(|v| v.as_bool())
+            {
+                save_intermediates = value;
+            }
+            let mut max_workers = cfg.max_workers;
+            if let Some(value) = preset_config.get("max_workers").and_then(|v| v.as_u64()) {
+                if value > 0 {
+                    max_workers = value as usize;
+                }
+            }
+            let mut max_video_workers = cfg.max_video_workers;
+            if let Some(value) = preset_config
+                .get("max_video_workers")
+                .and_then(|v| v.as_u64())
+            {
+                if value > 0 {
+                    max_video_workers = value as usize;
+                }
+            }
+
             let media_candidate = media_resolution
                 .clone()
                 .or_else(|| {
@@ -192,6 +222,8 @@ async fn main() -> anyhow::Result<()> {
                 cfg.pricing_file.as_deref(),
                 cfg.pricing_defaults.clone(),
             )?;
+            let converter =
+                LatexConverter::new(cfg.api_key.clone(), monitor.clone(), Some(quota.clone()))?;
             let mut engine = Engine::new(
                 Box::new(ingestor),
                 Box::new(normalizer),
@@ -200,6 +232,7 @@ async fn main() -> anyhow::Result<()> {
                 tx.clone(),
                 monitor.clone(),
                 cost,
+                Some(converter),
                 &cfg,
             )?;
 
@@ -223,6 +256,10 @@ async fn main() -> anyhow::Result<()> {
                 export: exports,
                 skip_existing,
                 media_resolution: media_enum,
+                save_full_response,
+                save_intermediates,
+                max_workers,
+                max_video_workers,
             };
 
             let result = engine.run(&job).await?;
@@ -542,6 +579,10 @@ fn run_planner_plan(
         export: Vec::new(),
         skip_existing: true,
         media_resolution: Some(cfg.media_resolution.clone()),
+        save_full_response: cfg.save_full_response,
+        save_intermediates: cfg.save_intermediates,
+        max_workers: cfg.max_workers,
+        max_video_workers: cfg.max_video_workers,
     };
 
     normalizer.prepare(&job)?;
@@ -598,6 +639,10 @@ fn run_planner_ingest(
         export: Vec::new(),
         skip_existing: true,
         media_resolution: Some(cfg.media_resolution.clone()),
+        save_full_response: cfg.save_full_response,
+        save_intermediates: cfg.save_intermediates,
+        max_workers: cfg.max_workers,
+        max_video_workers: cfg.max_video_workers,
     };
     let assets = ingestor.discover(&job)?;
 
