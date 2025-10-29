@@ -74,6 +74,7 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
             Clear(ClearType::FromCursorDown),
             Print("progress:")
         )?;
+        let start_row = base_row + 1;
         for (idx, task) in order.iter().enumerate() {
             if let Some(state) = rows.get(task) {
                 let percent = if state.total > 0 {
@@ -85,7 +86,7 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
                 let count_label = if state.total > 0 {
                     format!("{:>5}/{:<5}", state.cur.min(state.total), state.total)
                 } else {
-                    "     -".to_string()
+                    "  -/- ".to_string()
                 };
                 let line = format!(
                     "{task:10}  [{:50}]  {percent_label}  {count_label}  {}",
@@ -94,7 +95,7 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
                 );
                 queue!(
                     out,
-                    cursor::MoveTo(0, base_row + 1 + idx as u16),
+                    cursor::MoveTo(0, start_row + idx as u16),
                     Clear(ClearType::CurrentLine),
                     Print(line)
                 )?;
@@ -102,7 +103,7 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
         }
         queue!(
             out,
-            cursor::MoveTo(0, base_row + 1 + order.len() as u16),
+            cursor::MoveTo(0, start_row + order.len() as u16),
             Clear(ClearType::CurrentLine)
         )?;
         out.flush()?;
@@ -126,7 +127,13 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
 
     terminal::disable_raw_mode()?;
     let final_row = base_row + 1 + order.len() as u16;
-    execute!(out, cursor::MoveTo(0, final_row), cursor::Show)?;
+    execute!(
+        out,
+        cursor::MoveTo(0, final_row),
+        Clear(ClearType::CurrentLine),
+        cursor::Show,
+        cursor::MoveToNextLine(1)
+    )?;
     out.flush()?;
     Ok(())
 }
