@@ -259,10 +259,10 @@ async fn main() -> anyhow::Result<()> {
             )?;
 
             tx.send(Progress {
-                task: "bootstrap".into(),
+                task: "setup".into(),
                 kind: ProgressKind::Discover,
-                current: 1,
-                total: 3,
+                current: 0,
+                total: 1,
                 status: "init".into(),
             })
             .ok();
@@ -283,6 +283,15 @@ async fn main() -> anyhow::Result<()> {
                 max_workers,
                 max_video_workers,
             };
+
+            tx.send(Progress {
+                task: "setup".into(),
+                kind: ProgressKind::Discover,
+                current: 1,
+                total: 1,
+                status: "ready".into(),
+            })
+            .ok();
 
             let result = engine.run(&job).await?;
             if let Some(path) = result {
