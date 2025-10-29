@@ -1,6 +1,10 @@
-use crossterm::{event, execute, terminal};
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
+    execute, terminal,
+};
 use ratatui::{prelude::*, widgets::*};
 use std::collections::HashMap;
+use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::engine::{Progress, ProgressKind};
@@ -33,14 +37,11 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
     )?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
     let mut rows: HashMap<String, RowState> = HashMap::new();
+    let mut closed = false;
 
     loop {
         terminal.draw(|frame| {
-            let size = frame.size();
-            let block = Block::default().title("recapit").borders(Borders::ALL);
-            let inner = block.inner(size);
-            frame.render_widget(block, size);
-
+            let area = frame.size();
             let mut items = Vec::new();
             for (task, state) in rows.iter() {
                 let percent = if state.total > 0 {
@@ -58,23 +59,44 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
             }
             let list =
                 List::new(items).block(Block::default().title("progress").borders(Borders::ALL));
-            frame.render_widget(list, inner);
+            let min_height = 3u16;
+            let content_height = (rows.len() as u16).saturating_add(2).max(min_height);
+            let height = content_height.min(area.height);
+            let list_area = Rect::new(area.x, area.y, area.width, height);
+            frame.render_widget(list, list_area);
         })?;
 
         if event::poll(std::time::Duration::from_millis(33))? {
-            if let event::Event::Key(key) = event::read()? {
-                if key.code == event::KeyCode::Char('q') {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press
+                    && (key.code == KeyCode::Char('q')
+                        || (key.code == KeyCode::Char('c')
+                            && key.modifiers.contains(KeyModifiers::CONTROL)))
+                {
                     break;
                 }
             }
         }
 
-        while let Ok(evt) = rx.try_recv() {
-            let entry = rows.entry(evt.task.clone()).or_default();
-            entry.kind = evt.kind;
-            entry.cur = evt.current;
-            entry.total = evt.total.max(1);
-            entry.status = evt.status;
+        loop {
+            match rx.try_recv() {
+                Ok(evt) => {
+                    let entry = rows.entry(evt.task.clone()).or_default();
+                    entry.kind = evt.kind;
+                    entry.cur = evt.current;
+                    entry.total = evt.total.max(1);
+                    entry.status = evt.status;
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    closed = true;
+                    break;
+                }
+            }
+        }
+
+        if closed && rows.values().all(|state| state.cur >= state.total) {
+            break;
         }
     }
 
