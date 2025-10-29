@@ -1,3 +1,4 @@
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -130,6 +131,10 @@ pub trait Provider: Send + Sync {
         modality: &str,
         meta: &Value,
     ) -> anyhow::Result<String>;
+
+    fn cleanup(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub trait Writer: Send + Sync {

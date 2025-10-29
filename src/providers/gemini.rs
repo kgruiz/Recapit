@@ -1,9 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
+
+use std::io::ErrorKind;
 
 use anyhow::{anyhow, Context, Result};
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -32,6 +34,7 @@ pub struct GeminiProvider {
     http: Client,
     monitor: RunMonitor,
     upload_cache: Mutex<HashMap<String, CachedUpload>>,
+    cleanup: Mutex<HashSet<String>>,
     quota: Option<crate::quota::QuotaMonitor>,
 }
 
@@ -39,6 +42,7 @@ pub struct GeminiProvider {
 struct CachedUpload {
     uri: String,
     mime_type: String,
+    name: Option<String>,
 }
 
 impl GeminiProvider {
@@ -58,6 +62,7 @@ impl GeminiProvider {
             http,
             monitor,
             upload_cache: Mutex::new(HashMap::new()),
+            cleanup: Mutex::new(HashSet::new()),
             quota,
         }
     }
@@ -135,6 +140,9 @@ impl GeminiProvider {
                     }
                 });
                 metadata.insert("file_uri".into(), Value::String(cached.uri));
+                if let Some(name) = cached.name.as_ref() {
+                    metadata.insert("file_name".into(), Value::String(name.clone()));
+                }
                 return Ok((part, metadata));
             }
         }
@@ -146,10 +154,14 @@ impl GeminiProvider {
                 CachedUpload {
                     uri: upload.uri.clone(),
                     mime_type: upload.mime_type.clone(),
+                    name: upload.name.clone(),
                 },
             );
         }
         metadata.insert("file_uri".into(), Value::String(upload.uri.clone()));
+        if let Some(name) = upload.name.as_ref() {
+            metadata.insert("file_name".into(), Value::String(name.clone()));
+        }
         let part = json!({
             "file_data": {
                 "file_uri": upload.uri,
@@ -386,10 +398,18 @@ impl GeminiProvider {
             .and_then(|value| value.as_str())
             .ok_or_else(|| anyhow!("upload response missing file.uri"))?
             .to_string();
+        let name = file_value
+            .get("name")
+            .and_then(|value| value.as_str())
+            .map(|s| s.to_string());
+        if let Some(name_ref) = &name {
+            self.register_cleanup(name_ref);
+        }
 
         Ok(CachedUpload {
             uri,
             mime_type: mime.to_string(),
+            name,
         })
     }
 
@@ -641,7 +661,109 @@ impl GeminiProvider {
     fn apply_quota_delay(&self, bucket: &str) {
         if let Some(quota) = &self.quota {
             if let Some(delay) = quota.register_request(bucket) {
-                thread::sleep(delay);
+                if !delay.is_zero() {
+                    self.monitor.note_event(
+                        "quota.sleep",
+                        json!({
+                            "bucket": bucket,
+                            "delay_ms": delay.as_millis(),
+                        }),
+                    );
+                    thread::sleep(delay);
+                }
+            }
+        }
+    }
+
+    fn register_cleanup(&self, name: &str) {
+        let inserted = self.cleanup.lock().unwrap().insert(name.to_string());
+        if inserted {
+            self.monitor
+                .note_event("files.cleanup.register", json!({ "name": name }));
+        }
+    }
+
+    fn cleanup_uploads(&self) -> Result<()> {
+        let names: Vec<String> = {
+            let mut guard = self.cleanup.lock().unwrap();
+            guard.drain().collect()
+        };
+        for name in names {
+            match self.delete_file(&name) {
+                Ok(()) => {
+                    self.monitor
+                        .note_event("files.cleanup.deleted", json!({ "name": name }));
+                }
+                Err(err) => {
+                    self.monitor.note_event(
+                        "files.cleanup.error",
+                        json!({ "name": name, "error": err.to_string() }),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn delete_file(&self, name: &str) -> Result<()> {
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/{}?key={}",
+            name, self.api_key
+        );
+        let mut attempt = 0;
+        loop {
+            self.apply_quota_delay("files");
+            match self.http.delete(&url).send() {
+                Ok(resp) => {
+                    if resp.status().is_success() {
+                        return Ok(());
+                    }
+                    if resp.status() == StatusCode::NOT_FOUND {
+                        self.monitor
+                            .note_event("files.cleanup.missing", json!({ "name": name }));
+                        return Ok(());
+                    }
+                    if should_retry_status(resp.status()) && attempt < MAX_RETRIES {
+                        let delay = backoff_delay(attempt);
+                        self.monitor.note_event(
+                            "files.cleanup.retry",
+                            json!({
+                                "attempt": attempt + 1,
+                                "delay_ms": delay.as_millis(),
+                                "status": resp.status().as_u16(),
+                                "name": name,
+                            }),
+                        );
+                        thread::sleep(delay);
+                        attempt += 1;
+                        continue;
+                    }
+                    let status = resp.status();
+                    let text = resp.text().unwrap_or_default();
+                    return Err(anyhow!(
+                        "files.delete failed with status {}: {}",
+                        status,
+                        text
+                    ));
+                }
+                Err(err) => {
+                    if is_retryable_error(&err) && attempt < MAX_RETRIES {
+                        let delay = backoff_delay(attempt);
+                        self.monitor.note_event(
+                            "files.cleanup.retry",
+                            json!({
+                                "attempt": attempt + 1,
+                                "delay_ms": delay.as_millis(),
+                                "error": err.to_string(),
+                                "name": name,
+                            }),
+                        );
+                        thread::sleep(delay);
+                        attempt += 1;
+                        continue;
+                    }
+                    return Err(err).context("deleting uploaded file");
+                }
             }
         }
     }
@@ -672,7 +794,36 @@ impl GeminiProvider {
             .next()
             .unwrap_or_else(|| base.join("chunks.json"));
 
-        let mut manifest = load_manifest(&manifest_path);
+        let manifest_path_str = manifest_path.to_string_lossy().to_string();
+        let mut manifest = match fs::read_to_string(&manifest_path) {
+            Ok(text) => match serde_json::from_str::<Value>(&text) {
+                Ok(value) => value,
+                Err(err) => {
+                    self.monitor.note_event(
+                        "manifest.warn",
+                        json!({
+                            "reason": "parse_error",
+                            "path": manifest_path_str,
+                            "error": err.to_string(),
+                        }),
+                    );
+                    json!({"version": 1, "chunks": []})
+                }
+            },
+            Err(err) => {
+                if err.kind() != ErrorKind::NotFound {
+                    self.monitor.note_event(
+                        "manifest.warn",
+                        json!({
+                            "reason": "read_failed",
+                            "path": manifest_path_str,
+                            "error": err.to_string(),
+                        }),
+                    );
+                }
+                json!({"version": 1, "chunks": []})
+            }
+        };
         let chunks_array = manifest_chunks(&mut manifest)?;
         let mut chunk_index_lookup = HashMap::new();
         for (idx, entry) in chunks_array.iter().enumerate() {
@@ -688,9 +839,19 @@ impl GeminiProvider {
             let entry = if let Some(idx) = entry_index {
                 chunks_array.get_mut(idx).unwrap()
             } else {
-                chunks_array.push(Value::Object(Map::new()));
+                let mut map = Map::new();
+                map.insert("index".into(), Value::from(chunk_index));
+                map.insert("status".into(), Value::String("pending".into()));
+                chunks_array.push(Value::Object(map));
                 let idx = chunks_array.len() - 1;
                 chunk_index_lookup.insert(chunk_index, idx);
+                self.monitor.note_event(
+                    "manifest.chunk.create",
+                    json!({
+                        "chunk_index": chunk_index,
+                        "manifest_path": manifest_path_str,
+                    }),
+                );
                 chunks_array.get_mut(idx).unwrap()
             };
 
@@ -724,6 +885,16 @@ impl GeminiProvider {
                 "response_path".into(),
                 Value::String(response_path.to_string_lossy().to_string()),
             );
+            if let Some(uri) = asset.meta.get("file_uri").and_then(|value| value.as_str()) {
+                entry_obj.insert("file_uri".into(), Value::String(uri.to_string()));
+            }
+            entry_obj
+                .entry("status".to_string())
+                .or_insert_with(|| Value::String("pending".into()));
+            let existing_file_uri = entry_obj
+                .get("file_uri")
+                .and_then(|value| value.as_str())
+                .map(|s| s.to_string());
 
             if skip_existing && response_path.exists() {
                 let text = fs::read_to_string(&response_path)?;
@@ -757,8 +928,12 @@ impl GeminiProvider {
                 "response_path".into(),
                 Value::String(response_path.to_string_lossy().to_string()),
             );
+            if let Some(uri) = existing_file_uri {
+                chunk_meta_map.insert("file_uri".into(), Value::String(uri));
+            }
 
             let chunk_meta_value = Value::Object(chunk_meta_map.clone());
+            entry_obj.insert("status".into(), Value::String("running".into()));
             let (text, event_assets) = self.generate(
                 instruction,
                 std::slice::from_ref(asset),
@@ -812,6 +987,10 @@ impl Provider for GeminiProvider {
         let (text, _) = self.generate(instruction, &asset_refs, modality, meta)?;
         Ok(text)
     }
+
+    fn cleanup(&self) -> Result<()> {
+        self.cleanup_uploads()
+    }
 }
 
 fn meta_u64(value: &Value, key: &str) -> Option<u64> {
@@ -853,14 +1032,6 @@ fn backoff_delay(attempt: usize) -> Duration {
 
 fn is_retryable_file_state(state: &str) -> bool {
     matches!(state, "PROCESSING" | "INTERNAL")
-}
-
-fn load_manifest(path: &Path) -> Value {
-    if let Ok(text) = fs::read_to_string(path) {
-        serde_json::from_str(&text).unwrap_or_else(|_| json!({"version": 1, "chunks": []}))
-    } else {
-        json!({"version": 1, "chunks": []})
-    }
 }
 
 fn manifest_chunks(manifest: &mut Value) -> Result<&mut Vec<Value>> {

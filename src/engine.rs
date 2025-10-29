@@ -196,6 +196,8 @@ impl Engine {
         files.extend(artifacts.clone());
         files.extend(extra_files.clone());
 
+        self.provider.cleanup()?;
+
         let limits = crate::constants::rate_limits_per_minute();
         let limit_map = limits
             .into_iter()

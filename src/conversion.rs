@@ -192,7 +192,16 @@ impl LatexConverter {
     fn apply_quota_delay(&self, bucket: &str) {
         if let Some(quota) = &self.quota {
             if let Some(delay) = quota.register_request(bucket) {
-                thread::sleep(delay);
+                if !delay.is_zero() {
+                    self.monitor.note_event(
+                        "quota.sleep",
+                        json!({
+                            "bucket": bucket,
+                            "delay_ms": delay.as_millis(),
+                        }),
+                    );
+                    thread::sleep(delay);
+                }
             }
         }
     }
