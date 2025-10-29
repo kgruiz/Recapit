@@ -3,12 +3,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::thread;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use rand::Rng;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_LENGTH, CONTENT_TYPE};
+use reqwest::StatusCode;
 use serde_json::{json, Map, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -19,6 +22,9 @@ use crate::telemetry::{RequestEvent, RunMonitor};
 use crate::utils::ensure_dir;
 
 const INLINE_THRESHOLD_BYTES: usize = 20 * 1024 * 1024;
+const MAX_RETRIES: usize = 3;
+const BACKOFF_BASE_SECONDS: f64 = 1.0;
+const BACKOFF_CAP_SECONDS: f64 = 8.0;
 
 pub struct GeminiProvider {
     api_key: String,
@@ -164,51 +170,96 @@ impl GeminiProvider {
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or_else(|| "upload");
+        let start_payload = json!({"file": {"display_name": display_name}});
 
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "X-Goog-Upload-Protocol",
-            HeaderValue::from_static("resumable"),
-        );
-        headers.insert("X-Goog-Upload-Command", HeaderValue::from_static("start"));
-        let start_length = bytes.len().to_string();
-        headers.insert(
-            "X-Goog-Upload-Header-Content-Length",
-            HeaderValue::from_str(&start_length)?,
-        );
-        headers.insert(
-            "X-Goog-Upload-Header-Content-Type",
-            HeaderValue::from_str(mime)?,
-        );
+        let upload_url = {
+            let mut attempt = 0;
+            loop {
+                self.apply_quota_delay("files");
 
-        if let Some(quota) = &self.quota {
-            if let Some(delay) = quota.register_request("files") {
-                thread::sleep(delay);
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    "X-Goog-Upload-Protocol",
+                    HeaderValue::from_static("resumable"),
+                );
+                headers.insert("X-Goog-Upload-Command", HeaderValue::from_static("start"));
+                let start_length = bytes.len().to_string();
+                headers.insert(
+                    "X-Goog-Upload-Header-Content-Length",
+                    HeaderValue::from_str(&start_length)?,
+                );
+                headers.insert(
+                    "X-Goog-Upload-Header-Content-Type",
+                    HeaderValue::from_str(mime)?,
+                );
+
+                match self
+                    .http
+                    .post(&start_url)
+                    .headers(headers)
+                    .json(&start_payload)
+                    .send()
+                {
+                    Ok(resp) => {
+                        if resp.status().is_success() {
+                            if let Some(header) = resp
+                                .headers()
+                                .get("X-Goog-Upload-URL")
+                                .or_else(|| resp.headers().get("x-goog-upload-url"))
+                            {
+                                break header
+                                    .to_str()
+                                    .context("parsing upload URL header")?
+                                    .to_string();
+                            }
+                            return Err(anyhow!("missing X-Goog-Upload-URL header"));
+                        }
+
+                        if should_retry_status(resp.status()) && attempt < MAX_RETRIES {
+                            let delay = backoff_delay(attempt);
+                            self.monitor.note_event(
+                                "retry.files.upload_start",
+                                json!({
+                                    "attempt": attempt + 1,
+                                    "delay_ms": delay.as_millis(),
+                                    "status": resp.status().as_u16(),
+                                    "path": asset.path,
+                                }),
+                            );
+                            thread::sleep(delay);
+                            attempt += 1;
+                            continue;
+                        }
+
+                        let status = resp.status();
+                        let text = resp.text().unwrap_or_default();
+                        return Err(anyhow!(
+                            "files:upload start failed with status {}: {}",
+                            status,
+                            text
+                        ));
+                    }
+                    Err(err) => {
+                        if is_retryable_error(&err) && attempt < MAX_RETRIES {
+                            let delay = backoff_delay(attempt);
+                            self.monitor.note_event(
+                                "retry.files.upload_start",
+                                json!({
+                                    "attempt": attempt + 1,
+                                    "delay_ms": delay.as_millis(),
+                                    "error": err.to_string(),
+                                    "path": asset.path,
+                                }),
+                            );
+                            thread::sleep(delay);
+                            attempt += 1;
+                            continue;
+                        }
+                        return Err(err).context("starting resumable upload");
+                    }
+                }
             }
-        }
-
-        let start_resp = self
-            .http
-            .post(&start_url)
-            .headers(headers)
-            .json(&json!({"file": {"display_name": display_name}}))
-            .send()
-            .context("starting resumable upload")?;
-        if !start_resp.status().is_success() {
-            return Err(anyhow!(
-                "files:upload start failed with status {}",
-                start_resp.status()
-            ));
-        }
-
-        let upload_url = start_resp
-            .headers()
-            .get("X-Goog-Upload-URL")
-            .or_else(|| start_resp.headers().get("x-goog-upload-url"))
-            .ok_or_else(|| anyhow!("missing X-Goog-Upload-URL header"))?
-            .to_str()
-            .context("parsing upload URL header")?
-            .to_string();
+        };
 
         let mut upload_headers = HeaderMap::new();
         upload_headers.insert(
@@ -220,12 +271,6 @@ impl GeminiProvider {
         let upload_length = bytes.len().to_string();
         upload_headers.insert(CONTENT_LENGTH, HeaderValue::from_str(&upload_length)?);
 
-        if let Some(quota) = &self.quota {
-            if let Some(delay) = quota.register_request("files") {
-                thread::sleep(delay);
-            }
-        }
-
         let guard = match &self.quota {
             Some(quota) => {
                 Some(quota.track_upload(&asset.path.to_string_lossy(), bytes.len() as u64)?)
@@ -233,29 +278,115 @@ impl GeminiProvider {
             None => None,
         };
 
-        let finalize_resp = self
-            .http
-            .post(&upload_url)
-            .headers(upload_headers)
-            .body(bytes.to_owned())
-            .send()
-            .context("uploading file data")?;
+        let finalize_resp = {
+            let mut attempt = 0;
+            loop {
+                self.apply_quota_delay("files");
+                match self
+                    .http
+                    .post(&upload_url)
+                    .headers(upload_headers.clone())
+                    .body(bytes.to_owned())
+                    .send()
+                {
+                    Ok(resp) => {
+                        if resp.status().is_success() {
+                            break resp;
+                        }
+
+                        if should_retry_status(resp.status()) && attempt < MAX_RETRIES {
+                            let delay = backoff_delay(attempt);
+                            self.monitor.note_event(
+                                "retry.files.upload_finalize",
+                                json!({
+                                    "attempt": attempt + 1,
+                                    "delay_ms": delay.as_millis(),
+                                    "status": resp.status().as_u16(),
+                                    "path": asset.path,
+                                }),
+                            );
+                            thread::sleep(delay);
+                            attempt += 1;
+                            continue;
+                        }
+
+                        let status = resp.status();
+                        let text = resp.text().unwrap_or_default();
+                        return Err(anyhow!(
+                            "files:upload finalize failed with status {}: {}",
+                            status,
+                            text
+                        ));
+                    }
+                    Err(err) => {
+                        if is_retryable_error(&err) && attempt < MAX_RETRIES {
+                            let delay = backoff_delay(attempt);
+                            self.monitor.note_event(
+                                "retry.files.upload_finalize",
+                                json!({
+                                    "attempt": attempt + 1,
+                                    "delay_ms": delay.as_millis(),
+                                    "error": err.to_string(),
+                                    "path": asset.path,
+                                }),
+                            );
+                            thread::sleep(delay);
+                            attempt += 1;
+                            continue;
+                        }
+                        return Err(err).context("uploading file data");
+                    }
+                }
+            }
+        };
 
         drop(guard);
-        if !finalize_resp.status().is_success() {
+
+        let response_value: Value = finalize_resp.json().context("decoding upload response")?;
+        let mut file_value = response_value
+            .get("file")
+            .cloned()
+            .ok_or_else(|| anyhow!("upload response missing file object"))?;
+
+        if let Some(name) = file_value
+            .get("name")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+        {
+            if let Some(state) = file_value
+                .get("state")
+                .and_then(|value| value.as_str())
+                .filter(|state| is_retryable_file_state(state))
+            {
+                self.monitor.note_event(
+                    "retry.files.await_active",
+                    json!({
+                        "state": state,
+                        "name": name,
+                        "path": asset.path,
+                    }),
+                );
+                file_value = self.await_active_file(name)?;
+            }
+        }
+
+        let final_state = file_value
+            .get("state")
+            .and_then(|value| value.as_str())
+            .unwrap_or("STATE_UNSPECIFIED");
+        if final_state != "ACTIVE" {
             return Err(anyhow!(
-                "files:upload finalize failed with status {}",
-                finalize_resp.status()
+                "files:upload returned non-ACTIVE state {}",
+                final_state
             ));
         }
 
-        let value: Value = finalize_resp.json().context("decoding upload response")?;
-        let uri = value
-            .get("file")
-            .and_then(|f| f.get("uri"))
-            .and_then(|v| v.as_str())
+        let uri = file_value
+            .get("uri")
+            .and_then(|value| value.as_str())
             .ok_or_else(|| anyhow!("upload response missing file.uri"))?
             .to_string();
+
         Ok(CachedUpload {
             uri,
             mime_type: mime.to_string(),
@@ -297,32 +428,75 @@ impl GeminiProvider {
             self.model
         );
 
-        if let Some(quota) = &self.quota {
-            if let Some(delay) = quota.register_request(&self.model) {
-                thread::sleep(delay);
+        let (payload, started, finished, retries) = {
+            let mut attempt = 0;
+            let mut retries = 0;
+            loop {
+                self.apply_quota_delay(&self.model);
+                let started_at = OffsetDateTime::now_utc();
+                match self
+                    .http
+                    .post(&url)
+                    .query(&[("key", self.api_key.as_str())])
+                    .json(&request)
+                    .send()
+                {
+                    Ok(resp) => {
+                        if resp.status().is_success() {
+                            let finished_at = OffsetDateTime::now_utc();
+                            let payload: Value =
+                                resp.json().context("parsing generateContent response")?;
+                            break (payload, started_at, finished_at, retries);
+                        }
+
+                        if should_retry_status(resp.status()) && attempt < MAX_RETRIES {
+                            let delay = backoff_delay(attempt);
+                            self.monitor.note_event(
+                                "retry.generateContent",
+                                json!({
+                                    "attempt": attempt + 1,
+                                    "delay_ms": delay.as_millis(),
+                                    "status": resp.status().as_u16(),
+                                    "model": self.model,
+                                }),
+                            );
+                            thread::sleep(delay);
+                            attempt += 1;
+                            retries += 1;
+                            continue;
+                        }
+
+                        let status = resp.status();
+                        let text = resp.text().unwrap_or_default();
+                        return Err(anyhow!(
+                            "generateContent failed with status {}: {}",
+                            status,
+                            text
+                        ));
+                    }
+                    Err(err) => {
+                        if is_retryable_error(&err) && attempt < MAX_RETRIES {
+                            let delay = backoff_delay(attempt);
+                            self.monitor.note_event(
+                                "retry.generateContent",
+                                json!({
+                                    "attempt": attempt + 1,
+                                    "delay_ms": delay.as_millis(),
+                                    "error": err.to_string(),
+                                    "model": self.model,
+                                }),
+                            );
+                            thread::sleep(delay);
+                            attempt += 1;
+                            retries += 1;
+                            continue;
+                        }
+                        return Err(err).context("calling generateContent");
+                    }
+                }
             }
-        }
+        };
 
-        let started = OffsetDateTime::now_utc();
-        let response = self
-            .http
-            .post(&url)
-            .query(&[("key", self.api_key.as_str())])
-            .json(&request)
-            .send()
-            .context("calling generateContent")?;
-
-        if !response.status().is_success() {
-            return Err(anyhow!(
-                "generateContent failed with status {}",
-                response.status()
-            ));
-        }
-
-        let finished = OffsetDateTime::now_utc();
-        let payload: Value = response
-            .json()
-            .context("parsing generateContent response")?;
         let text = payload
             .get("candidates")
             .and_then(|candidates| candidates.as_array())
@@ -358,6 +532,7 @@ impl GeminiProvider {
             .map(|meta| Value::Object(meta.clone()))
             .collect();
         event_metadata.insert("assets".into(), Value::Array(asset_values));
+        event_metadata.insert("retries".into(), Value::from(retries as u64));
         if let Some(uri) = asset_metadata
             .iter()
             .find_map(|meta| meta.get("file_uri").and_then(|v| v.as_str()))
@@ -384,6 +559,91 @@ impl GeminiProvider {
         }
 
         Ok((text, asset_metadata))
+    }
+
+    fn await_active_file(&self, name: &str) -> Result<Value> {
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/{}?key={}",
+            name, self.api_key
+        );
+        let mut attempt = 0;
+        loop {
+            self.apply_quota_delay("files");
+            match self.http.get(&url).send() {
+                Ok(resp) => {
+                    if resp.status().is_success() {
+                        let value: Value = resp.json().context("parsing files.get response")?;
+                        let state = value
+                            .get("state")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("STATE_UNSPECIFIED");
+                        if state == "ACTIVE" {
+                            return Ok(value);
+                        }
+                        if is_retryable_file_state(state) && attempt < MAX_RETRIES {
+                            let delay = backoff_delay(attempt);
+                            self.monitor.note_event(
+                                "retry.files.await_active",
+                                json!({
+                                    "attempt": attempt + 1,
+                                    "delay_ms": delay.as_millis(),
+                                    "state": state,
+                                    "name": name,
+                                }),
+                            );
+                            thread::sleep(delay);
+                            attempt += 1;
+                            continue;
+                        }
+                        return Err(anyhow!("file {} returned terminal state {}", name, state));
+                    }
+                    if should_retry_status(resp.status()) && attempt < MAX_RETRIES {
+                        let delay = backoff_delay(attempt);
+                        self.monitor.note_event(
+                            "retry.files.await_active",
+                            json!({
+                                "attempt": attempt + 1,
+                                "delay_ms": delay.as_millis(),
+                                "status": resp.status().as_u16(),
+                                "name": name,
+                            }),
+                        );
+                        thread::sleep(delay);
+                        attempt += 1;
+                        continue;
+                    }
+                    let status = resp.status();
+                    let text = resp.text().unwrap_or_default();
+                    return Err(anyhow!("files.get failed with status {}: {}", status, text));
+                }
+                Err(err) => {
+                    if is_retryable_error(&err) && attempt < MAX_RETRIES {
+                        let delay = backoff_delay(attempt);
+                        self.monitor.note_event(
+                            "retry.files.await_active",
+                            json!({
+                                "attempt": attempt + 1,
+                                "delay_ms": delay.as_millis(),
+                                "error": err.to_string(),
+                                "name": name,
+                            }),
+                        );
+                        thread::sleep(delay);
+                        attempt += 1;
+                        continue;
+                    }
+                    return Err(err).context("polling file state");
+                }
+            }
+        }
+    }
+
+    fn apply_quota_delay(&self, bucket: &str) {
+        if let Some(quota) = &self.quota {
+            if let Some(delay) = quota.register_request(bucket) {
+                thread::sleep(delay);
+            }
+        }
     }
 
     fn transcribe_chunks(
@@ -568,6 +828,31 @@ fn meta_bool(value: &Value, key: &str) -> Option<bool> {
 
 fn meta_string(value: &Value, key: &str) -> Option<String> {
     value.as_object()?.get(key)?.as_str().map(|s| s.to_string())
+}
+
+fn should_retry_status(status: StatusCode) -> bool {
+    status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+}
+
+fn is_retryable_error(err: &reqwest::Error) -> bool {
+    if let Some(status) = err.status() {
+        if should_retry_status(status) {
+            return true;
+        }
+    }
+    err.is_timeout() || err.is_connect() || err.is_request()
+}
+
+fn backoff_delay(attempt: usize) -> Duration {
+    let exp = BACKOFF_BASE_SECONDS * 2f64.powi(attempt as i32);
+    let capped = exp.min(BACKOFF_CAP_SECONDS);
+    let mut rng = rand::thread_rng();
+    let jitter: f64 = rng.gen_range(0.8..=1.2);
+    Duration::from_secs_f64((capped * jitter).min(BACKOFF_CAP_SECONDS))
+}
+
+fn is_retryable_file_state(state: &str) -> bool {
+    matches!(state, "PROCESSING" | "INTERNAL")
 }
 
 fn load_manifest(path: &Path) -> Value {

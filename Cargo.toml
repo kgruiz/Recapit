@@ -33,3 +33,4 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 dirs = "5"
 base64 = "0.22"
 jsonwebtoken = { version = "9", default-features = false, features = ["use_pem"] }
+rand = "0.8"
