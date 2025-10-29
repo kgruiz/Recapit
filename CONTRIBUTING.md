@@ -5,20 +5,14 @@ Thanks for your interest in improving Recapit! This document outlines how to set
 ## Quick Start
 
 1. Fork the repository and clone your fork.
-2. Create a virtual environment (recommended: `uv venv` or `python -m venv .venv`).
-3. Activate the environment and install the project in editable mode:
-   ```shell
-   uv pip install -e .
-   # or
-   python -m pip install -e .
-   ```
-4. Set `GEMINI_API_KEY` in your shell before exercising the CLI or API.
+2. Install the Rust toolchain (1.79 or newer) and ensure `cargo` is on your `PATH`.
+3. Export `GEMINI_API_KEY` in your shell before exercising the CLI.
 
 ### Dependencies
 
-- Python 3.10+
-- Poppler (required by `pdf2image` for rasterization)
-- Google Gemini access with permissions for the models listed in `recapit/constants.py`
+- Rust 1.79+ and Cargo
+- Poppler (`pdftoppm`, `pdfinfo`), FFmpeg, and yt-dlp (for video/YouTube pipelines)
+- Google Gemini access with permissions for the models listed in `src/constants.rs`
 
 ## Development Workflow
 
@@ -26,15 +20,16 @@ Thanks for your interest in improving Recapit! This document outlines how to set
 2. Make focused changes with clear commits (see "Commit Messages").
 3. Run the project checks before each commit/push:
    ```shell
-   python -m compileall recapit run.py
-   pytest
+   cargo fmt --all
+   cargo check
+   cargo test
    ```
 4. Verify that the CLI still works for the scenario you are touching (e.g., run `recapit --help` or a sample command against fixture data).
 5. Open a pull request describing the motivation, approach, and testing performed.
 
 ## Coding Standards
 
-- Prefer dependency management with `uv` (Python). If other ecosystems are introduced, follow the repository defaults (`pnpm` for JS, `cargo`/`just` for Rust, etc.).
+- Follow the existing tooling for each ecosystem already in the repo (e.g., `cargo` for Rust, `pnpm` for any JS utilities).
 - Keep code ASCII unless existing files require otherwise.
 - Add concise comments only when logic is non-obvious.
 - Avoid global state; leverage the modular pipeline and configuration helpers.
