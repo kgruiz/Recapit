@@ -112,3 +112,7 @@ fn first_page_report(path: &Path) -> Result<PageReport> {
         page_count,
     })
 }
+
+pub fn page_count(path: &Path) -> Result<usize> {
+    first_page_report(path).map(|report| report.page_count)
+}

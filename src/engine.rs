@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -10,6 +10,7 @@ use crate::config::AppConfig;
 use crate::conversion::LatexConverter;
 use crate::core::{Asset, Ingestor, Job, Kind, Normalizer, PromptStrategy, Provider, Writer};
 use crate::cost::CostEstimator;
+use crate::pdf;
 use crate::prompts::TemplatePromptStrategy;
 use crate::render::subtitles::SubtitleExporter;
 use crate::telemetry::RunMonitor;
@@ -99,12 +100,13 @@ impl Engine {
             return Ok(None);
         }
         let discover_total = assets.len() as u64;
+        let media_summary = media_summary(&assets);
         self.emit(
             "discover",
             ProgressKind::Discover,
             discover_total,
             discover_total,
-            format!("{discover_total} items"),
+            format!("{discover_total} items · {media_summary}"),
         );
 
         let kind = job.kind.unwrap_or_else(|| infer_kind(&assets));
@@ -117,12 +119,13 @@ impl Engine {
         );
         let normalized = self.normalizer.normalize(&assets, job.pdf_mode)?;
         let normalize_total = normalized.len() as u64;
+        let page_total = estimate_page_total(&normalized);
         self.emit(
             "normalize",
             ProgressKind::Normalize,
             normalize_total,
             normalize_total,
-            format!("{normalize_total}/{normalize_total} done"),
+            format!("{} ready", counts_summary(normalize_total, page_total)),
         );
         let modality = modality_for(&normalized);
 
@@ -157,7 +160,10 @@ impl Engine {
             ProgressKind::Transcribe,
             0,
             segment_total,
-            format!("0/{segment_total} {modality}"),
+            format!(
+                "{} · mode {modality}",
+                counts_summary(segment_total, page_total)
+            ),
         );
         let base_dir_str = base_dir.to_string_lossy().to_string();
         let meta = serde_json::json!({
@@ -180,7 +186,7 @@ impl Engine {
             ProgressKind::Transcribe,
             normalize_total,
             normalize_total,
-            format!("{normalize_total}/{normalize_total} done"),
+            format!("{} processed", counts_summary(normalize_total, page_total)),
         );
 
         self.emit("write", ProgressKind::Write, 0, 1, "latex");
@@ -324,6 +330,77 @@ impl Engine {
             status: status.into(),
         });
     }
+}
+
+fn media_summary(assets: &[Asset]) -> String {
+    let mut counts: HashMap<String, u64> = HashMap::new();
+    for asset in assets {
+        *counts.entry(asset.media.clone()).or_insert(0) += 1;
+    }
+    if counts.is_empty() {
+        return "unknown".into();
+    }
+    let mut items: Vec<String> = counts
+        .into_iter()
+        .map(|(media, count)| format!("{count} {}{}", media, if count == 1 { "" } else { "s" }))
+        .collect();
+    items.sort();
+    items.join(" · ")
+}
+
+fn counts_summary(chunks: u64, pages: Option<u64>) -> String {
+    let mut parts = vec![format!("{chunks} {}", pluralize(chunks, "chunk"))];
+    if let Some(total_pages) = pages {
+        parts.push(format!("{total_pages} {}", pluralize(total_pages, "page")));
+    }
+    parts.join(" · ")
+}
+
+fn pluralize(count: u64, singular: &str) -> String {
+    if count == 1 {
+        singular.to_string()
+    } else {
+        format!("{singular}s")
+    }
+}
+
+fn estimate_page_total(assets: &[Asset]) -> Option<u64> {
+    let meta_max = assets
+        .iter()
+        .filter_map(|asset| {
+            asset
+                .meta
+                .get("page_total")
+                .and_then(|value| value.as_u64())
+        })
+        .max();
+    if meta_max.is_some() {
+        return meta_max;
+    }
+
+    let mut page_indexes: HashSet<u32> = HashSet::new();
+    for asset in assets {
+        if let Some(idx) = asset.page_index {
+            page_indexes.insert(idx);
+        }
+    }
+    if !page_indexes.is_empty() {
+        return Some(page_indexes.len() as u64);
+    }
+
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    let mut max_pages = None;
+    for asset in assets {
+        if asset.media == "pdf" && seen.insert(asset.path.clone()) {
+            if let Ok(count) = pdf::page_count(&asset.path) {
+                let count = count as u64;
+                if max_pages.map_or(true, |current| count > current) {
+                    max_pages = Some(count);
+                }
+            }
+        }
+    }
+    max_pages
 }
 
 fn infer_kind(assets: &[Asset]) -> Kind {
