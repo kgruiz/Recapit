@@ -12,13 +12,14 @@ Thanks for your interest in improving Recapit! This document outlines how to set
    # or
    python -m pip install -e .
    ```
-4. Set `GEMINI_API_KEY` in your shell before exercising the CLI or API.
+4. Install the Rust toolchain (1.79 or newer) and set `GEMINI_API_KEY` in your shell before exercising the CLI or API.
 
 ### Dependencies
 
 - Python 3.10+
-- Poppler (required by `pdf2image` for rasterization)
-- Google Gemini access with permissions for the models listed in `recapit/constants.py`
+- Rust 1.79+ and Cargo (for the `recapit` binary and integration tests)
+- Poppler (`pdftoppm`, `pdfinfo`), FFmpeg, and yt-dlp (for video/YouTube pipelines)
+- Google Gemini access with permissions for the models listed in `src/constants.rs`
 
 ## Development Workflow
 
@@ -26,8 +27,14 @@ Thanks for your interest in improving Recapit! This document outlines how to set
 2. Make focused changes with clear commits (see "Commit Messages").
 3. Run the project checks before each commit/push:
    ```shell
+   # Python surface
    python -m compileall recapit run.py
    pytest
+
+   # Rust CLI
+   cargo fmt --all
+   cargo check
+   cargo test
    ```
 4. Verify that the CLI still works for the scenario you are touching (e.g., run `recapit --help` or a sample command against fixture data).
 5. Open a pull request describing the motivation, approach, and testing performed.
