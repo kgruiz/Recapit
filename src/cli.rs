@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -25,10 +25,24 @@ pub enum Command {
         pdf_mode: String,
         #[arg(long)]
         model: Option<String>,
+        #[arg(long, action = ArgAction::SetTrue)]
+        recursive: bool,
+        #[arg(long = "no-recursive", action = ArgAction::SetTrue)]
+        no_recursive: bool,
         #[arg(long, default_value_t = true)]
         skip_existing: bool,
         #[arg(long)]
         export: Vec<String>,
+        #[arg(
+            long,
+            default_value = "basic",
+            help = "Preset profile (basic, speed [pdf_mode=images], quality [pdf_mode=pdf], plus entries from recapit.yaml)"
+        )]
+        preset: String,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
+        media_resolution: Option<String>,
     },
     /// Plan only
     Plan {
