@@ -19,6 +19,7 @@ mod video;
 
 use anyhow::{anyhow, Context};
 use clap::Parser;
+use cli::ConversionTarget;
 use conversion::{collect_tex_files, LatexConverter};
 use core::{Asset, Ingestor, Job, Kind, Normalizer, PdfMode};
 use crossterm::style::Stylize;
@@ -31,6 +32,7 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::{env, ffi::OsString};
 use tokio::sync::mpsc;
 
 #[tokio::main]
@@ -39,9 +41,11 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let cli = cli::Cli::parse();
+    let raw_args: Vec<OsString> = env::args_os().collect();
+    let parsed = inject_default_transcribe(raw_args);
+    let cli = cli::Cli::parse_from(parsed);
     match cli.cmd {
-        cli::Command::Summarize {
+        cli::Command::Transcribe {
             source,
             output_dir,
             kind,
@@ -51,10 +55,28 @@ async fn main() -> anyhow::Result<()> {
             no_recursive,
             skip_existing,
             export,
+            to,
+            _conversion_pattern,
             preset,
             config,
             media_resolution,
         } => {
+            if let Some(target) = to {
+                let kind = match target {
+                    ConversionTarget::Markdown => ConversionKind::Markdown,
+                    ConversionTarget::Json => ConversionKind::Json,
+                };
+                return run_latex_conversion(
+                    PathBuf::from(&source),
+                    output_dir,
+                    _conversion_pattern,
+                    skip_existing,
+                    model,
+                    if no_recursive { false } else { recursive },
+                    kind,
+                );
+            }
+
             let cfg = config::AppConfig::load(config.as_deref())?;
             let presets = merged_presets(&cfg);
             let preset_key = preset.to_lowercase();
@@ -368,6 +390,55 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn inject_default_transcribe(mut args: Vec<OsString>) -> Vec<OsString> {
+    if should_inject_default(&args) {
+        args.insert(1, OsString::from("transcribe"));
+    }
+    args
+}
+
+fn should_inject_default(args: &[OsString]) -> bool {
+    if args.len() <= 1 {
+        return false;
+    }
+
+    let recognized = [
+        "transcribe",
+        "plan",
+        "convert",
+        "planner",
+        "init",
+        "report",
+        "cleanup",
+        "help",
+    ];
+
+    for arg in args.iter().skip(1) {
+        if let Some(value) = arg.to_str() {
+            if matches!(value, "-h" | "--help" | "-V" | "--version") {
+                return false;
+            }
+            if recognized
+                .iter()
+                .any(|candidate| candidate.eq_ignore_ascii_case(value))
+            {
+                return false;
+            }
+            if value == "--" {
+                return true;
+            }
+            if value.starts_with('-') {
+                continue;
+            }
+            return true;
+        } else {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn merged_presets(cfg: &config::AppConfig) -> HashMap<String, HashMap<String, Value>> {

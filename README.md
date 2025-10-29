@@ -41,7 +41,7 @@ cargo install --path . --locked --force
 Or run directly without installing:
 
 ```shell
-cargo run -- summarize input.pdf --export srt
+cargo run -- transcribe input.pdf --export srt
 ```
 
 ## Configuration
@@ -78,11 +78,11 @@ After installation the `recapit` command becomes available. Export `GEMINI_API_K
 
 | Command | Purpose | Highlights |
 | --- | --- | --- |
-| `recapit summarize` | End-to-end ingestion + transcription | Honors presets/config, supports exports (`srt`, `vtt`, `markdown`, `json`), YouTube URLs, directory recursion |
+| `recapit <SOURCE>` | Default transcribe + summarize workflow (alias: `recapit transcribe <SOURCE>`) | Honors presets/config, supports exports (`srt`, `vtt`, `markdown`, `json`), YouTube URLs, directory recursion |
 | `recapit plan` | Preview how an asset will be normalized | No API calls; outputs chunk descriptors and modality |
 | `recapit planner plan` | Structured planner output (JSON or human) | Accepts `--model`, `--recursive`, `--json` |
 | `recapit planner ingest` | Show discovered assets without normalization | Helpful for debugging ingest rules |
-| `recapit convert md|json` | Batch-convert LaTeX into Markdown/JSON via Gemini | Respects `--pattern`, `--recursive`, `--skip-existing` |
+| `recapit <SOURCE> --to markdown|json` | Batch-convert LaTeX into Markdown/JSON via Gemini | Reuses conversion presets, supports `--file-pattern`, `--recursive`, `--skip-existing` |
 | `recapit report cost` | Summarize token/cost telemetry from a previous run | Works on `run-summary.json` or directories |
 | `recapit cleanup cache|downloads` | Remove cached downloads or normalized artifacts | Safe-by-default; pass `--yes` to apply |
 | `recapit init` | Scaffold `recapit.yaml` with editable defaults | Includes starter presets and save toggles |
@@ -98,14 +98,14 @@ export GEMINI_API_KEY="..."
 recapit plan input/video.mp4
 recapit plan https://example.com/report.pdf --json
 
-# Summarize a deck with the “speed” preset, keeping raw responses and Markdown exports
-RECAPIT_SAVE_FULL_RESPONSE=1 recapit summarize slides/deck.pdf \
+# Transcribe a deck with the “speed” preset, keeping raw responses and Markdown exports
+RECAPIT_SAVE_FULL_RESPONSE=1 recapit slides/deck.pdf \
   --preset speed \
   --export markdown \
   --output-dir output/decks
 
-# Summarize a YouTube lecture, keeping intermediates for reuse and forcing low-res media hints
-RECAPIT_SAVE_INTERMEDIATES=1 recapit summarize "https://www.youtube.com/watch?v=dQw4w9WgXcQ" \
+# Transcribe a YouTube lecture, keeping intermediates for reuse and forcing low-res media hints
+RECAPIT_SAVE_INTERMEDIATES=1 recapit "https://www.youtube.com/watch?v=dQw4w9WgXcQ" \
   --preset quality \
   --media-resolution low \
   --export srt vtt
@@ -114,8 +114,8 @@ RECAPIT_SAVE_INTERMEDIATES=1 recapit summarize "https://www.youtube.com/watch?v=
 recapit init
 
 # Post-processing helpers powered by the conversion utilities
-recapit convert md output/course-notes --pattern "*.tex" --recursive
-recapit convert json templates --skip-existing
+recapit output/course-notes --to markdown --file-pattern "*.tex" --recursive
+recapit templates --to json --skip-existing
 
 # Review the cost of a prior run
 recapit report cost output/course-notes/run-summary.json
@@ -125,7 +125,7 @@ recapit cleanup cache
 recapit cleanup downloads --yes
 ```
 
-`recapit summarize` accepts the standard `--kind`/`--pdf-mode` overrides, plus:
+`recapit transcribe` (and the shorthand `recapit <SOURCE>`) accept the standard `--kind`/`--pdf-mode` overrides, plus:
 
 - `--preset <name>` to preload overrides from `recapit.yaml` (e.g., select models, exports, concurrency).
 - `--export srt|vtt|markdown|json` to emit additional artifacts. Markdown/JSON exports use the new conversion pipeline under the hood.

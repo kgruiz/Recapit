@@ -1,4 +1,4 @@
-use clap::{ArgAction, Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -14,8 +14,8 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Unified engine
-    Summarize {
+    /// Transcribe and summarize sources
+    Transcribe {
         source: String,
         #[arg(short = 'o', long)]
         output_dir: Option<PathBuf>,
@@ -33,6 +33,10 @@ pub enum Command {
         skip_existing: bool,
         #[arg(long)]
         export: Vec<String>,
+        #[arg(long = "to")]
+        to: Option<ConversionTarget>,
+        #[arg(long = "file-pattern", default_value = "*.tex")]
+        _conversion_pattern: String,
         #[arg(
             long,
             default_value = "basic",
@@ -79,6 +83,12 @@ pub enum Command {
         #[command(subcommand)]
         command: CleanupCommand,
     },
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+pub enum ConversionTarget {
+    Markdown,
+    Json,
 }
 
 #[derive(Subcommand, Debug)]
