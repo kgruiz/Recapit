@@ -42,7 +42,7 @@ Environment variables:
 
 | Setting | Description |
 | --- | --- |
-| `GEMINI_API_KEY` | Required. API key picked up by the CLI and Python API via `AppConfig.from_env`. |
+| `GEMINI_API_KEY` | Required. API key consumed by the CLI via `AppConfig::load`. |
 | `RECAPIT_DEFAULT_MODEL` | Optional. Override the default transcription model (defaults to `gemini-2.5-flash-lite`). |
 | `RECAPIT_OUTPUT_DIR` | Optional. Override the base output directory (defaults to each input's parent directory). |
 | `RECAPIT_TEMPLATES_DIR` | Optional. Point to an alternate prompt template directory. |
@@ -56,7 +56,7 @@ Environment variables:
 | `RECAPIT_VIDEO_MEDIA_RESOLUTION` | Optional. Force Gemini media resolution hints: `default`, `low`, `medium`, `high`, `unspecified`. |
 | `RECAPIT_VIDEO_ENCODER` | Optional. Override the encoder used for video normalization (`auto`, `cpu`, `nvenc`, `videotoolbox`, `qsv`, `amf`). `auto` probes available FFmpeg hardware encoders and prefers GPU paths when they work. |
 
-Legacy environment variables prefixed with `LECTURE_SUMMARIZER_` remain supported for backward compatibility.
+Environment variables prefixed with `LECTURE_SUMMARIZER_` remain supported for compatibility with older configurations, but new setups should prefer the `RECAPIT_` variants.
 
 All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
 
@@ -117,7 +117,7 @@ recapit cleanup cache
 recapit cleanup downloads --yes
 ```
 
-`recapit summarize` accepts the same `--kind`/`--pdf-mode` overrides as the legacy Python CLI, plus:
+`recapit summarize` accepts the standard `--kind`/`--pdf-mode` overrides, plus:
 
 - `--preset <name>` to preload overrides from `recapit.yaml` (e.g., select models, exports, concurrency).
 - `--export srt|vtt|markdown|json` to emit additional artifacts. Markdown/JSON exports use the new conversion pipeline under the hood.
@@ -147,27 +147,12 @@ path/to/slides/
     Lecture01-transcribed.tex
 ```
 
-If `RECAPIT_SAVE_FULL_RESPONSE` (or the legacy `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE`) is enabled, you'll also see `full-response/lecture01-transcribed.txt` alongside the cleaned LaTeX.
+If `RECAPIT_SAVE_FULL_RESPONSE` (or its `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` alias) is enabled, you'll also see `full-response/lecture01-transcribed.txt` alongside the cleaned LaTeX.
 
 Markdown (`*.md`) and JSON (`*.json`) files are written alongside the LaTeX when you use the export hooks.
 
-Video inputs produce chunk-aware LaTeX: each chunk is emitted as `\section*{Chunk N (HH:MM:SS–HH:MM:SS)}` inside `<stem>-transcribed.tex`. When the `save_full_response` toggle is enabled (via presets, `recapit.yaml`, or environment variables), every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you enable `save_intermediates` (e.g., `RECAPIT_SAVE_INTERMEDIATES=1`, legacy `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`). Concurrency is bounded by `max_video_workers` so you can align ffmpeg load with your hardware budget.
+Video inputs produce chunk-aware LaTeX: each chunk is emitted as `\section*{Chunk N (HH:MM:SS–HH:MM:SS)}` inside `<stem>-transcribed.tex`. When the `save_full_response` toggle is enabled (via presets, `recapit.yaml`, or environment variables), every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you enable `save_intermediates` (e.g., `RECAPIT_SAVE_INTERMEDIATES=1` or `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`). Concurrency is bounded by `max_video_workers` so you can align ffmpeg load with your hardware budget.
 
-## Migration from the Python CLI
-
-The legacy Typer-based Python CLI is no longer shipped in this repository. Prior releases (before October 2025) still contain the Python package if you need it for embedded integrations. The Rust CLI preserves the same flag surface and preset semantics; consult the table below when moving existing scripts over:
-
-| Capability | Rust CLI (`recapit`) | Legacy Python CLI (<= v0.5) | Notes |
-| --- | --- | --- | --- |
-| Summarize PDFs/images | ✅ | ✅ | Same flags; Rust CLI adds preset-aware exports. |
-| Summarize YouTube URLs | ✅ (yt-dlp + ffmpeg) | ✅ | Rust CLI caches downloads and retries manifests; passes through URLs when prerequisites are missing. |
-| Presets / config merging | ✅ (`recapit.yaml`, `--preset`) | ✅ | Preset names are surfaced in `--help`. |
-| Markdown/JSON exports | ✅ (`--export markdown/json`) | ⚠️ manual (`recapit convert`) | Rust CLI runs conversion automatically. |
-| Planner commands | ✅ (`recapit plan`, `recapit planner plan/ingest`) | ✅ | Same JSON schema. |
-| Cost reports | ✅ (`recapit report cost`) | ✅ | Same telemetry format. |
-| Cleanup utilities | ✅ (`recapit cleanup cache/downloads`) | ⛔️ | New in Rust CLI. |
-
-If you relied on importing `recapit.*` modules from Python, pin to an earlier tag or build bindings around the Rust CLI.
 
 Every CLI run additionally writes a JSON telemetry report (default `run-summary.json`). The report contains:
 

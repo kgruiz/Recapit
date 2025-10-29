@@ -29,7 +29,7 @@ Thanks for your interest in improving Recapit! This document outlines how to set
 
 ## Coding Standards
 
-- Prefer dependency management with `uv` (Python). If other ecosystems are introduced, follow the repository defaults (`pnpm` for JS, `cargo`/`just` for Rust, etc.).
+- Follow the existing tooling for each ecosystem already in the repo (e.g., `cargo` for Rust, `pnpm` for any JS utilities).
 - Keep code ASCII unless existing files require otherwise.
 - Add concise comments only when logic is non-obvious.
 - Avoid global state; leverage the modular pipeline and configuration helpers.
