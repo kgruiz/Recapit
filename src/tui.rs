@@ -2,7 +2,7 @@ use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute, queue,
-    style::Print,
+    style::{Color, PrintStyledContent, Stylize},
     terminal::{self, Clear, ClearType},
 };
 use std::collections::HashMap;
@@ -72,7 +72,7 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
             out,
             cursor::MoveTo(0, base_row),
             Clear(ClearType::FromCursorDown),
-            Print("progress:")
+            PrintStyledContent("progress:".with(Color::DarkGrey))
         )?;
         let start_row = base_row + 1;
         for (idx, task) in order.iter().enumerate() {
@@ -88,16 +88,30 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
                 } else {
                     "  -/- ".to_string()
                 };
-                let line = format!(
-                    "{task:10}  [{:50}]  {percent_label}  {count_label}  {}",
-                    progress_bar(percent),
-                    state.status
-                );
+                let bar = progress_bar(percent);
+                let styled_bar = if percent >= 1.0 {
+                    bar.clone().with(Color::Green)
+                } else {
+                    bar.clone().with(Color::Yellow)
+                };
+                let status_style = if percent >= 1.0 {
+                    state.status.clone().with(Color::Green)
+                } else {
+                    state.status.clone().with(Color::White)
+                };
                 queue!(
                     out,
                     cursor::MoveTo(0, start_row + idx as u16),
                     Clear(ClearType::CurrentLine),
-                    Print(line)
+                    PrintStyledContent(format!("{task:10}  ").with(Color::White)),
+                    PrintStyledContent("[".with(Color::DarkGrey)),
+                    PrintStyledContent(styled_bar),
+                    PrintStyledContent("]  ".with(Color::DarkGrey)),
+                    PrintStyledContent(percent_label.with(Color::Cyan)),
+                    PrintStyledContent("  ".with(Color::DarkGrey)),
+                    PrintStyledContent(count_label.with(Color::Magenta)),
+                    PrintStyledContent("  ".with(Color::DarkGrey)),
+                    PrintStyledContent(status_style)
                 )?;
             }
         }
