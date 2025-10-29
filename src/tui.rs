@@ -48,52 +48,6 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
     let mut closed = false;
 
     loop {
-        queue!(
-            out,
-            cursor::MoveTo(0, base_row),
-            Clear(ClearType::CurrentLine),
-            Print("progress:\n")
-        )?;
-        for (idx, task) in order.iter().enumerate() {
-            if let Some(state) = rows.get(task) {
-                let percent = if state.total > 0 {
-                    (state.cur as f64 / state.total as f64).min(1.0)
-                } else {
-                    0.0
-                };
-                let bar = format!("{:>3}%", (percent * 100.0) as u64);
-                let line = format!(
-                    "{task:10}  [{:50}]  {bar}  {}",
-                    progress_bar(percent),
-                    state.status
-                );
-                queue!(
-                    out,
-                    cursor::MoveTo(0, base_row + 1 + idx as u16),
-                    Clear(ClearType::CurrentLine),
-                    Print(format!("{line}\n"))
-                )?;
-            }
-        }
-        queue!(
-            out,
-            cursor::MoveTo(0, base_row + order.len() as u16 + 1),
-            Clear(ClearType::CurrentLine)
-        )?;
-        out.flush()?;
-
-        if event::poll(std::time::Duration::from_millis(33))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press
-                    && (key.code == KeyCode::Char('q')
-                        || (key.code == KeyCode::Char('c')
-                            && key.modifiers.contains(KeyModifiers::CONTROL)))
-                {
-                    break;
-                }
-            }
-        }
-
         loop {
             match rx.try_recv() {
                 Ok(evt) => {
@@ -114,8 +68,45 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
             }
         }
 
+        queue!(
+            out,
+            cursor::MoveTo(0, base_row),
+            Clear(ClearType::FromCursorDown),
+            Print("progress:"),
+            cursor::MoveToNextLine(1)
+        )?;
+        for task in &order {
+            if let Some(state) = rows.get(task) {
+                let percent = if state.total > 0 {
+                    (state.cur as f64 / state.total as f64).min(1.0)
+                } else {
+                    0.0
+                };
+                let bar = format!("{:>3}%", (percent * 100.0) as u64);
+                let line = format!(
+                    "{task:10}  [{:50}]  {bar}  {}",
+                    progress_bar(percent),
+                    state.status
+                );
+                queue!(out, Print(line), cursor::MoveToNextLine(1))?;
+            }
+        }
+        out.flush()?;
+
         if closed && rows.values().all(|state| state.cur >= state.total) {
             break;
+        }
+
+        if event::poll(std::time::Duration::from_millis(33))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press
+                    && (key.code == KeyCode::Char('q')
+                        || (key.code == KeyCode::Char('c')
+                            && key.modifiers.contains(KeyModifiers::CONTROL)))
+                {
+                    break;
+                }
+            }
         }
     }
 
