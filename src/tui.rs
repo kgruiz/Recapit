@@ -1,9 +1,11 @@
 use crossterm::{
+    cursor,
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-    execute, terminal,
+    execute, queue,
+    terminal::{self, Clear, ClearType},
 };
-use ratatui::{prelude::*, widgets::*};
 use std::collections::HashMap;
+use std::io::{stdout, Write};
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -28,22 +30,31 @@ impl Default for RowState {
 }
 
 pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> {
-    let mut stdout = std::io::stdout();
+    let mut out = stdout();
+    let (col, mut row) = cursor::position()?;
+    if col != 0 {
+        writeln!(out)?;
+        out.flush()?;
+        let pos = cursor::position()?;
+        row = pos.1;
+    }
     terminal::enable_raw_mode()?;
-    execute!(
-        stdout,
-        terminal::EnterAlternateScreen,
-        event::EnableMouseCapture
-    )?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
+    execute!(out, cursor::Hide)?;
+
+    let base_row = row;
     let mut rows: HashMap<String, RowState> = HashMap::new();
+    let mut order: Vec<String> = Vec::new();
     let mut closed = false;
 
     loop {
-        terminal.draw(|frame| {
-            let area = frame.size();
-            let mut items = Vec::new();
-            for (task, state) in rows.iter() {
+        queue!(
+            out,
+            cursor::MoveTo(0, base_row),
+            Clear(ClearType::FromCursorDown)
+        )?;
+        writeln!(out, "progress:")?;
+        for task in &order {
+            if let Some(state) = rows.get(task) {
                 let percent = if state.total > 0 {
                     (state.cur as f64 / state.total as f64).min(1.0)
                 } else {
@@ -55,16 +66,10 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
                     progress_bar(percent),
                     state.status
                 );
-                items.push(ListItem::new(line));
+                writeln!(out, "{line}")?;
             }
-            let list =
-                List::new(items).block(Block::default().title("progress").borders(Borders::ALL));
-            let min_height = 3u16;
-            let content_height = (rows.len() as u16).saturating_add(2).max(min_height);
-            let height = content_height.min(area.height);
-            let list_area = Rect::new(area.x, area.y, area.width, height);
-            frame.render_widget(list, list_area);
-        })?;
+        }
+        out.flush()?;
 
         if event::poll(std::time::Duration::from_millis(33))? {
             if let Event::Key(key) = event::read()? {
@@ -82,6 +87,9 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
             match rx.try_recv() {
                 Ok(evt) => {
                     let entry = rows.entry(evt.task.clone()).or_default();
+                    if !order.contains(&evt.task) {
+                        order.push(evt.task.clone());
+                    }
                     entry.kind = evt.kind;
                     entry.cur = evt.current;
                     entry.total = evt.total.max(1);
@@ -101,12 +109,10 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
     }
 
     terminal::disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        terminal::LeaveAlternateScreen,
-        event::DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    let lines = order.len() as u16 + 2;
+    execute!(out, cursor::MoveTo(0, base_row + lines), cursor::Show)?;
+    writeln!(out)?;
+    out.flush()?;
     Ok(())
 }
 
