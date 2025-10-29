@@ -305,6 +305,9 @@ async fn main() -> anyhow::Result<()> {
                 .ok();
             }
 
+            drop(engine);
+            drop(tx);
+
             tui_handle.await??;
         }
         cli::Command::Plan {
