@@ -1,6 +1,6 @@
 # Recapit
 
-Recapit is a modular toolkit for turning slide decks, lecture handouts, PDFs, YouTube videos, and standalone images into cleaned LaTeX, Markdown, or JSON outputs using Google Gemini models. The Rust-first CLI wraps the same ingestion pipelines as the Python API, handling asset discovery, ffmpeg/yt-dlp normalization, quota-aware retries, and template-driven prompting.
+Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube videos, and standalone images into cleaned LaTeX, Markdown, or JSON outputs using Google Gemini models. It handles asset discovery, ffmpeg/yt-dlp normalization, quota-aware retries, and template-driven prompting in one binary.
 
 ## Highlights
 
@@ -18,14 +18,11 @@ Recapit is a modular toolkit for turning slide decks, lecture handouts, PDFs, Yo
 
 ## Requirements
 
-- Rust 1.79+ (for the CLI workspace) and Cargo
-- Python 3.10+ (for the legacy API helpers and conversion scripts)
+- Rust 1.79+ and Cargo
 - Google Gemini access and a `GEMINI_API_KEY` with permissions for the latest models (e.g. `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-pro`).
 - Poppler (`pdftoppm`, `pdfinfo`) and FFmpeg; yt-dlp is required for YouTube URLs.
 
 ## Installation
-
-### CLI (Rust)
 
 ```shell
 # clone the repository first
@@ -38,16 +35,6 @@ Or run directly without installing:
 ```shell
 cargo run -- summarize input.pdf --export srt
 ```
-
-### Python API / Legacy Utilities
-
-```shell
-uv pip install -e .
-# or
-python -m pip install -e .
-```
-
-To work on the codebase locally, create a virtual environment (e.g., `uv venv` or `python -m venv .venv`) before installing dependencies.
 
 ## Configuration
 
@@ -71,7 +58,7 @@ Environment variables:
 
 Legacy environment variables prefixed with `LECTURE_SUMMARIZER_` remain supported for backward compatibility.
 
-All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). Strategy classes live under `recapit/prompts/` and look for matching `*-prompt.txt` files before falling back to the compiled defaults. The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
+All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
 
 Prefer configuration files? Run `recapit init` to create `recapit.yaml`; it stores defaults for `default_model`, `output_dir`, `exports`, video chunk parameters, and per-preset overrides. CLI flags override environment variables, and environment variables override the YAML file, giving you explicit precedence: `CLI > ENV > YAML`.
 
@@ -130,7 +117,7 @@ recapit cleanup cache
 recapit cleanup downloads --yes
 ```
 
-`recapit summarize` accepts the same `--kind`/`--pdf-mode` overrides as the legacy pipeline, plus:
+`recapit summarize` accepts the same `--kind`/`--pdf-mode` overrides as the legacy Python CLI, plus:
 
 - `--preset <name>` to preload overrides from `recapit.yaml` (e.g., select models, exports, concurrency).
 - `--export srt|vtt|markdown|json` to emit additional artifacts. Markdown/JSON exports use the new conversion pipeline under the hood.
@@ -162,28 +149,25 @@ path/to/slides/
 
 If `RECAPIT_SAVE_FULL_RESPONSE` (or the legacy `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE`) is enabled, you'll also see `full-response/lecture01-transcribed.txt` alongside the cleaned LaTeX.
 
-Markdown (`*.md`) and JSON (`*.json`) files are written alongside the LaTeX when you run the conversion utilities.
+Markdown (`*.md`) and JSON (`*.json`) files are written alongside the LaTeX when you use the export hooks.
 
 Video inputs produce chunk-aware LaTeX: each chunk is emitted as `\section*{Chunk N (HH:MM:SS–HH:MM:SS)}` inside `<stem>-transcribed.tex`. When the `save_full_response` toggle is enabled (via presets, `recapit.yaml`, or environment variables), every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you enable `save_intermediates` (e.g., `RECAPIT_SAVE_INTERMEDIATES=1`, legacy `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`). Concurrency is bounded by `max_video_workers` so you can align ffmpeg load with your hardware budget.
 
 ## Migration from the Python CLI
 
-The Rust CLI aims for feature parity with the legacy Typer-based Python entry point. Key differences are summarized below:
+The legacy Typer-based Python CLI is no longer shipped in this repository. Prior releases (before October 2025) still contain the Python package if you need it for embedded integrations. The Rust CLI preserves the same flag surface and preset semantics; consult the table below when moving existing scripts over:
 
-| Capability | Rust CLI (`recapit`) | Python CLI (`python -m recapit.cli`) | Notes |
+| Capability | Rust CLI (`recapit`) | Legacy Python CLI (<= v0.5) | Notes |
 | --- | --- | --- | --- |
-| Summarize PDFs/images | ✅ | ✅ | Same flags; Rust CLI adds presets and export hooks. |
+| Summarize PDFs/images | ✅ | ✅ | Same flags; Rust CLI adds preset-aware exports. |
 | Summarize YouTube URLs | ✅ (yt-dlp + ffmpeg) | ✅ | Rust CLI caches downloads and retries manifests; passes through URLs when prerequisites are missing. |
-| Presets / config merging | ✅ (`recapit.yaml`, `--preset`) | ✅ | Rust CLI surfaces preset names in `--help` output. |
-| Markdown/JSON exports | ✅ (`--export markdown/json`) | ⚠️ manual (`recapit convert`) | Rust CLI runs conversion automatically; Python CLI requires the helper commands. |
-| Planner commands | ✅ (`recapit plan`, `recapit planner plan/ingest`) | ✅ | Outputs are equivalent; JSON schema preserved. |
+| Presets / config merging | ✅ (`recapit.yaml`, `--preset`) | ✅ | Preset names are surfaced in `--help`. |
+| Markdown/JSON exports | ✅ (`--export markdown/json`) | ⚠️ manual (`recapit convert`) | Rust CLI runs conversion automatically. |
+| Planner commands | ✅ (`recapit plan`, `recapit planner plan/ingest`) | ✅ | Same JSON schema. |
 | Cost reports | ✅ (`recapit report cost`) | ✅ | Same telemetry format. |
-| Cleanup utilities | ✅ (`recapit cleanup cache/downloads`) | ⛔️ | New in the Rust CLI. |
-| Save toggles | ✅ (presets/env/config) | ✅ (env/config only) | Rust CLI merges toggles from presets, YAML, and environment variables. |
-| Installation | `cargo install --path .` | `uv pip install -e .` | Both can co-exist; the Rust CLI depends on the Rust toolchain. |
+| Cleanup utilities | ✅ (`recapit cleanup cache/downloads`) | ⛔️ | New in Rust CLI. |
 
-Outstanding gaps: the Python package still exposes additional helpers (e.g., direct `recapit.api` entry points). These remain available while the Rust CLI continues to add parity tests and presets. If you rely on Python-only hooks, import them from the `recapit` package after installing via `uv pip install -e .`.
-Hardware acceleration is enabled automatically when FFmpeg exposes GPU encoders; fall back to `--video-encoder cpu` if you run into driver issues.
+If you relied on importing `recapit.*` modules from Python, pin to an earlier tag or build bindings around the Rust CLI.
 
 Every CLI run additionally writes a JSON telemetry report (default `run-summary.json`). The report contains:
 

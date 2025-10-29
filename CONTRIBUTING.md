@@ -5,19 +5,12 @@ Thanks for your interest in improving Recapit! This document outlines how to set
 ## Quick Start
 
 1. Fork the repository and clone your fork.
-2. Create a virtual environment (recommended: `uv venv` or `python -m venv .venv`).
-3. Activate the environment and install the project in editable mode:
-   ```shell
-   uv pip install -e .
-   # or
-   python -m pip install -e .
-   ```
-4. Install the Rust toolchain (1.79 or newer) and set `GEMINI_API_KEY` in your shell before exercising the CLI or API.
+2. Install the Rust toolchain (1.79 or newer) and ensure `cargo` is on your `PATH`.
+3. Export `GEMINI_API_KEY` in your shell before exercising the CLI.
 
 ### Dependencies
 
-- Python 3.10+
-- Rust 1.79+ and Cargo (for the `recapit` binary and integration tests)
+- Rust 1.79+ and Cargo
 - Poppler (`pdftoppm`, `pdfinfo`), FFmpeg, and yt-dlp (for video/YouTube pipelines)
 - Google Gemini access with permissions for the models listed in `src/constants.rs`
 
@@ -27,11 +20,6 @@ Thanks for your interest in improving Recapit! This document outlines how to set
 2. Make focused changes with clear commits (see "Commit Messages").
 3. Run the project checks before each commit/push:
    ```shell
-   # Python surface
-   python -m compileall recapit run.py
-   pytest
-
-   # Rust CLI
    cargo fmt --all
    cargo check
    cargo test
