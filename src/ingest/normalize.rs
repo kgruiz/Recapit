@@ -2,9 +2,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use time::OffsetDateTime;
+use tracing::warn;
 
+use super::youtube::{YouTubeDownload, YouTubeDownloadError, YouTubeDownloader};
 use crate::core::{Asset, Job, PdfMode, SourceKind};
 use crate::pdf::pdf_to_png;
 use crate::utils::{ensure_dir, slugify};
@@ -26,6 +28,7 @@ pub struct CompositeNormalizer {
     job: Option<Job>,
     chunk_info: Vec<Value>,
     manifest_path: Option<PathBuf>,
+    youtube_downloader: YouTubeDownloader,
 }
 
 impl CompositeNormalizer {
@@ -56,6 +59,7 @@ impl CompositeNormalizer {
             job: None,
             chunk_info: Vec::new(),
             manifest_path: None,
+            youtube_downloader: YouTubeDownloader::new(None)?,
         })
     }
 
@@ -149,15 +153,20 @@ impl CompositeNormalizer {
     }
 
     fn normalize_video(&mut self, asset: &Asset) -> Result<Vec<Asset>> {
-        if asset.source_kind == SourceKind::Youtube {
-            if asset.meta.get("pass_through").and_then(|v| v.as_bool()) == Some(true) {
-                return Ok(vec![asset.clone()]);
-            }
+        let realized = self.materialize_video(asset)?;
+        if realized
+            .meta
+            .as_object()
+            .and_then(|meta| meta.get("pass_through"))
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        {
+            return Ok(vec![realized]);
         }
 
         let job_root = self.job_root();
         ensure_dir(&job_root)?;
-        let slug = asset
+        let slug = realized
             .path
             .file_stem()
             .map(|s| slugify(&s.to_string_lossy()))
@@ -170,7 +179,7 @@ impl CompositeNormalizer {
 
         let encoder_specs = select_encoder_chain(self.encoder_preference.clone());
         let normalization =
-            crate::video::normalize_video(&asset.path, &normalized_dir, &encoder_specs)?;
+            crate::video::normalize_video(&realized.path, &normalized_dir, &encoder_specs)?;
         let normalized_path = normalization.path.clone();
         let metadata = probe_video(&normalized_path)?;
         let manifest_path = job_root.join("manifests").join(format!("{slug}.json"));
@@ -186,7 +195,7 @@ impl CompositeNormalizer {
             &normalized_dir.join("chunks"),
             Some(manifest_path.clone()),
         )?;
-        self.write_manifest(&chunk_plan, asset, &manifest_path)?;
+        self.write_manifest(&chunk_plan, &realized, &manifest_path)?;
         self.manifest_path = Some(manifest_path.clone());
 
         let chunk_total = chunk_plan.chunks.len();
@@ -199,19 +208,93 @@ impl CompositeNormalizer {
                 "chunk_end_seconds": chunk.end_seconds,
                 "manifest_path": manifest_path,
                 "normalized_path": chunk_plan.normalized_path,
-                "source_video": asset.path,
+                "source_video": realized.path,
             });
             outputs.push(Asset {
                 path: chunk.path.clone(),
                 media: "video".into(),
                 page_index: None,
-                source_kind: asset.source_kind,
+                source_kind: realized.source_kind,
                 mime: Some("video/mp4".into()),
                 meta: meta.clone(),
             });
             self.chunk_info.push(meta);
         }
         Ok(outputs)
+    }
+
+    fn materialize_video(&mut self, asset: &Asset) -> Result<Asset> {
+        if asset.source_kind != SourceKind::Youtube {
+            return Ok(asset.clone());
+        }
+
+        let meta_map = value_to_map(&asset.meta);
+        if meta_map
+            .get("pass_through")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        {
+            return Ok(asset.clone());
+        }
+
+        let source_url = meta_map
+            .get("source_url")
+            .and_then(|value| value.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| asset.path.to_string_lossy().to_string());
+
+        let downloads_dir = self.job_root().join("downloads").join("youtube");
+        ensure_dir(&downloads_dir)?;
+
+        match self
+            .youtube_downloader
+            .download(&source_url, Some(&downloads_dir))
+        {
+            Ok(download) => {
+                let updated = apply_download_metadata(meta_map, &download, &source_url);
+                let mut realized = asset.clone();
+                realized.path = download.path.clone();
+                realized.mime = Some(download.mime.clone());
+                realized.meta = Value::Object(updated);
+                Ok(realized)
+            }
+            Err(YouTubeDownloadError::MissingYtDlp | YouTubeDownloadError::MissingFfmpeg) => {
+                warn!(
+                    target: "recapit::ingest::youtube",
+                    "YouTube download prerequisites missing for {}",
+                    source_url
+                );
+                let mut meta_map = meta_map;
+                meta_map.insert("pass_through".into(), Value::Bool(true));
+                meta_map.insert("downloaded".into(), Value::Bool(false));
+                meta_map.insert(
+                    "warning".into(),
+                    Value::String("YouTube download prerequisites missing".into()),
+                );
+                let mut fallback = asset.clone();
+                fallback.path = PathBuf::from(source_url.clone());
+                fallback.mime = Some("video/*".into());
+                fallback.meta = Value::Object(meta_map);
+                Ok(fallback)
+            }
+            Err(err) => {
+                warn!(
+                    target: "recapit::ingest::youtube",
+                    "YouTube download failed for {}: {}",
+                    source_url,
+                    err
+                );
+                let mut meta_map = meta_map;
+                meta_map.insert("pass_through".into(), Value::Bool(true));
+                meta_map.insert("downloaded".into(), Value::Bool(false));
+                meta_map.insert("warning".into(), Value::String(err.to_string()));
+                let mut fallback = asset.clone();
+                fallback.path = PathBuf::from(source_url.clone());
+                fallback.mime = Some("video/*".into());
+                fallback.meta = Value::Object(meta_map);
+                Ok(fallback)
+            }
+        }
     }
 
     fn write_manifest(
@@ -235,11 +318,32 @@ impl CompositeNormalizer {
         }
         let source_hash = sha256sum(&asset.path)?;
         let normalized_hash = sha256sum(&plan.normalized_path)?;
+        let downloaded = asset
+            .meta
+            .as_object()
+            .and_then(|meta| meta.get("downloaded"))
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        let source_url_value = asset
+            .meta
+            .as_object()
+            .and_then(|meta| meta.get("source_url"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let youtube_id_value = asset
+            .meta
+            .as_object()
+            .and_then(|meta| meta.get("youtube_id"))
+            .cloned()
+            .unwrap_or(Value::Null);
         let payload = json!({
             "version": 1,
             "source": asset.path,
             "source_hash": format!("sha256:{source_hash}"),
             "source_kind": asset.source_kind,
+            "source_url": source_url_value,
+            "downloaded": downloaded,
+            "youtube_id": youtube_id_value,
             "normalized": plan.normalized_path,
             "normalized_hash": format!("sha256:{normalized_hash}"),
             "duration_seconds": plan.metadata.duration_seconds,
@@ -272,4 +376,59 @@ impl crate::core::Normalizer for CompositeNormalizer {
     fn artifact_paths(&self) -> Vec<PathBuf> {
         self.manifest_path.clone().into_iter().collect()
     }
+}
+
+fn value_to_map(value: &Value) -> Map<String, Value> {
+    value.as_object().cloned().unwrap_or_else(Map::new)
+}
+
+fn apply_download_metadata(
+    mut meta: Map<String, Value>,
+    download: &YouTubeDownload,
+    source_url: &str,
+) -> Map<String, Value> {
+    meta.insert("source_url".into(), Value::String(source_url.to_string()));
+    meta.insert("pass_through".into(), Value::Bool(false));
+    meta.insert("downloaded".into(), Value::Bool(true));
+    meta.remove("warning");
+
+    if let Some(id) = download
+        .metadata
+        .as_object()
+        .and_then(|map| map.get("id"))
+        .and_then(|value| value.as_str())
+    {
+        meta.insert("youtube_id".into(), Value::String(id.to_string()));
+    }
+    if let Some(duration) = extract_duration(&download.metadata) {
+        meta.insert("duration_seconds".into(), Value::from(duration));
+    }
+    if let Some(bytes) = download.size_bytes {
+        meta.insert("size_bytes".into(), Value::from(bytes));
+    }
+    if let Some(hash) = download.sha256.as_ref() {
+        meta.insert("size_hash".into(), Value::String(format!("sha256:{hash}")));
+    }
+    if let Some(title) = download
+        .metadata
+        .as_object()
+        .and_then(|map| map.get("title"))
+        .and_then(|value| value.as_str())
+    {
+        meta.insert("title".into(), Value::String(title.to_string()));
+    }
+    meta.insert("download_cached".into(), Value::Bool(download.cached));
+    meta
+}
+
+fn extract_duration(metadata: &Value) -> Option<f64> {
+    metadata
+        .as_object()
+        .and_then(|map| map.get("duration"))
+        .and_then(|value| {
+            value
+                .as_f64()
+                .or_else(|| value.as_i64().map(|v| v as f64))
+                .or_else(|| value.as_u64().map(|v| v as f64))
+        })
 }

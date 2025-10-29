@@ -1,36 +1,32 @@
-use anyhow::{anyhow, Context, Result};
-use serde_json::Value;
+use anyhow::{Context, Result};
+use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::str;
+use thiserror::Error;
 use url::Url;
 use which::which;
 
 use crate::core::{Asset, Job, SourceKind};
 use crate::utils::ensure_dir;
+use crate::video::sha256sum;
+
+const YOUTUBE_HOSTS: [&str; 4] = [
+    "youtu.be",
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+];
 
 pub struct YouTubeIngestor {
     hosts: HashSet<&'static str>,
-    cache_dir: PathBuf,
 }
 
 impl Default for YouTubeIngestor {
     fn default() -> Self {
-        let base_cache = dirs::cache_dir()
-            .unwrap_or_else(|| env::temp_dir())
-            .join("recapit")
-            .join("youtube");
-        ensure_dir(&base_cache).expect("failed to create youtube cache directory");
         Self {
-            hosts: HashSet::from([
-                "youtu.be",
-                "youtube.com",
-                "www.youtube.com",
-                "m.youtube.com",
-            ]),
-            cache_dir: base_cache,
+            hosts: HashSet::from(YOUTUBE_HOSTS),
         }
     }
 }
@@ -44,143 +40,176 @@ impl YouTubeIngestor {
     }
 
     pub fn discover(&self, job: &Job) -> Result<Vec<Asset>> {
-        let parsed = match Url::parse(&job.source) {
-            Ok(url) => url,
-            Err(_) => Url::parse(&format!("https://{}", job.source))?,
-        };
+        let parsed = parse_url(&job.source)?;
         if !self.supports(&parsed) {
             return Ok(vec![]);
         }
         let url = parsed.to_string();
-        let download = download_with_ytdlp(&url, &self.cache_dir)?;
-        let meta = serde_json::json!({
+        let meta = json!({
             "source_url": url,
-            "downloaded": true,
-            "youtube_id": download.video_id,
-            "duration_seconds": download.duration,
-            "size_bytes": download.size_bytes,
-            "title": download.title,
+            "pass_through": false,
+            "downloaded": false,
         });
         Ok(vec![Asset {
-            path: download.path,
+            path: PathBuf::from(url.clone()),
             media: "video".into(),
             page_index: None,
             source_kind: SourceKind::Youtube,
-            mime: Some(download.mime),
+            mime: Some("video/*".into()),
             meta,
         }])
     }
 }
 
-struct DownloadedVideo {
-    path: PathBuf,
-    video_id: String,
-    duration: Option<f64>,
-    size_bytes: Option<u64>,
-    title: Option<String>,
-    mime: String,
+#[derive(Debug, Clone)]
+pub struct YouTubeDownloader {
+    cache_dir: PathBuf,
 }
 
-fn download_with_ytdlp(url: &str, cache_dir: &Path) -> Result<DownloadedVideo> {
-    ensure_dir(cache_dir)?;
+#[derive(Debug, Clone)]
+pub struct YouTubeDownload {
+    pub path: PathBuf,
+    pub metadata: Value,
+    pub mime: String,
+    pub cached: bool,
+    pub sha256: Option<String>,
+    pub size_bytes: Option<u64>,
+}
 
-    let ytdlp_path = which("yt-dlp").map_err(|_| {
-        anyhow!(
-            "yt-dlp executable not found. Install it (e.g. `brew install yt-dlp`) to download YouTube sources."
-        )
-    })?;
-    let ffmpeg_path = which("ffmpeg").map_err(|_| {
-        anyhow!(
-            "ffmpeg executable not found. Install it (e.g. `brew install ffmpeg`) so yt-dlp can merge audio/video streams."
-        )
-    })?;
+#[derive(Debug, Error)]
+pub enum YouTubeDownloadError {
+    #[error("yt-dlp executable not found. Install it (e.g. `brew install yt-dlp`) to download YouTube sources.")]
+    MissingYtDlp,
+    #[error("ffmpeg executable not found. Install it (e.g. `brew install ffmpeg`) so yt-dlp can merge audio/video streams.")]
+    MissingFfmpeg,
+    #[error("yt-dlp metadata probe failed: {0}")]
+    Metadata(String),
+    #[error("yt-dlp download failed: {0}")]
+    Download(String),
+    #[error("{0}")]
+    Other(String),
+}
 
-    let metadata_output = Command::new(&ytdlp_path)
-        .arg("--dump-json")
-        .arg("--skip-download")
-        .arg("--no-warnings")
-        .arg("--no-progress")
-        .arg(url)
-        .output()
-        .map_err(|err| anyhow!("failed to execute yt-dlp: {err}"))?;
-
-    if !metadata_output.status.success() {
-        let stderr = String::from_utf8_lossy(&metadata_output.stderr);
-        return Err(anyhow!(
-            "yt-dlp metadata probe failed (status {}): {}",
-            metadata_output.status,
-            stderr.trim()
-        ));
+impl YouTubeDownloader {
+    pub fn new(cache_dir: Option<PathBuf>) -> Result<Self> {
+        let base = cache_dir.unwrap_or_else(|| {
+            dirs::cache_dir()
+                .unwrap_or_else(|| env::temp_dir())
+                .join("recapit")
+                .join("youtube")
+        });
+        ensure_dir(&base)?;
+        Ok(Self { cache_dir: base })
     }
 
-    let metadata: Value = serde_json::from_slice(&metadata_output.stdout)
-        .context("unable to parse yt-dlp metadata JSON")?;
+    pub fn download(
+        &self,
+        url: &str,
+        target_dir: Option<&Path>,
+    ) -> std::result::Result<YouTubeDownload, YouTubeDownloadError> {
+        let ytdlp = which("yt-dlp").map_err(|_| YouTubeDownloadError::MissingYtDlp)?;
+        let ffmpeg = which("ffmpeg").map_err(|_| YouTubeDownloadError::MissingFfmpeg)?;
 
-    let video_id = metadata
-        .get("id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("yt-dlp metadata missing video id"))?
-        .to_string();
-    let ext = metadata.get("ext").and_then(Value::as_str).unwrap_or("mp4");
-    let title = metadata
-        .get("title")
-        .and_then(Value::as_str)
-        .map(|s| s.to_string());
-    let duration = metadata
-        .get("duration")
-        .and_then(Value::as_f64)
-        .or_else(|| {
-            metadata
-                .get("duration")
-                .and_then(Value::as_i64)
-                .map(|v| v as f64)
-        });
+        let base_dir = target_dir
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.cache_dir.clone());
+        ensure_dir(&base_dir).map_err(|err| YouTubeDownloadError::Other(err.to_string()))?;
 
-    let output_template = cache_dir.join(format!("{video_id}.%(ext)s"));
-
-    if !cache_dir.join(format!("{video_id}.{ext}")).exists() {
-        let download_status = Command::new(&ytdlp_path)
-            .arg("-o")
-            .arg(output_template.to_string_lossy().to_string())
-            .arg("--merge-output-format")
-            .arg("mp4")
-            .arg("--ffmpeg-location")
-            .arg(ffmpeg_path.to_string_lossy().to_string())
+        let metadata_output = Command::new(&ytdlp)
+            .arg("--dump-json")
+            .arg("--skip-download")
             .arg("--no-warnings")
             .arg("--no-progress")
-            .arg("--quiet")
             .arg(url)
-            .status()
-            .map_err(|err| anyhow!("failed to execute yt-dlp download: {err}"))?;
+            .output()
+            .map_err(|err| {
+                YouTubeDownloadError::Other(format!("failed to execute yt-dlp: {err}"))
+            })?;
 
-        if !download_status.success() {
-            return Err(anyhow!(
-                "yt-dlp download failed with status {}",
-                download_status
-            ));
+        if !metadata_output.status.success() {
+            let stderr = String::from_utf8_lossy(&metadata_output.stderr);
+            return Err(YouTubeDownloadError::Metadata(stderr.trim().to_string()));
         }
-    }
 
-    let final_path = cache_dir.join(format!("{video_id}.mp4"));
-    let mut actual_path = final_path.clone();
-    if !actual_path.exists() {
-        // fallback to the reported extension
-        actual_path = cache_dir.join(format!("{video_id}.{ext}"));
-    }
+        let metadata: Value = serde_json::from_slice(&metadata_output.stdout).map_err(|err| {
+            YouTubeDownloadError::Other(format!("unable to parse yt-dlp metadata JSON: {err}"))
+        })?;
 
-    if !actual_path.exists() {
-        return Err(anyhow!(
-            "yt-dlp reported success but no output file found for video {video_id}"
-        ));
-    }
+        let video_id = metadata
+            .get("id")
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string())
+            .ok_or_else(|| {
+                YouTubeDownloadError::Metadata("yt-dlp metadata missing video id".into())
+            })?;
+        let ext = metadata
+            .get("ext")
+            .and_then(|value| value.as_str())
+            .unwrap_or("mp4");
 
-    let size_bytes = actual_path.metadata().ok().map(|meta| meta.len());
-    Ok(DownloadedVideo {
-        path: actual_path,
-        video_id,
-        duration,
-        size_bytes,
-        title,
-        mime: format!("video/{ext}"),
-    })
+        let expected_mp4 = base_dir.join(format!("{video_id}.mp4"));
+        let expected_ext = base_dir.join(format!("{video_id}.{ext}"));
+
+        let (path, cached) = if expected_mp4.exists() {
+            (expected_mp4.clone(), true)
+        } else if expected_ext.exists() {
+            (expected_ext.clone(), true)
+        } else {
+            let template = base_dir.join(format!("{video_id}.%(ext)s"));
+            let status = Command::new(&ytdlp)
+                .arg("--quiet")
+                .arg("--no-warnings")
+                .arg("--no-progress")
+                .arg("--merge-output-format")
+                .arg("mp4")
+                .arg("--ffmpeg-location")
+                .arg(ffmpeg.to_string_lossy().to_string())
+                .arg("-o")
+                .arg(template.to_string_lossy().to_string())
+                .arg(url)
+                .status()
+                .map_err(|err| {
+                    YouTubeDownloadError::Other(format!("failed to execute yt-dlp: {err}"))
+                })?;
+
+            if !status.success() {
+                return Err(YouTubeDownloadError::Download(format!(
+                    "yt-dlp exit status {status}"
+                )));
+            }
+
+            if expected_mp4.exists() {
+                (expected_mp4.clone(), false)
+            } else if expected_ext.exists() {
+                (expected_ext.clone(), false)
+            } else {
+                return Err(YouTubeDownloadError::Download(
+                    "yt-dlp reported success but no output file was produced".into(),
+                ));
+            }
+        };
+
+        let size_bytes = path.metadata().ok().map(|meta| meta.len());
+        let sha = match sha256sum(&path) {
+            Ok(hash) => Some(hash),
+            Err(_) => None,
+        };
+        let mime = format!("video/{}", ext.trim_start_matches('.'));
+
+        Ok(YouTubeDownload {
+            path,
+            metadata,
+            mime,
+            cached,
+            sha256: sha,
+            size_bytes,
+        })
+    }
+}
+
+fn parse_url(input: &str) -> Result<Url> {
+    match Url::parse(input) {
+        Ok(url) => Ok(url),
+        Err(_) => Url::parse(&format!("https://{input}")).context("unable to parse YouTube URL"),
+    }
 }
