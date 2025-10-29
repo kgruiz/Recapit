@@ -2,6 +2,7 @@ use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute, queue,
+    style::Print,
     terminal::{self, Clear, ClearType},
 };
 use std::collections::HashMap;
@@ -50,10 +51,10 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
         queue!(
             out,
             cursor::MoveTo(0, base_row),
-            Clear(ClearType::FromCursorDown)
+            Clear(ClearType::CurrentLine),
+            Print("progress:\n")
         )?;
-        writeln!(out, "progress:")?;
-        for task in &order {
+        for (idx, task) in order.iter().enumerate() {
             if let Some(state) = rows.get(task) {
                 let percent = if state.total > 0 {
                     (state.cur as f64 / state.total as f64).min(1.0)
@@ -66,9 +67,19 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
                     progress_bar(percent),
                     state.status
                 );
-                writeln!(out, "{line}")?;
+                queue!(
+                    out,
+                    cursor::MoveTo(0, base_row + 1 + idx as u16),
+                    Clear(ClearType::CurrentLine),
+                    Print(format!("{line}\n"))
+                )?;
             }
         }
+        queue!(
+            out,
+            cursor::MoveTo(0, base_row + order.len() as u16 + 1),
+            Clear(ClearType::CurrentLine)
+        )?;
         out.flush()?;
 
         if event::poll(std::time::Duration::from_millis(33))? {
