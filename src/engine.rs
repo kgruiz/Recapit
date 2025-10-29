@@ -104,7 +104,7 @@ impl Engine {
             ProgressKind::Discover,
             discover_total,
             discover_total,
-            "done",
+            format!("{discover_total} items"),
         );
 
         let kind = job.kind.unwrap_or_else(|| infer_kind(&assets));
@@ -122,7 +122,7 @@ impl Engine {
             ProgressKind::Normalize,
             normalize_total,
             normalize_total,
-            "done",
+            format!("{normalize_total}/{normalize_total} done"),
         );
         let modality = modality_for(&normalized);
 
@@ -151,12 +151,13 @@ impl Engine {
         let preamble = prompt.preamble();
         let instruction = prompt.instruction(&preamble);
 
+        let segment_total = normalized.len() as u64;
         self.emit(
             "transcribe",
             ProgressKind::Transcribe,
             0,
-            normalized.len() as u64,
-            modality.to_string(),
+            segment_total,
+            format!("0/{segment_total} {modality}"),
         );
         let base_dir_str = base_dir.to_string_lossy().to_string();
         let meta = serde_json::json!({
@@ -179,7 +180,7 @@ impl Engine {
             ProgressKind::Transcribe,
             normalize_total,
             normalize_total,
-            "done",
+            format!("{normalize_total}/{normalize_total} done"),
         );
 
         self.emit("write", ProgressKind::Write, 0, 1, "latex");

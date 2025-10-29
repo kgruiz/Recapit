@@ -72,25 +72,39 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
             out,
             cursor::MoveTo(0, base_row),
             Clear(ClearType::FromCursorDown),
-            Print("progress:"),
-            cursor::MoveToNextLine(1)
+            Print("progress:")
         )?;
-        for task in &order {
+        for (idx, task) in order.iter().enumerate() {
             if let Some(state) = rows.get(task) {
                 let percent = if state.total > 0 {
                     (state.cur as f64 / state.total as f64).min(1.0)
                 } else {
                     0.0
                 };
-                let bar = format!("{:>3}%", (percent * 100.0) as u64);
+                let percent_label = format!("{:>3}%", (percent * 100.0).round() as u64);
+                let count_label = if state.total > 0 {
+                    format!("{:>5}/{:<5}", state.cur.min(state.total), state.total)
+                } else {
+                    "     -".to_string()
+                };
                 let line = format!(
-                    "{task:10}  [{:50}]  {bar}  {}",
+                    "{task:10}  [{:50}]  {percent_label}  {count_label}  {}",
                     progress_bar(percent),
                     state.status
                 );
-                queue!(out, Print(line), cursor::MoveToNextLine(1))?;
+                queue!(
+                    out,
+                    cursor::MoveTo(0, base_row + 1 + idx as u16),
+                    Clear(ClearType::CurrentLine),
+                    Print(line)
+                )?;
             }
         }
+        queue!(
+            out,
+            cursor::MoveTo(0, base_row + 1 + order.len() as u16),
+            Clear(ClearType::CurrentLine)
+        )?;
         out.flush()?;
 
         if closed && rows.values().all(|state| state.cur >= state.total) {
@@ -111,9 +125,8 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
     }
 
     terminal::disable_raw_mode()?;
-    let lines = order.len() as u16 + 2;
-    execute!(out, cursor::MoveTo(0, base_row + lines), cursor::Show)?;
-    writeln!(out)?;
+    let final_row = base_row + 1 + order.len() as u16;
+    execute!(out, cursor::MoveTo(0, final_row), cursor::Show)?;
     out.flush()?;
     Ok(())
 }
