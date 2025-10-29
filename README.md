@@ -24,10 +24,18 @@ Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube v
 
 ## Installation
 
+Clone the repository, then run the helper script to install (or update) the CLI into your Cargo bin directory:
+
 ```shell
-# clone the repository first
-cd recapit
-cargo install --path .
+./install
+```
+
+The script ensures `cargo` is available, warns if external tools such as `ffmpeg`, `yt-dlp`, or Poppler’s `pdftoppm`/`pdfinfo` are missing, and finally executes `cargo install --path . --locked --force`. Any extra flags you pass to `./install` are forwarded to `cargo install`.
+
+Prefer to invoke Cargo directly? Run:
+
+```shell
+cargo install --path . --locked --force
 ```
 
 Or run directly without installing:

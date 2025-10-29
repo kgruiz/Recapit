@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "error: cargo is required but was not found in PATH." >&2
+  echo "Install Rust via https://rustup.rs/ and ensure cargo is available." >&2
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+printf 'Installing recapit from %s\n' "$SCRIPT_DIR"
+
+# Warn when common external tools are missing so users can install them early.
+missing_tools=()
+for tool in ffmpeg yt-dlp pdftoppm pdfinfo; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    missing_tools+=("$tool")
+  fi
+done
+
+if ((${#missing_tools[@]} > 0)); then
+  printf 'warning: missing external tools: %s\n' "${missing_tools[*]}"
+  printf '         recapit can install without them, but runtime features may fail.\n'
+fi
+
+cargo install --path "$SCRIPT_DIR" --locked --force "$@"
+
+printf 'recapit installation complete.\n'
