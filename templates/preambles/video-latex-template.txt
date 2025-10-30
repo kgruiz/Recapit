@@ -9,4 +9,9 @@
 \usepackage{geometry}
 \geometry{margin=1in}
 
+% Optional metadata:
+% \title{}
+% \author{}
+% \date{}
+
 \begin{document}

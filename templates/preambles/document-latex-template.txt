@@ -10,8 +10,9 @@
 \usepackage{xcolor}
 \usepackage{enumitem}
 
-\title{}
-\author{}
-\date{}
+% Optional metadata:
+% \title{}
+% \author{}
+% \date{}
 
 \begin{document}

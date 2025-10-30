@@ -11,8 +11,9 @@
 \usetheme{Madrid}
 \setbeamertemplate{navigation symbols}{}
 
-\title{}
-\author{}
-\date{}
+% Optional metadata:
+% \title{}
+% \author{}
+% \date{}
 
 \begin{document}

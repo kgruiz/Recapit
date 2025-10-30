@@ -1,6 +1,6 @@
 # Recapit
 
-Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube videos, and standalone images into cleaned Markdown (or LaTeX when requested) using Google Gemini models. It handles asset discovery, ffmpeg/yt-dlp normalization, quota-aware retries, and template-driven prompting in one binary.
+Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube videos, and standalone images into cleaned Markdown (or LaTeX when requested) using Google Gemini models. It handles asset discovery, ffmpeg/yt-dlp normalization, quota-aware retries, and prompt preambles in one binary.
 
 ## Highlights
 
