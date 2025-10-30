@@ -17,7 +17,6 @@ use crate::video::{
 };
 
 pub struct CompositeNormalizer {
-    image_root: PathBuf,
     video_root: PathBuf,
     encoder_preference: VideoEncoderPreference,
     max_chunk_seconds: f64,
@@ -33,7 +32,6 @@ pub struct CompositeNormalizer {
 
 impl CompositeNormalizer {
     pub fn new(
-        image_root: Option<PathBuf>,
         video_root: Option<PathBuf>,
         encoder_preference: VideoEncoderPreference,
         max_chunk_seconds: Option<f64>,
@@ -42,13 +40,9 @@ impl CompositeNormalizer {
         tokens_per_second: Option<f64>,
         capability_checker: Option<Box<dyn Fn(&str) -> bool + Send + Sync>>,
     ) -> Result<Self> {
-        let image_root =
-            image_root.unwrap_or_else(|| std::env::temp_dir().join("recapit-pdf-pages"));
         let video_root = video_root.unwrap_or_else(|| std::env::temp_dir().join("recapit-video"));
-        ensure_dir(&image_root)?;
         ensure_dir(&video_root)?;
         Ok(Self {
-            image_root,
             video_root,
             encoder_preference,
             max_chunk_seconds: max_chunk_seconds.unwrap_or(DEFAULT_MAX_CHUNK_SECONDS),
@@ -193,7 +187,6 @@ impl CompositeNormalizer {
             self.token_limit,
             self.tokens_per_second,
             &normalized_dir.join("chunks"),
-            Some(manifest_path.clone()),
             self.job
                 .as_ref()
                 .map(|job| job.max_video_workers)

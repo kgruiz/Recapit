@@ -76,7 +76,6 @@ pub struct AppConfig {
     pub video_encoder_preference: VideoEncoderPreference,
     pub presets: HashMap<String, HashMap<String, Value>>,
     pub exports: Vec<String>,
-    pub config_path: Option<PathBuf>,
     pub pricing_file: Option<PathBuf>,
     pub pricing_defaults: HashMap<String, crate::constants::ModelPricing>,
 }
@@ -283,7 +282,6 @@ impl AppConfig {
             video_encoder_preference,
             presets,
             exports,
-            config_path,
             pricing_file,
             pricing_defaults: default_model_pricing()
                 .into_iter()

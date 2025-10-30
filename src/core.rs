@@ -14,17 +14,6 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub fn from_str(value: &str) -> Option<Self> {
-        match value.to_lowercase().as_str() {
-            "slides" => Some(Self::Slides),
-            "lecture" => Some(Self::Lecture),
-            "document" => Some(Self::Document),
-            "image" => Some(Self::Image),
-            "video" => Some(Self::Video),
-            _ => None,
-        }
-    }
-
     pub fn as_str(&self) -> &'static str {
         match self {
             Kind::Slides => "slides",
@@ -68,17 +57,6 @@ pub enum PdfMode {
     Pdf,
 }
 
-impl PdfMode {
-    pub fn from_str(value: &str) -> Option<Self> {
-        match value.to_lowercase().as_str() {
-            "auto" => Some(Self::Auto),
-            "images" => Some(Self::Images),
-            "pdf" => Some(Self::Pdf),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SourceKind {
@@ -97,13 +75,6 @@ pub struct Asset {
     pub mime: Option<String>,
     #[serde(default)]
     pub meta: Value,
-}
-
-impl Asset {
-    pub fn with_meta(mut self, meta: Value) -> Self {
-        self.meta = meta;
-        self
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -151,8 +122,6 @@ pub trait PromptStrategy: Send + Sync {
 }
 
 pub trait Provider: Send + Sync {
-    fn supports(&self, capability: &str) -> bool;
-
     fn transcribe(
         &self,
         instruction: &str,

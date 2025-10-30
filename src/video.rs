@@ -69,10 +69,6 @@ pub struct EncoderSpec {
 #[derive(Debug, Clone)]
 pub struct NormalizationResult {
     pub path: PathBuf,
-    pub encoder: EncoderSpec,
-    pub reused_existing: bool,
-    pub diagnostics: Vec<String>,
-    pub encoder_known: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -81,7 +77,6 @@ pub struct VideoChunk {
     pub start_seconds: f64,
     pub end_seconds: f64,
     pub path: PathBuf,
-    pub source: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -89,7 +84,6 @@ pub struct VideoChunkPlan {
     pub metadata: VideoMetadata,
     pub normalized_path: PathBuf,
     pub chunks: Vec<VideoChunk>,
-    pub manifest_path: Option<PathBuf>,
 }
 
 static ENCODER_SPECS: &[EncoderSpec] = &[
@@ -253,18 +247,7 @@ pub fn normalize_video(
 
     if normalized.exists() && normalized.metadata()?.modified()? >= path.metadata()?.modified()? {
         probe_video(&normalized)?;
-        let encoder = encoder_chain
-            .first()
-            .map(|spec| **spec)
-            .or_else(|| encoder_spec(VideoEncoderPreference::Cpu).map(|spec| *spec))
-            .ok_or_else(|| anyhow!("encoder specifications unavailable"))?;
-        return Ok(NormalizationResult {
-            path: normalized,
-            encoder,
-            reused_existing: true,
-            diagnostics: vec!["Reusing existing normalized file".into()],
-            encoder_known: false,
-        });
+        return Ok(NormalizationResult { path: normalized });
     }
 
     let chain = if encoder_chain.is_empty() {
@@ -292,13 +275,7 @@ pub fn normalize_video(
         cmd.arg(normalized.to_str().unwrap());
         match cmd.output() {
             Ok(output) if output.status.success() => {
-                return Ok(NormalizationResult {
-                    path: normalized,
-                    encoder: *spec,
-                    reused_existing: false,
-                    diagnostics: vec![format!("Encoded with {}", spec.codec)],
-                    encoder_known: true,
-                });
+                return Ok(NormalizationResult { path: normalized });
             }
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -418,7 +395,6 @@ pub fn plan_video_chunks(
     token_limit: Option<u32>,
     tokens_per_second: f64,
     chunk_dir: &Path,
-    manifest_path: Option<PathBuf>,
     max_workers: usize,
 ) -> Result<VideoChunkPlan> {
     let bounds = compute_chunk_boundaries(
@@ -437,9 +413,7 @@ pub fn plan_video_chunks(
                 start_seconds: bounds[0].0,
                 end_seconds: bounds[0].1,
                 path: normalized_path.to_path_buf(),
-                source: metadata.path.clone(),
             }],
-            manifest_path,
         });
     }
 
@@ -463,7 +437,6 @@ pub fn plan_video_chunks(
                     start_seconds: *start,
                     end_seconds: *end,
                     path: chunk_path,
-                    source: metadata.path.clone(),
                 })
             })
             .collect::<Result<Vec<_>>>()?
@@ -481,7 +454,6 @@ pub fn plan_video_chunks(
                         start_seconds: *start,
                         end_seconds: *end,
                         path: chunk_path,
-                        source: metadata.path.clone(),
                     })
                 })
                 .collect::<Result<Vec<_>>>()
@@ -492,7 +464,6 @@ pub fn plan_video_chunks(
         metadata: metadata.clone(),
         normalized_path: normalized_path.to_path_buf(),
         chunks,
-        manifest_path,
     })
 }
 

@@ -9,14 +9,6 @@ pub const GEMINI_2_5_PRO: &str = "gemini-2.5-pro";
 pub const GEMINI_2_FLASH: &str = "gemini-2.0-flash";
 pub const GEMINI_2_FLASH_THINKING_EXP: &str = "gemini-2.0-flash-thinking-exp-01-21";
 
-pub const AVAILABLE_MODELS: &[&str] = &[
-    GEMINI_2_5_FLASH,
-    GEMINI_2_5_FLASH_LITE,
-    GEMINI_2_5_PRO,
-    GEMINI_2_FLASH,
-    GEMINI_2_FLASH_THINKING_EXP,
-];
-
 pub fn model_capabilities() -> HashMap<&'static str, &'static [&'static str]> {
     HashMap::from([
         (GEMINI_2_5_FLASH, &["text", "image", "audio", "video"][..]),
@@ -42,8 +34,6 @@ pub fn rate_limits_per_minute() -> HashMap<&'static str, u32> {
         (GEMINI_2_FLASH_THINKING_EXP, 10),
     ])
 }
-
-pub const RATE_LIMIT_WINDOW_SEC: u32 = 60;
 
 pub fn token_limits_per_minute() -> HashMap<&'static str, u32> {
     HashMap::from([

@@ -20,7 +20,6 @@ use serde_json::{json, Map, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::constants::{model_capabilities, DEFAULT_MODEL};
 use crate::core::{Asset, Provider, SourceKind};
 use crate::telemetry::{RequestEvent, RunMonitor};
 use crate::utils::ensure_dir;
@@ -1012,15 +1011,6 @@ impl GeminiProvider {
 }
 
 impl Provider for GeminiProvider {
-    fn supports(&self, capability: &str) -> bool {
-        let table = model_capabilities();
-        table
-            .get(self.model.as_str())
-            .or_else(|| table.get(DEFAULT_MODEL))
-            .map(|caps| caps.iter().any(|cap| *cap == capability))
-            .unwrap_or(true)
-    }
-
     fn transcribe(
         &self,
         instruction: &str,

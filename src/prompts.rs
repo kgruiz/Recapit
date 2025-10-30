@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::core::{Kind, OutputFormat, PromptStrategy};
 use crate::templates::TemplateLoader;
 
@@ -40,19 +38,4 @@ impl PromptStrategy for TemplatePromptStrategy {
             .prompt(self.kind, format, self.default_prompt(format))
             .replace("{{PREAMBLE}}", preamble)
     }
-}
-
-pub fn build_prompt_strategies(loader: &TemplateLoader) -> HashMap<Kind, TemplatePromptStrategy> {
-    let kinds = [
-        Kind::Slides,
-        Kind::Lecture,
-        Kind::Document,
-        Kind::Image,
-        Kind::Video,
-    ];
-    kinds
-        .iter()
-        .copied()
-        .map(|kind| (kind, TemplatePromptStrategy::new(loader.clone(), kind)))
-        .collect()
 }

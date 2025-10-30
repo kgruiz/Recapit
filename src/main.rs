@@ -244,7 +244,6 @@ async fn main() -> anyhow::Result<()> {
             );
             let normalizer = CompositeNormalizer::new(
                 None,
-                None,
                 cfg.video_encoder_preference,
                 Some(cfg.video_max_chunk_seconds),
                 Some(cfg.video_max_chunk_bytes),
@@ -824,7 +823,6 @@ fn build_ingestion_stack(
     };
 
     let normalizer = CompositeNormalizer::new(
-        None,
         None,
         cfg.video_encoder_preference,
         Some(cfg.video_max_chunk_seconds),

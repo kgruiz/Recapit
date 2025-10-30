@@ -23,7 +23,6 @@ use crate::utils::slugify;
 pub enum ProgressKind {
     Discover,
     Normalize,
-    Upload,
     Transcribe,
     Write,
 }

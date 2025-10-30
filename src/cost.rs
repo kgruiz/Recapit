@@ -1,4 +1,4 @@
-use crate::constants::{default_model_pricing, ModelPricing};
+use crate::constants::ModelPricing;
 use crate::telemetry::RequestEvent;
 use crate::video::DEFAULT_TOKENS_PER_SECOND;
 use anyhow::{Context, Result};
@@ -43,17 +43,6 @@ pub struct CostEstimator {
 }
 
 impl CostEstimator {
-    pub fn new(pricing: Option<HashMap<String, ModelPricing>>) -> Self {
-        Self {
-            pricing: pricing.unwrap_or_else(|| {
-                default_model_pricing()
-                    .into_iter()
-                    .map(|(k, v)| (k.to_string(), v))
-                    .collect()
-            }),
-        }
-    }
-
     pub fn from_path(path: Option<&Path>, defaults: HashMap<String, ModelPricing>) -> Result<Self> {
         if let Some(path) = path {
             if path.exists() {
