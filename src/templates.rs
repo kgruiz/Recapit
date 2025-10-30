@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::core::Kind;
+use crate::core::{Kind, OutputFormat};
 
 #[derive(Debug, Clone)]
 pub struct TemplateLoader {
@@ -45,24 +45,40 @@ impl TemplateLoader {
         default.to_string()
     }
 
-    pub fn slide_preamble(&self) -> String {
-        self.load_or_default("slide-template.txt", DEFAULT_PREAMBLES.slides)
-    }
-
-    pub fn lecture_preamble(&self) -> String {
-        self.load_or_default("lecture-template.txt", DEFAULT_PREAMBLES.lecture)
-    }
-
-    pub fn document_preamble(&self) -> String {
-        self.load_or_default("document-template.txt", DEFAULT_PREAMBLES.document)
-    }
-
-    pub fn image_preamble(&self) -> String {
-        self.load_or_default("image-template.txt", DEFAULT_PREAMBLES.image)
-    }
-
-    pub fn video_preamble(&self) -> String {
-        self.load_or_default("video-template.txt", DEFAULT_PREAMBLES.video)
+    pub fn preamble(&self, kind: Kind, format: OutputFormat) -> String {
+        let (filename, default) = match (kind, format) {
+            (Kind::Slides, OutputFormat::Markdown) => {
+                ("slide-template.txt", MARKDOWN_PREAMBLES.slides)
+            }
+            (Kind::Slides, OutputFormat::Latex) => {
+                ("slide-latex-template.txt", LATEX_PREAMBLES.slides)
+            }
+            (Kind::Lecture, OutputFormat::Markdown) => {
+                ("lecture-template.txt", MARKDOWN_PREAMBLES.lecture)
+            }
+            (Kind::Lecture, OutputFormat::Latex) => {
+                ("lecture-latex-template.txt", LATEX_PREAMBLES.lecture)
+            }
+            (Kind::Document, OutputFormat::Markdown) => {
+                ("document-template.txt", MARKDOWN_PREAMBLES.document)
+            }
+            (Kind::Document, OutputFormat::Latex) => {
+                ("document-latex-template.txt", LATEX_PREAMBLES.document)
+            }
+            (Kind::Image, OutputFormat::Markdown) => {
+                ("image-template.txt", MARKDOWN_PREAMBLES.image)
+            }
+            (Kind::Image, OutputFormat::Latex) => {
+                ("image-latex-template.txt", LATEX_PREAMBLES.image)
+            }
+            (Kind::Video, OutputFormat::Markdown) => {
+                ("video-template.txt", MARKDOWN_PREAMBLES.video)
+            }
+            (Kind::Video, OutputFormat::Latex) => {
+                ("video-latex-template.txt", LATEX_PREAMBLES.video)
+            }
+        };
+        self.load_or_default(filename, default)
     }
 
     pub fn latex_to_md_prompt(&self) -> String {
@@ -83,9 +99,20 @@ impl TemplateLoader {
         )
     }
 
-    pub fn prompt(&self, kind: Kind, default: &str) -> String {
-        let filename = format!("{}-prompt.txt", kind.as_str());
-        self.load_or_default(&filename, default)
+    pub fn prompt(&self, kind: Kind, format: OutputFormat, default: &str) -> String {
+        let filename = match (kind, format) {
+            (Kind::Slides, OutputFormat::Markdown) => "slide-prompt.txt",
+            (Kind::Slides, OutputFormat::Latex) => "slide-prompt-latex.txt",
+            (Kind::Lecture, OutputFormat::Markdown) => "lecture-prompt.txt",
+            (Kind::Lecture, OutputFormat::Latex) => "lecture-prompt-latex.txt",
+            (Kind::Document, OutputFormat::Markdown) => "document-prompt.txt",
+            (Kind::Document, OutputFormat::Latex) => "document-prompt-latex.txt",
+            (Kind::Image, OutputFormat::Markdown) => "image-prompt.txt",
+            (Kind::Image, OutputFormat::Latex) => "image-prompt-latex.txt",
+            (Kind::Video, OutputFormat::Markdown) => "video-prompt.txt",
+            (Kind::Video, OutputFormat::Latex) => "video-prompt-latex.txt",
+        };
+        self.load_or_default(filename, default)
     }
 }
 
@@ -96,7 +123,7 @@ fn read_file(path: PathBuf) -> Option<String> {
     }
 }
 
-struct DefaultPreambles {
+struct FormatPreambles {
     slides: &'static str,
     lecture: &'static str,
     document: &'static str,
@@ -110,24 +137,107 @@ struct DefaultConversions {
     markdown_to_json: &'static str,
 }
 
-const SLIDES_PREAMBLE: &str = r"# Slide Deck Summary
+const SLIDES_PREAMBLE_MARKDOWN: &str = r"# Slide Deck Summary
 
 ";
 
-const LECTURE_PREAMBLE: &str = r"# Lecture Summary
+const LECTURE_PREAMBLE_MARKDOWN: &str = r"# Lecture Summary
 
 ";
 
-const DOCUMENT_PREAMBLE: &str = r"# Document Summary
+const DOCUMENT_PREAMBLE_MARKDOWN: &str = r"# Document Summary
 
 ";
 
-const IMAGE_PREAMBLE: &str = r"# Image Analysis
+const IMAGE_PREAMBLE_MARKDOWN: &str = r"# Image Analysis
 
 ";
 
-const VIDEO_PREAMBLE: &str = r"# Video Summary
+const VIDEO_PREAMBLE_MARKDOWN: &str = r"# Video Summary
 
+";
+
+const SLIDES_PREAMBLE_LATEX: &str = r"\documentclass[aspectratio=43]{beamer}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{tikz}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\usetheme{Madrid}
+\setbeamertemplate{navigation symbols}{}
+
+\title{}
+\author{}
+\date{}
+
+\begin{document}
+";
+
+const LECTURE_PREAMBLE_LATEX: &str = r"\documentclass{article}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{amsthm}
+\usepackage{physics}
+\usepackage{bm}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\title{}
+\author{}
+\date{}
+
+\begin{document}
+";
+
+const DOCUMENT_PREAMBLE_LATEX: &str = r"\documentclass{article}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{amsthm}
+\usepackage{graphicx}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{enumitem}
+
+\title{}
+\author{}
+\date{}
+
+\begin{document}
+";
+
+const IMAGE_PREAMBLE_LATEX: &str = r"\documentclass{article}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{amsthm}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\begin{document}
+";
+
+const VIDEO_PREAMBLE_LATEX: &str = r"\documentclass{article}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{amsthm}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\begin{document}
 ";
 
 const LATEX_TO_MD_PROMPT: &str = r"Convert the LaTeX source into Markdown while preserving structure.
@@ -156,12 +266,20 @@ const MARKDOWN_TO_JSON_PROMPT: &str = r"Convert the Markdown tables or structure
 - Do not include explanations.
 ";
 
-static DEFAULT_PREAMBLES: DefaultPreambles = DefaultPreambles {
-    slides: SLIDES_PREAMBLE,
-    lecture: LECTURE_PREAMBLE,
-    document: DOCUMENT_PREAMBLE,
-    image: IMAGE_PREAMBLE,
-    video: VIDEO_PREAMBLE,
+static MARKDOWN_PREAMBLES: FormatPreambles = FormatPreambles {
+    slides: SLIDES_PREAMBLE_MARKDOWN,
+    lecture: LECTURE_PREAMBLE_MARKDOWN,
+    document: DOCUMENT_PREAMBLE_MARKDOWN,
+    image: IMAGE_PREAMBLE_MARKDOWN,
+    video: VIDEO_PREAMBLE_MARKDOWN,
+};
+
+static LATEX_PREAMBLES: FormatPreambles = FormatPreambles {
+    slides: SLIDES_PREAMBLE_LATEX,
+    lecture: LECTURE_PREAMBLE_LATEX,
+    document: DOCUMENT_PREAMBLE_LATEX,
+    image: IMAGE_PREAMBLE_LATEX,
+    video: VIDEO_PREAMBLE_LATEX,
 };
 
 static DEFAULT_CONVERSIONS: DefaultConversions = DefaultConversions {

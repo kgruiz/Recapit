@@ -1,0 +1,18 @@
+\documentclass[aspectratio=43]{beamer}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{tikz}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\usetheme{Madrid}
+\setbeamertemplate{navigation symbols}{}
+
+\title{}
+\author{}
+\date{}
+
+\begin{document}

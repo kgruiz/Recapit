@@ -19,15 +19,15 @@ mod video;
 
 use anyhow::{anyhow, Context};
 use clap::Parser;
-use cli::ConversionTarget;
+use cli::{ConversionTarget, OutputFormatArg};
 use conversion::{collect_tex_files, LatexConverter};
-use core::{Asset, Ingestor, Job, Kind, Normalizer, PdfMode};
+use core::{Asset, Ingestor, Job, Kind, Normalizer, OutputFormat, PdfMode};
 use crossterm::style::Stylize;
 use engine::{Engine, Progress, ProgressKind};
 use ingest::{CompositeIngestor, CompositeNormalizer};
 use providers::gemini::GeminiProvider;
 use quota::{QuotaConfig, QuotaMonitor};
-use render::writer::MarkdownWriter;
+use render::writer::CompositeWriter;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::fs;
@@ -51,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
             kind,
             pdf_mode,
             model,
+            format,
             recursive,
             no_recursive,
             skip_existing,
@@ -116,6 +117,18 @@ async fn main() -> anyhow::Result<()> {
                         .map(|s| s.to_string())
                 })
                 .unwrap_or_else(|| cfg.default_model.clone());
+
+            let cli_format = format.map(|value| match value {
+                OutputFormatArg::Markdown => OutputFormat::Markdown,
+                OutputFormatArg::Latex => OutputFormat::Latex,
+            });
+
+            let preset_format = preset_config
+                .get("format")
+                .and_then(|value| value.as_str())
+                .and_then(OutputFormat::from_str);
+
+            let effective_format = cli_format.or(preset_format).unwrap_or(cfg.default_format);
 
             let cli_recursive = if no_recursive {
                 Some(false)
@@ -250,7 +263,7 @@ async fn main() -> anyhow::Result<()> {
                 Box::new(ingestor),
                 Box::new(normalizer),
                 Box::new(provider),
-                Box::new(MarkdownWriter::new()),
+                Box::new(CompositeWriter::new()),
                 tx.clone(),
                 monitor.clone(),
                 cost,
@@ -276,6 +289,7 @@ async fn main() -> anyhow::Result<()> {
                 model: effective_model,
                 preset: Some(preset_key.clone()),
                 export: exports,
+                format: effective_format,
                 skip_existing,
                 media_resolution: media_enum,
                 save_full_response,
@@ -708,6 +722,7 @@ fn run_planner_plan(
         model: model.clone(),
         preset: None,
         export: Vec::new(),
+        format: cfg.default_format,
         skip_existing: true,
         media_resolution: Some(cfg.media_resolution.clone()),
         save_full_response: cfg.save_full_response,
@@ -768,6 +783,7 @@ fn run_planner_ingest(
         model: cfg.default_model.clone(),
         preset: None,
         export: Vec::new(),
+        format: cfg.default_format,
         skip_existing: true,
         media_resolution: Some(cfg.media_resolution.clone()),
         save_full_response: cfg.save_full_response,

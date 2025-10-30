@@ -25,6 +25,8 @@ pub enum Command {
         pdf_mode: String,
         #[arg(long)]
         model: Option<String>,
+        #[arg(long)]
+        format: Option<OutputFormatArg>,
         #[arg(long, action = ArgAction::SetTrue)]
         recursive: bool,
         #[arg(long = "no-recursive", action = ArgAction::SetTrue)]
@@ -89,6 +91,12 @@ pub enum Command {
 pub enum ConversionTarget {
     Markdown,
     Json,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+pub enum OutputFormatArg {
+    Markdown,
+    Latex,
 }
 
 #[derive(Subcommand, Debug)]

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::core::{Kind, PromptStrategy};
+use crate::core::{Kind, OutputFormat, PromptStrategy};
 use crate::templates::TemplateLoader;
 
 #[derive(Clone)]
@@ -14,31 +14,30 @@ impl TemplatePromptStrategy {
         Self { loader, kind }
     }
 
-    fn default_prompt(&self) -> &'static str {
-        match self.kind {
-            Kind::Slides => "{{PREAMBLE}}\nSummarize slide content using GitHub-flavored Markdown. Preserve slide order and hierarchy. Render equations with inline ($...$) or block ($$...$$) math fences.",
-            Kind::Lecture => "{{PREAMBLE}}\nProduce a lecture summary with [MM:SS] timestamps. Capture key arguments, definitions, and examples using GitHub-flavored Markdown. Render mathematics with $...$ or $$...$$.",
-            Kind::Document => "{{PREAMBLE}}\nSummarize the document in GitHub-flavored Markdown. Preserve headings and highlight key conclusions. Render equations with Markdown math fences.",
-            Kind::Image => "{{PREAMBLE}}\nDescribe the image with technical precision in GitHub-flavored Markdown. Capture any embedded text (render math using $...$/$$...$$) and note significant visual details.",
-            Kind::Video => "{{PREAMBLE}}\nTask: Produce a transcript with [MM:SS] timestamps and a timeline of salient visual events.\nInclude: visual descriptions, slide titles, equations rendered with Markdown math fences, and noteworthy gestures or annotations.\nOutput: GitHub-flavored Markdown with headings 'Transcript', 'Timeline', and 'Key Terms'.",
+    fn default_prompt(&self, format: OutputFormat) -> &'static str {
+        match (self.kind, format) {
+            (Kind::Slides, OutputFormat::Markdown) => "{{PREAMBLE}}\nSummarize slide content using GitHub-flavored Markdown. Preserve slide order and hierarchy. Render equations with inline ($...$) or block ($$...$$) math fences.",
+            (Kind::Lecture, OutputFormat::Markdown) => "{{PREAMBLE}}\nProduce a lecture summary with [MM:SS] timestamps. Capture key arguments, definitions, and examples using GitHub-flavored Markdown. Render mathematics with $...$ or $$...$$.",
+            (Kind::Document, OutputFormat::Markdown) => "{{PREAMBLE}}\nSummarize the document in GitHub-flavored Markdown. Preserve headings and highlight key conclusions. Render equations with Markdown math fences.",
+            (Kind::Image, OutputFormat::Markdown) => "{{PREAMBLE}}\nDescribe the image with technical precision in GitHub-flavored Markdown. Capture any embedded text (render math using $...$/$$...$$) and note significant visual details.",
+            (Kind::Video, OutputFormat::Markdown) => "{{PREAMBLE}}\nTask: Produce a transcript with [MM:SS] timestamps and a timeline of salient visual events.\nInclude: visual descriptions, slide titles, equations rendered with Markdown math fences, and noteworthy gestures or annotations.\nOutput: GitHub-flavored Markdown with headings 'Transcript', 'Timeline', and 'Key Terms'.",
+            (Kind::Slides, OutputFormat::Latex) => "{{PREAMBLE}}\nSummarize slide content. Preserve slide order and hierarchy. Output LaTeX with appropriate sectioning. Render mathematics as LaTeX environments or inline math.",
+            (Kind::Lecture, OutputFormat::Latex) => "{{PREAMBLE}}\nProduce a lecture summary with [MM:SS] timestamps. Capture key arguments, definitions, and examples. Render mathematics as LaTeX (use align/gather/equation when helpful).",
+            (Kind::Document, OutputFormat::Latex) => "{{PREAMBLE}}\nSummarize the document. Preserve headings and highlight key conclusions. Render all mathematics as LaTeX.",
+            (Kind::Image, OutputFormat::Latex) => "{{PREAMBLE}}\nDescribe the image with technical precision. Capture any embedded text (convert math to LaTeX) and notable visual details. Output LaTeX.",
+            (Kind::Video, OutputFormat::Latex) => "{{PREAMBLE}}\nTask: Produce a transcript with [MM:SS] timestamps and a timeline of salient visual events.\nInclude: visual descriptions, slide titles, equations in LaTeX, and noteworthy gestures or annotations.\nOutput: LaTeX with sections for 'Transcript', 'Timeline', and 'Key Terms'.",
         }
     }
 }
 
 impl PromptStrategy for TemplatePromptStrategy {
-    fn preamble(&self) -> String {
-        match self.kind {
-            Kind::Slides => self.loader.slide_preamble(),
-            Kind::Lecture => self.loader.lecture_preamble(),
-            Kind::Image => self.loader.image_preamble(),
-            Kind::Video => self.loader.video_preamble(),
-            Kind::Document => self.loader.document_preamble(),
-        }
+    fn preamble(&self, format: OutputFormat) -> String {
+        self.loader.preamble(self.kind, format)
     }
 
-    fn instruction(&self, preamble: &str) -> String {
+    fn instruction(&self, format: OutputFormat, preamble: &str) -> String {
         self.loader
-            .prompt(self.kind, self.default_prompt())
+            .prompt(self.kind, format, self.default_prompt(format))
             .replace("{{PREAMBLE}}", preamble)
     }
 }

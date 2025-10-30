@@ -1,6 +1,6 @@
 # Recapit
 
-Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube videos, and standalone images into cleaned Markdown (with optional JSON exports) using Google Gemini models. It handles asset discovery, ffmpeg/yt-dlp normalization, quota-aware retries, and template-driven prompting in one binary.
+Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube videos, and standalone images into cleaned Markdown (or LaTeX when requested) using Google Gemini models. It handles asset discovery, ffmpeg/yt-dlp normalization, quota-aware retries, and template-driven prompting in one binary.
 
 ## Highlights
 
@@ -13,7 +13,7 @@ Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube v
 - **Auto classification** – invoke the tool without subcommands (or via `transcribe`) and heuristics choose the right prompt for slides, notes, worksheets, or documents.
 - **Image-first PDF handling** – every PDF is rasterized to per-page PNGs by default for consistent transcription; opt into direct PDF ingestion with `--pdf-mode pdf` or `PDFMode.PDF` when your chosen model supports it.
 - **Drop-in CLI** – invoke the Typer CLI from the shell with zero boilerplate and steer behaviour through presets or configuration files.
-- **Structured outputs** – cleaned Markdown lands beside the source file by default; flip `RECAPIT_SAVE_FULL_RESPONSE` on if you also want raw model dumps and `RECAPIT_SAVE_INTERMEDIATES` to keep normalized/manifest artifacts.
+- **Structured outputs** – cleaned Markdown lands beside the source file by default; choose `--format latex` (or set the config default) when you want direct LaTeX instead. Flip `RECAPIT_SAVE_FULL_RESPONSE` on if you also want raw model dumps and `RECAPIT_SAVE_INTERMEDIATES` to keep normalized/manifest artifacts.
 - **Preset-aware CLI** – compose presets in `recapit.yaml` and layer them with command-line overrides to adjust models, exports, concurrency, and media resolution without duplicating flags.
 
 ## Requirements
@@ -98,9 +98,10 @@ export GEMINI_API_KEY="..."
 recapit plan input/video.mp4
 recapit plan https://example.com/report.pdf --json
 
-# Transcribe a deck with the “speed” preset, keeping raw responses and JSON exports
+# Transcribe a deck with the “speed” preset, keeping raw responses, JSON exports, and LaTeX output
 RECAPIT_SAVE_FULL_RESPONSE=1 recapit slides/deck.pdf \
   --preset speed \
+  --format latex \
   --export json \
   --output-dir output/decks
 
@@ -130,13 +131,14 @@ recapit cleanup downloads --yes
 `recapit transcribe` (and the shorthand `recapit <SOURCE>`) accept the standard `--kind`/`--pdf-mode` overrides, plus:
 
 - `--preset <name>` to preload overrides from `recapit.yaml` (e.g., select models, exports, concurrency).
+- `--format markdown|latex` to choose the primary transcript format (defaults to Markdown).
 - `--export srt|vtt|markdown|json` to emit additional artifacts. Markdown is already the default output (the flag is retained for compatibility), and JSON exports use the new conversion pipeline under the hood.
 - Save toggles (`save_full_response`, `save_intermediates`) follow precedence `CLI preset > config file > environment`. Set `RECAPIT_SAVE_FULL_RESPONSE=1` or `RECAPIT_SAVE_INTERMEDIATES=1` (or edit the preset) to turn them on for a run.
 - `--media-resolution default|low|medium|high|unspecified` forwards Gemini media hints, matching preset/environment behaviour.
 
 Every run writes:
 
-- `<slug>/<slug>-transcribed.md` – cleaned Markdown body content.
+- `<slug>/<slug>-transcribed.md|tex` – primary transcript (Markdown by default, LaTeX when you use `--format latex`).
 - `run-summary.json` – totals, estimated spend, and a list of output artifacts.
 - `run-events.ndjson` – per-request telemetry (one JSON object per API call).
 - `chunks.json` – manifest for normalized video assets (video inputs only); manifests include hashes and chunk response paths so reruns with `--skip-existing` honor prior work.
@@ -157,11 +159,13 @@ path/to/slides/
     Lecture01-transcribed.md
 ```
 
-If `RECAPIT_SAVE_FULL_RESPONSE` (or its `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` alias) is enabled, you'll also see `full-response/lecture01-transcribed.txt` alongside the cleaned Markdown.
+Switching to `--format latex` replaces the primary artifact with `Lecture01-transcribed.tex` while keeping the same directory structure.
 
-JSON (`*.json`) exports are written beside the Markdown when you enable the export hooks.
+If `RECAPIT_SAVE_FULL_RESPONSE` (or its `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` alias) is enabled, you'll also see `full-response/lecture01-transcribed.txt` alongside the cleaned transcript.
 
-Video inputs produce chunk-aware Markdown: each chunk is emitted under headings such as `## Chunk N (HH:MM:SS–HH:MM:SS)` inside `<stem>-transcribed.md`. When the `save_full_response` toggle is enabled (via presets, `recapit.yaml`, or environment variables), every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you enable `save_intermediates` (e.g., `RECAPIT_SAVE_INTERMEDIATES=1` or `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`). Concurrency is bounded by `max_video_workers` so you can align ffmpeg load with your hardware budget.
+JSON (`*.json`) exports are written beside the primary transcript when you enable the export hooks.
+
+Video inputs produce chunk-aware transcripts: with Markdown you get headings such as `## Chunk N (HH:MM:SS–HH:MM:SS)` inside `<stem>-transcribed.md`; with LaTeX the sections mirror the same structure inside `<stem>-transcribed.tex`. When the `save_full_response` toggle is enabled (via presets, `recapit.yaml`, or environment variables), every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you enable `save_intermediates` (e.g., `RECAPIT_SAVE_INTERMEDIATES=1` or `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`). Concurrency is bounded by `max_video_workers` so you can align ffmpeg load with your hardware budget.
 
 
 Every CLI run additionally writes a JSON telemetry report (default `run-summary.json`). The report contains:

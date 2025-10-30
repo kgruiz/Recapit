@@ -2,6 +2,7 @@ use crate::constants::{
     default_model_pricing, DEFAULT_MAX_VIDEO_WORKERS, DEFAULT_MAX_WORKERS, DEFAULT_MODEL,
     DEFAULT_VIDEO_TOKENS_PER_SECOND, DEFAULT_VIDEO_TOKEN_LIMIT,
 };
+use crate::core::OutputFormat;
 use crate::video::{VideoEncoderPreference, DEFAULT_MAX_CHUNK_BYTES, DEFAULT_MAX_CHUNK_SECONDS};
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -26,6 +27,7 @@ fn get_env(names: &[&str]) -> Option<String> {
 struct DefaultsConfig {
     model: Option<String>,
     output_dir: Option<PathBuf>,
+    format: Option<String>,
     exports: Option<Vec<String>>,
 }
 
@@ -61,6 +63,7 @@ pub struct AppConfig {
     pub output_dir: Option<PathBuf>,
     pub templates_dir: PathBuf,
     pub default_model: String,
+    pub default_format: OutputFormat,
     pub save_full_response: bool,
     pub save_intermediates: bool,
     pub video_token_limit: Option<u32>,
@@ -116,6 +119,11 @@ impl AppConfig {
             .and_then(|r| r.templates_dir.clone())
             .unwrap_or_else(|| PathBuf::from("templates"));
         let mut default_model = defaults.model.unwrap_or_else(|| DEFAULT_MODEL.to_string());
+        let mut default_format = defaults
+            .format
+            .as_deref()
+            .and_then(OutputFormat::from_str)
+            .unwrap_or(OutputFormat::Markdown);
         let mut exports = defaults
             .exports
             .clone()
@@ -164,6 +172,15 @@ impl AppConfig {
             get_env(&["RECAPIT_DEFAULT_MODEL", "LECTURE_SUMMARIZER_DEFAULT_MODEL"])
         {
             default_model = env_model;
+        }
+
+        if let Some(env_format) = get_env(&[
+            "RECAPIT_DEFAULT_FORMAT",
+            "LECTURE_SUMMARIZER_DEFAULT_FORMAT",
+        ]) {
+            if let Some(parsed) = OutputFormat::from_str(&env_format) {
+                default_format = parsed;
+            }
         }
 
         if let Some(env_full) = get_env(&[
@@ -253,6 +270,7 @@ impl AppConfig {
             output_dir,
             templates_dir,
             default_model,
+            default_format,
             save_full_response,
             save_intermediates,
             video_token_limit,

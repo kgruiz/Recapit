@@ -8,7 +8,9 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::config::AppConfig;
 use crate::conversion::LatexConverter;
-use crate::core::{Asset, Ingestor, Job, Kind, Normalizer, PromptStrategy, Provider, Writer};
+use crate::core::{
+    Asset, Ingestor, Job, Kind, Normalizer, OutputFormat, PromptStrategy, Provider, Writer,
+};
 use crate::cost::CostEstimator;
 use crate::pdf;
 use crate::prompts::TemplatePromptStrategy;
@@ -150,9 +152,10 @@ impl Engine {
                 .unwrap_or("output")
         );
 
+        let format = job.format;
         let prompt = self.prompts.get(&kind).expect("prompt strategy missing");
-        let header = prompt.preamble();
-        let instruction = prompt.instruction(&header);
+        let preamble = prompt.preamble(format);
+        let instruction = prompt.instruction(format, &preamble);
 
         let segment_total = normalized.len() as u64;
         self.emit(
@@ -171,6 +174,7 @@ impl Engine {
             "source": job.source,
             "skip_existing": job.skip_existing,
             "media_resolution": job.media_resolution,
+            "format": format.as_str(),
             "output_base": base_dir_str,
             "output_name": output_name,
             "save_full_response": job.save_full_response,
@@ -189,10 +193,10 @@ impl Engine {
             format!("{} processed", counts_summary(normalize_total, page_total)),
         );
 
-        self.emit("write", ProgressKind::Write, 0, 1, "markdown");
+        self.emit("write", ProgressKind::Write, 0, 1, format.as_str());
         let output_path = self
             .writer
-            .write_markdown(&base_dir, &output_name, &header, &text)?;
+            .write(format, &base_dir, &output_name, &preamble, &text)?;
         self.emit("write", ProgressKind::Write, 1, 1, "done");
 
         let mut extra_files = Vec::new();
@@ -218,52 +222,130 @@ impl Engine {
             }
         }
 
-        let mut markdown_source: Option<String> = None;
-        for fmt in &job.export {
-            let normalized = fmt.trim().to_lowercase();
-            match normalized.as_str() {
-                "markdown" | "md" => {
-                    // Default output already produces Markdown; skip duplicate export.
-                    continue;
-                }
-                "json" => {
-                    let target = base_dir.join(format!("{output_name}.json"));
-                    if job.skip_existing && target.exists() {
-                        continue;
-                    }
-                    fs::create_dir_all(&base_dir)?;
-                    if let Some(converter) = &self.converter {
-                        if markdown_source.is_none() {
-                            markdown_source = Some(fs::read_to_string(&output_path)?);
+        match format {
+            OutputFormat::Markdown => {
+                let mut markdown_source: Option<String> = None;
+                for fmt in &job.export {
+                    let normalized = fmt.trim().to_lowercase();
+                    match normalized.as_str() {
+                        "markdown" | "md" => {
+                            continue;
                         }
-                        let markdown_text = markdown_source.as_ref().unwrap();
-                        let mut metadata = Map::new();
-                        metadata.insert(
-                            "source".into(),
-                            Value::String(output_path.to_string_lossy().to_string()),
-                        );
-                        metadata.insert("export".into(), Value::String("json".into()));
-                        let prompt = self.templates.markdown_to_json_prompt();
-                        let rendered = converter.markdown_to_json(
-                            &job.model,
-                            &prompt,
-                            markdown_text,
-                            metadata,
-                        )?;
-                        let mut value = rendered.trim_end().to_string();
-                        value.push('\n');
-                        fs::write(&target, value)?;
-                    } else {
-                        let payload = json!({
-                            "source": job.source,
-                            "model": job.model,
-                            "text": text,
-                        });
-                        fs::write(&target, serde_json::to_string_pretty(&payload)?)?;
+                        "json" => {
+                            let target = base_dir.join(format!("{output_name}.json"));
+                            if job.skip_existing && target.exists() {
+                                continue;
+                            }
+                            fs::create_dir_all(&base_dir)?;
+                            if let Some(converter) = &self.converter {
+                                if markdown_source.is_none() {
+                                    markdown_source = Some(fs::read_to_string(&output_path)?);
+                                }
+                                let markdown_text = markdown_source.as_ref().unwrap();
+                                let mut metadata = Map::new();
+                                metadata.insert(
+                                    "source".into(),
+                                    Value::String(output_path.to_string_lossy().to_string()),
+                                );
+                                metadata.insert("export".into(), Value::String("json".into()));
+                                let prompt = self.templates.markdown_to_json_prompt();
+                                let rendered = converter.markdown_to_json(
+                                    &job.model,
+                                    &prompt,
+                                    markdown_text,
+                                    metadata,
+                                )?;
+                                let mut value = rendered.trim_end().to_string();
+                                value.push('\n');
+                                fs::write(&target, value)?;
+                            } else {
+                                let payload = json!({
+                                    "source": job.source,
+                                    "model": job.model,
+                                    "text": text,
+                                });
+                                fs::write(&target, serde_json::to_string_pretty(&payload)?)?;
+                            }
+                            extra_files.push(target);
+                        }
+                        _ => {}
                     }
-                    extra_files.push(target);
                 }
-                _ => {}
+            }
+            OutputFormat::Latex => {
+                let mut latex_source: Option<String> = None;
+                for fmt in &job.export {
+                    let normalized = fmt.trim().to_lowercase();
+                    match normalized.as_str() {
+                        "latex" | "tex" => {
+                            continue;
+                        }
+                        "markdown" | "md" => {
+                            let target = base_dir.join(format!("{output_name}.md"));
+                            if job.skip_existing && target.exists() {
+                                continue;
+                            }
+                            fs::create_dir_all(&base_dir)?;
+                            if let Some(converter) = &self.converter {
+                                if latex_source.is_none() {
+                                    latex_source = Some(fs::read_to_string(&output_path)?);
+                                }
+                                let latex_text = latex_source.as_ref().unwrap();
+                                let mut metadata = Map::new();
+                                metadata.insert(
+                                    "source".into(),
+                                    Value::String(output_path.to_string_lossy().to_string()),
+                                );
+                                metadata.insert("export".into(), Value::String("markdown".into()));
+                                let prompt = self.templates.latex_to_md_prompt();
+                                let rendered = converter
+                                    .latex_to_markdown(&job.model, &prompt, latex_text, metadata)?;
+                                let mut value = rendered.trim_end().to_string();
+                                value.push('\n');
+                                fs::write(&target, value)?;
+                            } else {
+                                let mut content = text.trim().to_string();
+                                content.push('\n');
+                                fs::write(&target, content)?;
+                            }
+                            extra_files.push(target);
+                        }
+                        "json" => {
+                            let target = base_dir.join(format!("{output_name}.json"));
+                            if job.skip_existing && target.exists() {
+                                continue;
+                            }
+                            fs::create_dir_all(&base_dir)?;
+                            if let Some(converter) = &self.converter {
+                                if latex_source.is_none() {
+                                    latex_source = Some(fs::read_to_string(&output_path)?);
+                                }
+                                let latex_text = latex_source.as_ref().unwrap();
+                                let mut metadata = Map::new();
+                                metadata.insert(
+                                    "source".into(),
+                                    Value::String(output_path.to_string_lossy().to_string()),
+                                );
+                                metadata.insert("export".into(), Value::String("json".into()));
+                                let prompt = self.templates.latex_to_json_prompt();
+                                let rendered = converter
+                                    .latex_to_json(&job.model, &prompt, latex_text, metadata)?;
+                                let mut value = rendered.trim_end().to_string();
+                                value.push('\n');
+                                fs::write(&target, value)?;
+                            } else {
+                                let payload = json!({
+                                    "source": job.source,
+                                    "model": job.model,
+                                    "text": text,
+                                });
+                                fs::write(&target, serde_json::to_string_pretty(&payload)?)?;
+                            }
+                            extra_files.push(target);
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
 

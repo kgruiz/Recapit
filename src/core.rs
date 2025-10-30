@@ -38,6 +38,30 @@ impl Kind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+pub enum OutputFormat {
+    Markdown,
+    Latex,
+}
+
+impl OutputFormat {
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.to_lowercase().as_str() {
+            "markdown" | "md" => Some(Self::Markdown),
+            "latex" | "tex" => Some(Self::Latex),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OutputFormat::Markdown => "markdown",
+            OutputFormat::Latex => "latex",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum PdfMode {
     Auto,
     Images,
@@ -92,6 +116,7 @@ pub struct Job {
     pub model: String,
     pub preset: Option<String>,
     pub export: Vec<String>,
+    pub format: OutputFormat,
     pub skip_existing: bool,
     pub media_resolution: Option<String>,
     pub save_full_response: bool,
@@ -121,8 +146,8 @@ pub trait Normalizer: Send + Sync {
 }
 
 pub trait PromptStrategy: Send + Sync {
-    fn preamble(&self) -> String;
-    fn instruction(&self, preamble: &str) -> String;
+    fn preamble(&self, format: OutputFormat) -> String;
+    fn instruction(&self, format: OutputFormat, preamble: &str) -> String;
 }
 
 pub trait Provider: Send + Sync {
@@ -142,11 +167,12 @@ pub trait Provider: Send + Sync {
 }
 
 pub trait Writer: Send + Sync {
-    fn write_markdown(
+    fn write(
         &self,
+        format: OutputFormat,
         base: &Path,
         name: &str,
-        header: &str,
+        preamble: &str,
         body: &str,
     ) -> anyhow::Result<PathBuf>;
 }
