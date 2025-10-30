@@ -5,6 +5,10 @@ use std::sync::{Arc, Mutex};
 
 use crate::core::{Kind, OutputFormat};
 
+const PROMPT_DIR: &str = "prompts";
+const PREAMBLE_DIR: &str = "templates/preambles";
+const CONVERSION_DIR: &str = "templates/conversions";
+
 #[derive(Debug, Clone)]
 pub struct TemplateLoader {
     base: Arc<PathBuf>,
@@ -37,9 +41,18 @@ impl TemplateLoader {
         result
     }
 
-    fn load_or_default(&self, filename: &str, default: &str) -> String {
-        let key = format!("template::{filename}");
-        if let Some(value) = self.load_cached(&key, |base| read_file(base.join(filename))) {
+    fn load_or_default(&self, dir: Option<&str>, filename: &str, default: &str) -> String {
+        let key = format!("template::{}::{filename}", dir.unwrap_or("root"));
+        if let Some(value) = self.load_cached(&key, |base| {
+            let candidate = dir
+                .map(|d| Path::new(d).join(filename))
+                .map(|relative| base.join(relative));
+            if let Some(path) = candidate {
+                read_file(path)
+            } else {
+                read_file(base.join(filename))
+            }
+        }) {
             return value;
         }
         default.to_string()
@@ -78,15 +91,20 @@ impl TemplateLoader {
                 ("video-latex-template.txt", LATEX_PREAMBLES.video)
             }
         };
-        self.load_or_default(filename, default)
+        self.load_or_default(Some(PREAMBLE_DIR), filename, default)
     }
 
     pub fn latex_to_md_prompt(&self) -> String {
-        self.load_or_default("latex-to-md-template.txt", DEFAULT_CONVERSIONS.latex_to_md)
+        self.load_or_default(
+            Some(CONVERSION_DIR),
+            "latex-to-md-template.txt",
+            DEFAULT_CONVERSIONS.latex_to_md,
+        )
     }
 
     pub fn latex_to_json_prompt(&self) -> String {
         self.load_or_default(
+            Some(CONVERSION_DIR),
             "latex-to-json-template.txt",
             DEFAULT_CONVERSIONS.latex_to_json,
         )
@@ -94,6 +112,7 @@ impl TemplateLoader {
 
     pub fn markdown_to_json_prompt(&self) -> String {
         self.load_or_default(
+            Some(CONVERSION_DIR),
             "markdown-to-json-template.txt",
             DEFAULT_CONVERSIONS.markdown_to_json,
         )
@@ -112,7 +131,7 @@ impl TemplateLoader {
             (Kind::Video, OutputFormat::Markdown) => "video-prompt.txt",
             (Kind::Video, OutputFormat::Latex) => "video-prompt-latex.txt",
         };
-        self.load_or_default(filename, default)
+        self.load_or_default(Some(PROMPT_DIR), filename, default)
     }
 }
 
