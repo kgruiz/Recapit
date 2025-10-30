@@ -76,6 +76,13 @@ impl TemplateLoader {
         )
     }
 
+    pub fn markdown_to_json_prompt(&self) -> String {
+        self.load_or_default(
+            "markdown-to-json-template.txt",
+            DEFAULT_CONVERSIONS.markdown_to_json,
+        )
+    }
+
     pub fn prompt(&self, kind: Kind, default: &str) -> String {
         let filename = format!("{}-prompt.txt", kind.as_str());
         self.load_or_default(&filename, default)
@@ -100,89 +107,27 @@ struct DefaultPreambles {
 struct DefaultConversions {
     latex_to_md: &'static str,
     latex_to_json: &'static str,
+    markdown_to_json: &'static str,
 }
 
-const SLIDES_PREAMBLE: &str = r"\documentclass[aspectratio=43]{beamer}
+const SLIDES_PREAMBLE: &str = r"# Slide Deck Summary
 
-\usepackage{amsmath}
-\usepackage{amssymb}
-\usepackage{amsfonts}
-\usepackage{tikz}
-\usepackage{xcolor}
-\usepackage{graphicx}
-\usepackage{hyperref}
-
-\usetheme{Madrid}
-\setbeamertemplate{navigation symbols}{}
-
-\title{}
-\author{}
-\date{}
-
-\begin{document}
 ";
 
-const LECTURE_PREAMBLE: &str = r"\documentclass{article}
+const LECTURE_PREAMBLE: &str = r"# Lecture Summary
 
-\usepackage{amsmath}
-\usepackage{amssymb}
-\usepackage{amsfonts}
-\usepackage{amsthm}
-\usepackage{physics}
-\usepackage{bm}
-\usepackage{geometry}
-\geometry{margin=1in}
-
-\title{}
-\author{}
-\date{}
-
-\begin{document}
 ";
 
-const DOCUMENT_PREAMBLE: &str = r"\documentclass{article}
+const DOCUMENT_PREAMBLE: &str = r"# Document Summary
 
-\usepackage{amsmath}
-\usepackage{amssymb}
-\usepackage{amsfonts}
-\usepackage{amsthm}
-\usepackage{graphicx}
-\usepackage{tabularx}
-\usepackage{booktabs}
-\usepackage{xcolor}
-\usepackage{enumitem}
-
-\title{}
-\author{}
-\date{}
-
-\begin{document}
 ";
 
-const IMAGE_PREAMBLE: &str = r"\documentclass{article}
+const IMAGE_PREAMBLE: &str = r"# Image Analysis
 
-\usepackage{amsmath}
-\usepackage{amssymb}
-\usepackage{amsfonts}
-\usepackage{amsthm}
-\usepackage{geometry}
-\geometry{margin=1in}
-
-\begin{document}
 ";
 
-const VIDEO_PREAMBLE: &str = r"\documentclass{article}
+const VIDEO_PREAMBLE: &str = r"# Video Summary
 
-\usepackage{amsmath}
-\usepackage{amssymb}
-\usepackage{amsfonts}
-\usepackage{amsthm}
-\usepackage{xcolor}
-\usepackage{enumitem}
-\usepackage{geometry}
-\geometry{margin=1in}
-
-\begin{document}
 ";
 
 const LATEX_TO_MD_PROMPT: &str = r"Convert the LaTeX source into Markdown while preserving structure.
@@ -203,6 +148,14 @@ const LATEX_TO_JSON_PROMPT: &str = r"Convert the LaTeX table or structured conte
 - Do not include explanations.
 ";
 
+const MARKDOWN_TO_JSON_PROMPT: &str = r"Convert the Markdown tables or structured lists into well-formed JSON.
+- Use the first row of each table as headers when available.
+- Preserve numeric types where obvious, otherwise use strings.
+- Output a JSON array of objects.
+- Ignore narrative sections that do not map cleanly to data rows.
+- Do not include explanations.
+";
+
 static DEFAULT_PREAMBLES: DefaultPreambles = DefaultPreambles {
     slides: SLIDES_PREAMBLE,
     lecture: LECTURE_PREAMBLE,
@@ -214,4 +167,5 @@ static DEFAULT_PREAMBLES: DefaultPreambles = DefaultPreambles {
 static DEFAULT_CONVERSIONS: DefaultConversions = DefaultConversions {
     latex_to_md: LATEX_TO_MD_PROMPT,
     latex_to_json: LATEX_TO_JSON_PROMPT,
+    markdown_to_json: MARKDOWN_TO_JSON_PROMPT,
 };

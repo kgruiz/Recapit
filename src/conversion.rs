@@ -68,6 +68,20 @@ impl LatexConverter {
         self.generate(model, &body_text, "latex_to_json", metadata)
     }
 
+    pub fn markdown_to_json(
+        &self,
+        model: &str,
+        prompt: &str,
+        markdown_text: &str,
+        metadata: Map<String, Value>,
+    ) -> Result<String> {
+        if markdown_text.trim().is_empty() {
+            return Ok("[]".to_string());
+        }
+        let body_text = format!("Instructions:\n{prompt}\n\n```\n{markdown_text}\n```");
+        self.generate(model, &body_text, "markdown_to_json", metadata)
+    }
+
     fn generate(
         &self,
         model: &str,

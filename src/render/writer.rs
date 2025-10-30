@@ -5,36 +5,40 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub struct LatexWriter;
+pub struct MarkdownWriter;
 
-impl LatexWriter {
+impl MarkdownWriter {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl crate::core::Writer for LatexWriter {
-    fn write_latex(
+impl crate::core::Writer for MarkdownWriter {
+    fn write_markdown(
         &self,
         base: &Path,
         name: &str,
-        preamble: &str,
+        header: &str,
         body: &str,
     ) -> anyhow::Result<PathBuf> {
         fs::create_dir_all(base)?;
         let dir = base.join(name);
         fs::create_dir_all(&dir)?;
-        let path = dir.join(format!("{name}.tex"));
+        let path = dir.join(format!("{name}.md"));
 
         let mut content = String::new();
-        content.push_str(preamble);
-        if !preamble.ends_with('\n') {
-            content.push('\n');
+        if !header.is_empty() {
+            content.push_str(header);
+            if !header.ends_with("\n\n") {
+                if header.ends_with('\n') {
+                    content.push('\n');
+                } else {
+                    content.push_str("\n\n");
+                }
+            }
         }
-        content.push_str(body);
-        if !body.contains("\\end{document}") {
-            content.push_str("\n\\end{document}\n");
-        }
+        content.push_str(body.trim_end());
+        content.push('\n');
 
         let mut file =
             File::create(&path).with_context(|| format!("creating {}", path.display()))?;

@@ -107,7 +107,7 @@ pub enum ConvertCommand {
         #[arg(long, default_value_t = false)]
         recursive: bool,
     },
-    /// Convert LaTeX tables or structured content to JSON using Gemini
+    /// Convert LaTeX or Markdown tables/structured content to JSON using Gemini
     LatexToJson {
         source: PathBuf,
         #[arg(short = 'o', long)]

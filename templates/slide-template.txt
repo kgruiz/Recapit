@@ -1,24 +1,2 @@
-\documentclass[aspectratio=43]{beamer}
+# Slide Deck Summary
 
-\usepackage{amsmath}
-\usepackage{amsfonts}
-\usepackage{amssymb}
-\usepackage{amsthm}
-\usepackage{tikz}
-\usepackage{xcolor}
-\usepackage{array}
-\usepackage{enumitem}
-\usepackage{tabularx}
-
-\usetheme{Madrid}
-\usecolortheme{default}
-
-\setbeamertemplate{navigation symbols}{}
-
-\setbeamertemplate{footline}{}
-
-\title{%Title%}
-\author{%Author%}
-\date{%Date%}
-
-\begin{document}

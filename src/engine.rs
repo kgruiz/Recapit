@@ -151,8 +151,8 @@ impl Engine {
         );
 
         let prompt = self.prompts.get(&kind).expect("prompt strategy missing");
-        let preamble = prompt.preamble();
-        let instruction = prompt.instruction(&preamble);
+        let header = prompt.preamble();
+        let instruction = prompt.instruction(&header);
 
         let segment_total = normalized.len() as u64;
         self.emit(
@@ -189,10 +189,10 @@ impl Engine {
             format!("{} processed", counts_summary(normalize_total, page_total)),
         );
 
-        self.emit("write", ProgressKind::Write, 0, 1, "latex");
+        self.emit("write", ProgressKind::Write, 0, 1, "markdown");
         let output_path = self
             .writer
-            .write_latex(&base_dir, &output_name, &preamble, &text)?;
+            .write_markdown(&base_dir, &output_name, &header, &text)?;
         self.emit("write", ProgressKind::Write, 1, 1, "done");
 
         let mut extra_files = Vec::new();
@@ -218,39 +218,13 @@ impl Engine {
             }
         }
 
-        let mut latex_source: Option<String> = None;
+        let mut markdown_source: Option<String> = None;
         for fmt in &job.export {
             let normalized = fmt.trim().to_lowercase();
             match normalized.as_str() {
                 "markdown" | "md" => {
-                    let target = base_dir.join(format!("{output_name}.md"));
-                    if job.skip_existing && target.exists() {
-                        continue;
-                    }
-                    fs::create_dir_all(&base_dir)?;
-                    if let Some(converter) = &self.converter {
-                        if latex_source.is_none() {
-                            latex_source = Some(fs::read_to_string(&output_path)?);
-                        }
-                        let latex_text = latex_source.as_ref().unwrap();
-                        let mut metadata = Map::new();
-                        metadata.insert(
-                            "source".into(),
-                            Value::String(output_path.to_string_lossy().to_string()),
-                        );
-                        metadata.insert("export".into(), Value::String("markdown".into()));
-                        let prompt = self.templates.latex_to_md_prompt();
-                        let rendered = converter
-                            .latex_to_markdown(&job.model, &prompt, latex_text, metadata)?;
-                        let mut value = rendered.trim_end().to_string();
-                        value.push('\n');
-                        fs::write(&target, value)?;
-                    } else {
-                        let mut content = text.trim().to_string();
-                        content.push('\n');
-                        fs::write(&target, content)?;
-                    }
-                    extra_files.push(target);
+                    // Default output already produces Markdown; skip duplicate export.
+                    continue;
                 }
                 "json" => {
                     let target = base_dir.join(format!("{output_name}.json"));
@@ -259,19 +233,23 @@ impl Engine {
                     }
                     fs::create_dir_all(&base_dir)?;
                     if let Some(converter) = &self.converter {
-                        if latex_source.is_none() {
-                            latex_source = Some(fs::read_to_string(&output_path)?);
+                        if markdown_source.is_none() {
+                            markdown_source = Some(fs::read_to_string(&output_path)?);
                         }
-                        let latex_text = latex_source.as_ref().unwrap();
+                        let markdown_text = markdown_source.as_ref().unwrap();
                         let mut metadata = Map::new();
                         metadata.insert(
                             "source".into(),
                             Value::String(output_path.to_string_lossy().to_string()),
                         );
                         metadata.insert("export".into(), Value::String("json".into()));
-                        let prompt = self.templates.latex_to_json_prompt();
-                        let rendered =
-                            converter.latex_to_json(&job.model, &prompt, latex_text, metadata)?;
+                        let prompt = self.templates.markdown_to_json_prompt();
+                        let rendered = converter.markdown_to_json(
+                            &job.model,
+                            &prompt,
+                            markdown_text,
+                            metadata,
+                        )?;
                         let mut value = rendered.trim_end().to_string();
                         value.push('\n');
                         fs::write(&target, value)?;

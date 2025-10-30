@@ -27,7 +27,7 @@ use engine::{Engine, Progress, ProgressKind};
 use ingest::{CompositeIngestor, CompositeNormalizer};
 use providers::gemini::GeminiProvider;
 use quota::{QuotaConfig, QuotaMonitor};
-use render::writer::LatexWriter;
+use render::writer::MarkdownWriter;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::fs;
@@ -66,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
                     ConversionTarget::Markdown => ConversionKind::Markdown,
                     ConversionTarget::Json => ConversionKind::Json,
                 };
-                return run_latex_conversion(
+                return run_conversion(
                     PathBuf::from(&source),
                     output_dir,
                     _conversion_pattern,
@@ -250,7 +250,7 @@ async fn main() -> anyhow::Result<()> {
                 Box::new(ingestor),
                 Box::new(normalizer),
                 Box::new(provider),
-                Box::new(LatexWriter::new()),
+                Box::new(MarkdownWriter::new()),
                 tx.clone(),
                 monitor.clone(),
                 cost,
@@ -550,6 +550,26 @@ fn run_latex_conversion(
     recursive: bool,
     kind: ConversionKind,
 ) -> anyhow::Result<()> {
+    run_conversion(
+        source,
+        output_dir,
+        file_pattern,
+        skip_existing,
+        model_override,
+        recursive,
+        kind,
+    )
+}
+
+fn run_conversion(
+    source: PathBuf,
+    output_dir: Option<PathBuf>,
+    file_pattern: String,
+    skip_existing: bool,
+    model_override: Option<String>,
+    recursive: bool,
+    kind: ConversionKind,
+) -> anyhow::Result<()> {
     use std::fs;
 
     let cfg = config::AppConfig::load(None)?;
@@ -569,7 +589,10 @@ fn run_latex_conversion(
     let monitor = telemetry::RunMonitor::new();
     let converter = LatexConverter::new(cfg.api_key.clone(), monitor, Some(quota))?;
 
-    let files = collect_tex_files(&source, &file_pattern, recursive)?;
+    let mut files = collect_tex_files(&source, &file_pattern, recursive)?;
+    if files.is_empty() && matches!(kind, ConversionKind::Json) && file_pattern == "*.tex" {
+        files = collect_tex_files(&source, "*.md", recursive)?;
+    }
     if files.is_empty() {
         println!("No files matched pattern {}", file_pattern);
         return Ok(());
@@ -577,16 +600,23 @@ fn run_latex_conversion(
 
     let prompt_markdown = loader.latex_to_md_prompt();
     let prompt_json = loader.latex_to_json_prompt();
+    let prompt_markdown_json = loader.markdown_to_json_prompt();
 
     for tex_file in files {
-        let latex = fs::read_to_string(&tex_file)
+        let content = fs::read_to_string(&tex_file)
             .with_context(|| format!("reading {}", tex_file.display()))?;
+        let extension = tex_file
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or_default()
+            .to_lowercase();
 
         let mut metadata = Map::new();
         metadata.insert(
             "source".into(),
             Value::String(tex_file.to_string_lossy().to_string()),
         );
+        metadata.insert("input_extension".into(), Value::String(extension.clone()));
 
         let output_root = output_dir
             .clone()
@@ -607,7 +637,7 @@ fn run_latex_conversion(
                 let text = converter.latex_to_markdown(
                     &default_model,
                     &prompt_markdown,
-                    &latex,
+                    &content,
                     metadata,
                 )?;
                 let mut value = text;
@@ -625,8 +655,26 @@ fn run_latex_conversion(
                 if skip_existing && out_path.exists() {
                     continue;
                 }
-                let text =
-                    converter.latex_to_json(&default_model, &prompt_json, &latex, metadata)?;
+                let operation = extension.as_str();
+                let text = match operation {
+                    "tex" | "ltx" => {
+                        converter.latex_to_json(&default_model, &prompt_json, &content, metadata)?
+                    }
+                    "md" | "markdown" | "mdown" => converter.markdown_to_json(
+                        &default_model,
+                        &prompt_markdown_json,
+                        &content,
+                        metadata,
+                    )?,
+                    _ => {
+                        println!(
+                            "Skipping {} (unsupported extension {})",
+                            tex_file.display(),
+                            extension
+                        );
+                        continue;
+                    }
+                };
                 let mut value = text;
                 if !value.ends_with('\n') {
                     value.push('\n');

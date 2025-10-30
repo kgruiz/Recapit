@@ -1,0 +1,6 @@
+Convert the Markdown tables or structured lists into well-formed JSON.
+- Use the first row of each table as headers when available.
+- Preserve numeric types where obvious, otherwise use strings.
+- Output a JSON array of objects.
+- Ignore narrative sections that do not map cleanly to data rows.
+- Do not include explanations.

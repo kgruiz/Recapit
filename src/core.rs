@@ -142,11 +142,11 @@ pub trait Provider: Send + Sync {
 }
 
 pub trait Writer: Send + Sync {
-    fn write_latex(
+    fn write_markdown(
         &self,
         base: &Path,
         name: &str,
-        preamble: &str,
+        header: &str,
         body: &str,
     ) -> anyhow::Result<PathBuf>;
 }

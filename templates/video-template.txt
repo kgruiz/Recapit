@@ -1,6 +1,2 @@
-% Video transcription preamble
-\documentclass{article}
-\usepackage[margin=1in]{geometry}
-\usepackage{hyperref}
-\begin{document}
-\section*{Video Transcript}
+# Video Summary
+

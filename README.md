@@ -1,19 +1,19 @@
 # Recapit
 
-Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube videos, and standalone images into cleaned LaTeX, Markdown, or JSON outputs using Google Gemini models. It handles asset discovery, ffmpeg/yt-dlp normalization, quota-aware retries, and template-driven prompting in one binary.
+Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube videos, and standalone images into cleaned Markdown (with optional JSON exports) using Google Gemini models. It handles asset discovery, ffmpeg/yt-dlp normalization, quota-aware retries, and template-driven prompting in one binary.
 
 ## Highlights
 
-- **Unified pipelines** – one orchestration layer handles PDF-to-image fan out, optional direct PDF ingestion, LLM interactions, and LaTeX cleanup for slides, lectures, documents, and ad-hoc images.
+- **Unified pipelines** – one orchestration layer handles PDF-to-image fan out, optional direct PDF ingestion, LLM interactions, and Markdown structuring for slides, lectures, documents, and ad-hoc images.
 - **Parallel processing** – document/image transcription and video chunk uploads run across configurable worker pools to shrink wall-clock time on larger batches.
 - **Quota-aware throttling** – shared token buckets and a quota monitor keep per-model RPM/TPM and upload concurrency within Gemini’s published limits, automatically backing off when 429s appear.
 - **Telemetry & cost tracking** – every request records tokens, duration, and metadata; CLI runs print a summary (with optional per-model breakdowns) and persist a JSON report with token usage and estimated spend.
-- **Smart defaults** – works out of the box with built-in prompts and LaTeX preambles; override prompts via `templates/` or custom strategies in `prompts/` when you need fine control.
+- **Smart defaults** – works out of the box with built-in prompts and Markdown headers; override prompts via `templates/` or custom strategies in `prompts/` when you need fine control.
 - **Resumable video ingestion** – manifests record normalized MP4 hashes, chunk ranges, and file URIs so reruns with `--skip-existing` only process dirty chunks.
 - **Auto classification** – invoke the tool without subcommands (or via `transcribe`) and heuristics choose the right prompt for slides, notes, worksheets, or documents.
 - **Image-first PDF handling** – every PDF is rasterized to per-page PNGs by default for consistent transcription; opt into direct PDF ingestion with `--pdf-mode pdf` or `PDFMode.PDF` when your chosen model supports it.
 - **Drop-in CLI** – invoke the Typer CLI from the shell with zero boilerplate and steer behaviour through presets or configuration files.
-- **Structured outputs** – cleaned LaTeX lands beside the source file by default; flip `RECAPIT_SAVE_FULL_RESPONSE` on if you also want raw model dumps and `RECAPIT_SAVE_INTERMEDIATES` to keep normalized/manifest artifacts.
+- **Structured outputs** – cleaned Markdown lands beside the source file by default; flip `RECAPIT_SAVE_FULL_RESPONSE` on if you also want raw model dumps and `RECAPIT_SAVE_INTERMEDIATES` to keep normalized/manifest artifacts.
 - **Preset-aware CLI** – compose presets in `recapit.yaml` and layer them with command-line overrides to adjust models, exports, concurrency, and media resolution without duplicating flags.
 
 ## Requirements
@@ -82,7 +82,7 @@ After installation the `recapit` command becomes available. Export `GEMINI_API_K
 | `recapit plan` | Preview how an asset will be normalized | No API calls; outputs chunk descriptors and modality |
 | `recapit planner plan` | Structured planner output (JSON or human) | Accepts `--model`, `--recursive`, `--json` |
 | `recapit planner ingest` | Show discovered assets without normalization | Helpful for debugging ingest rules |
-| `recapit <SOURCE> --to markdown|json` | Batch-convert LaTeX into Markdown/JSON via Gemini | Reuses conversion presets, supports `--file-pattern`, `--recursive`, `--skip-existing` |
+| `recapit <SOURCE> --to markdown|json` | Batch-convert existing transcripts (LaTeX or Markdown) into Markdown/JSON via Gemini | Reuses conversion presets, supports `--file-pattern`, `--recursive`, `--skip-existing` |
 | `recapit report cost` | Summarize token/cost telemetry from a previous run | Works on `run-summary.json` or directories |
 | `recapit cleanup cache|downloads` | Remove cached downloads or normalized artifacts | Safe-by-default; pass `--yes` to apply |
 | `recapit init` | Scaffold `recapit.yaml` with editable defaults | Includes starter presets and save toggles |
@@ -98,10 +98,10 @@ export GEMINI_API_KEY="..."
 recapit plan input/video.mp4
 recapit plan https://example.com/report.pdf --json
 
-# Transcribe a deck with the “speed” preset, keeping raw responses and Markdown exports
+# Transcribe a deck with the “speed” preset, keeping raw responses and JSON exports
 RECAPIT_SAVE_FULL_RESPONSE=1 recapit slides/deck.pdf \
   --preset speed \
-  --export markdown \
+  --export json \
   --output-dir output/decks
 
 # Transcribe a YouTube lecture, keeping intermediates for reuse and forcing low-res media hints
@@ -114,8 +114,10 @@ RECAPIT_SAVE_INTERMEDIATES=1 recapit "https://www.youtube.com/watch?v=dQw4w9WgXc
 recapit init
 
 # Post-processing helpers powered by the conversion utilities
+# Convert legacy LaTeX transcripts to Markdown
 recapit output/course-notes --to markdown --file-pattern "*.tex" --recursive
-recapit templates --to json --skip-existing
+# Convert freshly-generated Markdown into JSON tables
+recapit output/course-notes --to json --file-pattern "*.md" --skip-existing
 
 # Review the cost of a prior run
 recapit report cost output/course-notes/run-summary.json
@@ -128,17 +130,17 @@ recapit cleanup downloads --yes
 `recapit transcribe` (and the shorthand `recapit <SOURCE>`) accept the standard `--kind`/`--pdf-mode` overrides, plus:
 
 - `--preset <name>` to preload overrides from `recapit.yaml` (e.g., select models, exports, concurrency).
-- `--export srt|vtt|markdown|json` to emit additional artifacts. Markdown/JSON exports use the new conversion pipeline under the hood.
+- `--export srt|vtt|markdown|json` to emit additional artifacts. Markdown is already the default output (the flag is retained for compatibility), and JSON exports use the new conversion pipeline under the hood.
 - Save toggles (`save_full_response`, `save_intermediates`) follow precedence `CLI preset > config file > environment`. Set `RECAPIT_SAVE_FULL_RESPONSE=1` or `RECAPIT_SAVE_INTERMEDIATES=1` (or edit the preset) to turn them on for a run.
 - `--media-resolution default|low|medium|high|unspecified` forwards Gemini media hints, matching preset/environment behaviour.
 
 Every run writes:
 
-- `<slug>/<slug>-transcribed.tex` – cleaned LaTeX body content.
+- `<slug>/<slug>-transcribed.md` – cleaned Markdown body content.
 - `run-summary.json` – totals, estimated spend, and a list of output artifacts.
 - `run-events.ndjson` – per-request telemetry (one JSON object per API call).
 - `chunks.json` – manifest for normalized video assets (video inputs only); manifests include hashes and chunk response paths so reruns with `--skip-existing` honor prior work.
-- Optional `.srt`/`.vtt`, `.md`, or `.json` files when `--export` is provided.
+- Optional `.srt`/`.vtt` subtitle files or `.json` exports when `--export` is provided.
 - Optional `full-response/` artifacts and chunk intermediates when the corresponding save toggles are enabled.
 
 Use `--hide-summary`, `--detailed-costs`, and `--summary-path` to adjust the console summary behaviour.
@@ -152,14 +154,14 @@ path/to/slides/
     page-images/
       Lecture01-transcribed-0.png
       ...
-    Lecture01-transcribed.tex
+    Lecture01-transcribed.md
 ```
 
-If `RECAPIT_SAVE_FULL_RESPONSE` (or its `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` alias) is enabled, you'll also see `full-response/lecture01-transcribed.txt` alongside the cleaned LaTeX.
+If `RECAPIT_SAVE_FULL_RESPONSE` (or its `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` alias) is enabled, you'll also see `full-response/lecture01-transcribed.txt` alongside the cleaned Markdown.
 
-Markdown (`*.md`) and JSON (`*.json`) files are written alongside the LaTeX when you use the export hooks.
+JSON (`*.json`) exports are written beside the Markdown when you enable the export hooks.
 
-Video inputs produce chunk-aware LaTeX: each chunk is emitted as `\section*{Chunk N (HH:MM:SS–HH:MM:SS)}` inside `<stem>-transcribed.tex`. When the `save_full_response` toggle is enabled (via presets, `recapit.yaml`, or environment variables), every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you enable `save_intermediates` (e.g., `RECAPIT_SAVE_INTERMEDIATES=1` or `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`). Concurrency is bounded by `max_video_workers` so you can align ffmpeg load with your hardware budget.
+Video inputs produce chunk-aware Markdown: each chunk is emitted under headings such as `## Chunk N (HH:MM:SS–HH:MM:SS)` inside `<stem>-transcribed.md`. When the `save_full_response` toggle is enabled (via presets, `recapit.yaml`, or environment variables), every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you enable `save_intermediates` (e.g., `RECAPIT_SAVE_INTERMEDIATES=1` or `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`). Concurrency is bounded by `max_video_workers` so you can align ffmpeg load with your hardware budget.
 
 
 Every CLI run additionally writes a JSON telemetry report (default `run-summary.json`). The report contains:
