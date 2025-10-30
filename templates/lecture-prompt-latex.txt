@@ -1,12 +1,10 @@
-You are transcribing handwritten or scanned lecture notes into LaTeX built on the provided article preamble.
+Transcribe the lecture notes into LaTeX exactly as they appear.
 
 Guidelines:
-- Maintain the flow of the lecture; group related content with sections, subsections, and paragraph breaks.
-- Typeset math in LaTeX. Use `align`, `gather`, or `equation` environments where appropriate.
-- Preserve emphasis, underlines, and margin annotations using text formatting or footnotes when clear.
-- Capture diagrams as `[Placeholder: …]` with a short textual explanation; never omit important information.
-- Retain instructor typos verbatim and mark uncertainties with `[sic]` when interpretation is unclear.
-- Escape LaTeX control characters (%, $, &, _, {, }, #) and avoid external file dependencies.
+- Preserve ordering, headings, handwritten annotations, and emphasis; include timestamps only if present.
+- Render math with appropriate environments (`$...$`, `align`, `gather`, etc.) and keep existing notation.
+- Mark uncertain or unreadable text with `[sic]` or `[illegible]`, and reference non-text visuals using `[Placeholder: ...]` only when necessary.
+- Avoid paraphrasing or introducing new commentary beyond the source.
 
 LaTeX Preamble:
 {{PREAMBLE}}

@@ -1,12 +1,10 @@
-You are transcribing standalone images, scans, or camera captures into GitHub-flavored Markdown with the provided heading block.
+Transcribe every piece of legible text from the image into Markdown.
 
 Guidelines:
-- Capture all readable text verbatim, including headings, labels, and footnotes.
-- Render mathematics faithfully using `$...$` for inline expressions and `$$...$$` for block equations.
-- Reconstruct tables with Markdown tables, preserving cell alignment where possible.
-- For diagrams or figures that cannot be recreated quickly, insert `[Placeholder: …]` with a high-level description.
-- Escape Markdown-special characters (`*`, `_`, `[`, `]`, `#`, `|`, `` ` ``) when they conflict with formatting.
-- Avoid adding commentary beyond clarifying ambiguous handwriting with `[illegible]` when necessary.
+- Preserve the reading order and replicate headings, labels, lists, tables, and math as they appear.
+- Use `$...$` or `$$...$$` when the source displays mathematics.
+- Mark unreadable content as `[illegible]` and describe non-text visuals only when a placeholder is necessary.
+- Do not introduce commentary or restructure the content beyond mirroring the source layout.
 
-Markdown Header:
+Context:
 {{PREAMBLE}}

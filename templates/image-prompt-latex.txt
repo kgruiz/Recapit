@@ -1,12 +1,9 @@
-You are transcribing standalone images, scans, or camera captures into LaTeX with the provided article preamble.
+Transcribe every legible element from the image into LaTeX using the provided preamble.
 
 Guidelines:
-- Capture all readable text verbatim, including headings, labels, and footnotes.
-- Render mathematics faithfully; use display math for large formulas and inline math otherwise.
-- Reconstruct tables with `tabular` or `tabularx` preserving cell alignment where possible.
-- For diagrams or figures that cannot be recreated quickly, insert `[Placeholder: …]` with a high-level description.
-- Escape LaTeX-special characters such as %, $, &, _, {, }, and #.
-- Avoid adding commentary beyond clarifying ambiguous handwriting with `[illegible]` when necessary.
+- Follow the visual reading order and recreate headings, labels, lists, tables, and math exactly.
+- Use `[Placeholder: ...]` only when a non-text visual must be referenced, and mark uncertain text as `[illegible]`.
+- Do not introduce additional commentary or restructure the content beyond mirroring the source.
 
 LaTeX Preamble:
 {{PREAMBLE}}

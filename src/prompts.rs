@@ -16,16 +16,16 @@ impl TemplatePromptStrategy {
 
     fn default_prompt(&self, format: OutputFormat) -> &'static str {
         match (self.kind, format) {
-            (Kind::Slides, OutputFormat::Markdown) => "{{PREAMBLE}}\nSummarize slide content using GitHub-flavored Markdown. Preserve slide order and hierarchy. Render equations with inline ($...$) or block ($$...$$) math fences.",
-            (Kind::Lecture, OutputFormat::Markdown) => "{{PREAMBLE}}\nProduce a lecture summary with [MM:SS] timestamps. Capture key arguments, definitions, and examples using GitHub-flavored Markdown. Render mathematics with $...$ or $$...$$.",
-            (Kind::Document, OutputFormat::Markdown) => "{{PREAMBLE}}\nSummarize the document in GitHub-flavored Markdown. Preserve headings and highlight key conclusions. Render equations with Markdown math fences.",
-            (Kind::Image, OutputFormat::Markdown) => "{{PREAMBLE}}\nDescribe the image with technical precision in GitHub-flavored Markdown. Capture any embedded text (render math using $...$/$$...$$) and note significant visual details.",
-            (Kind::Video, OutputFormat::Markdown) => "{{PREAMBLE}}\nTask: Produce a transcript with [MM:SS] timestamps and a timeline of salient visual events.\nInclude: visual descriptions, slide titles, equations rendered with Markdown math fences, and noteworthy gestures or annotations.\nOutput: GitHub-flavored Markdown with headings 'Transcript', 'Timeline', and 'Key Terms'.",
-            (Kind::Slides, OutputFormat::Latex) => "{{PREAMBLE}}\nSummarize slide content. Preserve slide order and hierarchy. Output LaTeX with appropriate sectioning. Render mathematics as LaTeX environments or inline math.",
-            (Kind::Lecture, OutputFormat::Latex) => "{{PREAMBLE}}\nProduce a lecture summary with [MM:SS] timestamps. Capture key arguments, definitions, and examples. Render mathematics as LaTeX (use align/gather/equation when helpful).",
-            (Kind::Document, OutputFormat::Latex) => "{{PREAMBLE}}\nSummarize the document. Preserve headings and highlight key conclusions. Render all mathematics as LaTeX.",
-            (Kind::Image, OutputFormat::Latex) => "{{PREAMBLE}}\nDescribe the image with technical precision. Capture any embedded text (convert math to LaTeX) and notable visual details. Output LaTeX.",
-            (Kind::Video, OutputFormat::Latex) => "{{PREAMBLE}}\nTask: Produce a transcript with [MM:SS] timestamps and a timeline of salient visual events.\nInclude: visual descriptions, slide titles, equations in LaTeX, and noteworthy gestures or annotations.\nOutput: LaTeX with sections for 'Transcript', 'Timeline', and 'Key Terms'.",
+            (Kind::Slides, OutputFormat::Markdown) => "{{PREAMBLE}}\nTranscribe each slide faithfully in Markdown. Use level-2 headings for slide titles when they exist, preserve bullet hierarchies, and keep equations with $...$ or $$...$$.",
+            (Kind::Lecture, OutputFormat::Markdown) => "{{PREAMBLE}}\nTranscribe the lecture notes verbatim in Markdown. Preserve the original order, headings, lists, tables, and math, adding timestamps only when present in the source.",
+            (Kind::Document, OutputFormat::Markdown) => "{{PREAMBLE}}\nTranscribe the document faithfully in Markdown. Reproduce headings, lists, tables, and math exactly as they appear without adding extra commentary or structure.",
+            (Kind::Image, OutputFormat::Markdown) => "{{PREAMBLE}}\nTranscribe text from the image into Markdown. Keep source ordering, mark unreadable regions as [illegible], and use $...$ or $$...$$ for math.",
+            (Kind::Video, OutputFormat::Markdown) => "{{PREAMBLE}}\nProduce a Markdown transcript with sections for 'Transcript', 'Timeline', and 'Key Terms'. Include [MM:SS] timestamps, summarize key visuals, and note gestures when relevant.",
+            (Kind::Slides, OutputFormat::Latex) => "{{PREAMBLE}}\nTranscribe each slide faithfully in LaTeX. Use \\section*{} for slide titles, maintain bullet structure with itemize/enumerate, and preserve math environments.",
+            (Kind::Lecture, OutputFormat::Latex) => "{{PREAMBLE}}\nTranscribe the lecture notes directly into LaTeX. Preserve source ordering, headings, lists, tables, and math, noting [sic] only when text is unclear.",
+            (Kind::Document, OutputFormat::Latex) => "{{PREAMBLE}}\nTranscribe the document content verbatim into LaTeX, keeping the original structure, math environments, and tables exactly as given.",
+            (Kind::Image, OutputFormat::Latex) => "{{PREAMBLE}}\nTranscribe the image content into LaTeX. Reproduce text in order, render math with LaTeX notation, and annotate unreadable pieces as [illegible].",
+            (Kind::Video, OutputFormat::Latex) => "{{PREAMBLE}}\nProduce a LaTeX transcript with sections for Transcript, Timeline, and Key Terms. Include [MM:SS] timestamps, describe key visuals, and preserve important gestures or speaker notes.",
         }
     }
 }

@@ -1,12 +1,10 @@
-You are transcribing handwritten or scanned lecture notes into polished GitHub-flavored Markdown using the provided section header.
+Transcribe the lecture notes into Markdown exactly as written.
 
 Guidelines:
-- Maintain the flow of the lecture; group related content with headings, subheadings, and paragraph breaks.
-- Typeset mathematics using Markdown math fences: inline math with `$...$`, block math with `$$...$$`.
-- Preserve emphasis, underlines, and margin annotations using Markdown formatting or footnotes when clear.
-- Capture diagrams as `[Placeholder: …]` with a short textual explanation; never omit important information.
-- Retain instructor typos verbatim and mark uncertainties with `[sic]` when interpretation is unclear.
-- Escape literal Markdown control characters (`*`, `_`, `[`, `]`, `#`, `|`, `` ` ``) when they conflict with other formatting.
+- Keep the original ordering, headings, bullet structure, and math notation intact.
+- Preserve speaker annotations or margin notes in place; mark unclear handwriting with `[illegible]` or `[sic]` when needed.
+- Use `$...$` for inline math and `$$...$$` for display math if the source contains equations.
+- Only add timestamps or labels when they explicitly exist in the source material.
 
-Markdown Header:
+Context:
 {{PREAMBLE}}

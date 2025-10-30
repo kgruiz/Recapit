@@ -1,0 +1,11 @@
+Produce a Markdown transcript for the video using the provided context.
+
+Guidelines:
+- Create sections titled `Transcript`, `Timeline`, and `Key Terms`.
+- Within `Transcript`, list entries with `[MM:SS]` timestamps followed by the spoken content; include brief notes for significant visuals when necessary.
+- In `Timeline`, summarise key moments chronologically with start–end timestamps.
+- In `Key Terms`, bullet important vocabulary or concepts with short definitions.
+- Use `$...$`/`$$...$$` for math and fenced code blocks for code samples; note `[Placeholder: ...]` only when imagery must be referenced.
+
+Context:
+{{PREAMBLE}}

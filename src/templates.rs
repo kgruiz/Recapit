@@ -137,25 +137,15 @@ struct DefaultConversions {
     markdown_to_json: &'static str,
 }
 
-const SLIDES_PREAMBLE_MARKDOWN: &str = r"# Slide Deck Summary
+const SLIDES_PREAMBLE_MARKDOWN: &str = "";
 
-";
+const LECTURE_PREAMBLE_MARKDOWN: &str = "";
 
-const LECTURE_PREAMBLE_MARKDOWN: &str = r"# Lecture Summary
+const DOCUMENT_PREAMBLE_MARKDOWN: &str = "";
 
-";
+const IMAGE_PREAMBLE_MARKDOWN: &str = "";
 
-const DOCUMENT_PREAMBLE_MARKDOWN: &str = r"# Document Summary
-
-";
-
-const IMAGE_PREAMBLE_MARKDOWN: &str = r"# Image Analysis
-
-";
-
-const VIDEO_PREAMBLE_MARKDOWN: &str = r"# Video Summary
-
-";
+const VIDEO_PREAMBLE_MARKDOWN: &str = "";
 
 const SLIDES_PREAMBLE_LATEX: &str = r"\documentclass[aspectratio=43]{beamer}
 

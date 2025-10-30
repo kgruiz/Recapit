@@ -1,12 +1,10 @@
-You are converting slide deck pages into GitHub-flavored Markdown using the provided heading block.
+Transcribe the slide deck into Markdown while preserving per-slide structure.
 
 Guidelines:
-- Preserve slide titles, bullet hierarchy, and speaker notes if present.
-- Format bullet lists with Markdown bullets/numbers; indent nested bullets to reflect structure.
-- Render mathematics verbatim using `$...$` inline or `$$...$$` for display equations; use fenced code blocks for code snippets.
-- Describe embedded media or screenshots as `[Placeholder: …]` with a concise caption if visible.
-- Escape problematic Markdown characters when they would otherwise alter formatting and keep casing as shown on the slide.
-- Separate distinct slides with level-2 headings (`## Slide N - Title`) when explicit slide boundaries are clear.
+- Use a level-2 heading for each slide title (or `## Slide N` when untitled).
+- Mirror bullet and numbered list nesting; keep speaker notes or captions beneath the relevant slide.
+- Render equations with `$...$` (inline) or `$$...$$` (block) and fence code snippets with triple backticks.
+- Replace non-text visuals with `[Placeholder: description]` only when necessary to reference them.
 
-Markdown Header:
+Context:
 {{PREAMBLE}}
