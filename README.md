@@ -11,7 +11,7 @@ Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube v
 - **Smart defaults** – works out of the box with built-in prompts and Markdown headers; override prompts via `templates/` or custom strategies in `prompts/` when you need fine control.
 - **Resumable video ingestion** – manifests record normalized MP4 hashes, chunk ranges, and file URIs so reruns with `--skip-existing` only process dirty chunks.
 - **Auto classification** – invoke the tool without subcommands (or via `transcribe`) and heuristics choose the right prompt for slides, notes, worksheets, or documents.
-- **Image-first PDF handling** – every PDF is rasterized to per-page PNGs by default for consistent transcription; opt into direct PDF ingestion with `--pdf-mode pdf` or `PDFMode.PDF` when your chosen model supports it.
+- **Image-first PDF handling** – every PDF is rasterized to per-page PNGs at 200 DPI by default for consistent transcription; change DPI with `--pdf-dpi` (or `pdf.dpi` in `recapit.yaml`) or opt into direct PDF ingestion with `--pdf-mode pdf`/`PDFMode.PDF` when your chosen model supports it.
 - **Drop-in CLI** – invoke the Typer CLI from the shell with zero boilerplate and steer behaviour through presets or configuration files.
 - **Structured outputs** – cleaned Markdown lands beside the source file by default; choose `--format latex` (or set the config default) when you want direct LaTeX instead. Flip `RECAPIT_SAVE_FULL_RESPONSE` on if you also want raw model dumps and `RECAPIT_SAVE_INTERMEDIATES` to keep normalized/manifest artifacts.
 - **Preset-aware CLI** – compose presets in `recapit.yaml` and layer them with command-line overrides to adjust models, exports, concurrency, and media resolution without duplicating flags.
@@ -53,6 +53,7 @@ Environment variables:
 | `GEMINI_API_KEY` | Required. API key consumed by the CLI via `AppConfig::load`. |
 | `RECAPIT_DEFAULT_MODEL` | Optional. Override the default transcription model (defaults to `gemini-3-pro-preview`). |
 | `RECAPIT_OUTPUT_DIR` | Optional. Override the base output directory (defaults to each input's parent directory). |
+| `RECAPIT_PDF_DPI` | Optional. DPI to use when rasterizing PDFs to PNGs (defaults to `200`). |
 | `RECAPIT_TEMPLATES_DIR` | Optional. Point to an alternate prompt template directory. |
 | `RECAPIT_SAVE_FULL_RESPONSE` | Optional. Set to `1`/`true` to also write raw model text under `full-response/`. |
 | `RECAPIT_SAVE_INTERMEDIATES` | Optional. Set to `1`/`true` to retain normalized videos, chunk MP4s, and manifests for debugging/re-use. |

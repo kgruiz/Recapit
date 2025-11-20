@@ -3,10 +3,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn pdf_to_png(pdf: &Path, out_dir: &Path, prefix: Option<&str>) -> Result<Vec<PathBuf>> {
+pub fn pdf_to_png(
+    pdf: &Path,
+    out_dir: &Path,
+    prefix: Option<&str>,
+    dpi: u32,
+) -> Result<Vec<PathBuf>> {
     if out_dir.exists() {
         fs::remove_dir_all(out_dir)?;
     }
+
     fs::create_dir_all(out_dir)?;
 
     let pdftoppm = which::which("pdftoppm")
@@ -19,6 +25,8 @@ pub fn pdf_to_png(pdf: &Path, out_dir: &Path, prefix: Option<&str>) -> Result<Ve
 
     let status = Command::new(pdftoppm)
         .arg("-png")
+        .arg("-r")
+        .arg(dpi.to_string())
         .arg(pdf)
         .arg(&output)
         .status()?;

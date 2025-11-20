@@ -7,6 +7,7 @@ use time::OffsetDateTime;
 use tracing::warn;
 
 use super::youtube::{YouTubeDownload, YouTubeDownloadError, YouTubeDownloader};
+use crate::constants::DEFAULT_PDF_DPI;
 use crate::core::{Asset, Job, PdfMode, SourceKind};
 use crate::pdf::pdf_to_png;
 use crate::utils::{ensure_dir, slugify};
@@ -23,6 +24,7 @@ pub struct CompositeNormalizer {
     max_chunk_bytes: u64,
     token_limit: Option<u32>,
     tokens_per_second: f64,
+    pdf_dpi: u32,
     supports: Box<dyn Fn(&str) -> bool + Send + Sync>,
     job: Option<Job>,
     chunk_info: Vec<Value>,
@@ -38,6 +40,7 @@ impl CompositeNormalizer {
         max_chunk_bytes: Option<u64>,
         token_limit: Option<u32>,
         tokens_per_second: Option<f64>,
+        pdf_dpi: Option<u32>,
         capability_checker: Option<Box<dyn Fn(&str) -> bool + Send + Sync>>,
     ) -> Result<Self> {
         let video_root = video_root.unwrap_or_else(|| std::env::temp_dir().join("recapit-video"));
@@ -49,6 +52,7 @@ impl CompositeNormalizer {
             max_chunk_bytes: max_chunk_bytes.unwrap_or(DEFAULT_MAX_CHUNK_BYTES),
             token_limit,
             tokens_per_second: tokens_per_second.unwrap_or(DEFAULT_TOKENS_PER_SECOND),
+            pdf_dpi: pdf_dpi.unwrap_or(DEFAULT_PDF_DPI),
             supports: capability_checker.unwrap_or_else(|| Box::new(|_| true)),
             job: None,
             chunk_info: Vec::new(),
@@ -83,7 +87,8 @@ impl CompositeNormalizer {
                     .file_stem()
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_else(|| "page".into());
-                let pages = match pdf_to_png(&asset.path, &output_dir, Some(&prefix)) {
+                let pages = match pdf_to_png(&asset.path, &output_dir, Some(&prefix), self.pdf_dpi)
+                {
                     Ok(pages) => pages,
                     Err(_) => return Ok(vec![asset.clone()]),
                 };

@@ -98,3 +98,4 @@ pub const DEFAULT_VIDEO_TOKEN_LIMIT: u32 = 300_000;
 pub const DEFAULT_VIDEO_TOKENS_PER_SECOND: f64 = 300.0;
 pub const DEFAULT_MAX_WORKERS: usize = 4;
 pub const DEFAULT_MAX_VIDEO_WORKERS: usize = 3;
+pub const DEFAULT_PDF_DPI: u32 = 200;

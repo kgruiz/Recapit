@@ -94,6 +94,7 @@ pub struct Job {
     pub save_intermediates: bool,
     pub max_workers: usize,
     pub max_video_workers: usize,
+    pub pdf_dpi: u32,
 }
 
 pub trait Ingestor: Send + Sync {

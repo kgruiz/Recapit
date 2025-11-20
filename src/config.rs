@@ -1,6 +1,6 @@
 use crate::constants::{
     default_model_pricing, DEFAULT_MAX_VIDEO_WORKERS, DEFAULT_MAX_WORKERS, DEFAULT_MODEL,
-    DEFAULT_VIDEO_TOKENS_PER_SECOND, DEFAULT_VIDEO_TOKEN_LIMIT,
+    DEFAULT_PDF_DPI, DEFAULT_VIDEO_TOKENS_PER_SECOND, DEFAULT_VIDEO_TOKEN_LIMIT,
 };
 use crate::core::OutputFormat;
 use crate::video::{VideoEncoderPreference, DEFAULT_MAX_CHUNK_BYTES, DEFAULT_MAX_CHUNK_SECONDS};
@@ -48,10 +48,16 @@ struct VideoConfig {
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
+struct PdfConfig {
+    dpi: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
 struct RootConfig {
     defaults: Option<DefaultsConfig>,
     save: Option<SaveConfig>,
     video: Option<VideoConfig>,
+    pdf: Option<PdfConfig>,
     presets: Option<HashMap<String, HashMap<String, Value>>>,
     templates_dir: Option<PathBuf>,
     pricing_file: Option<PathBuf>,
@@ -71,6 +77,7 @@ pub struct AppConfig {
     pub video_max_chunk_seconds: f64,
     pub video_max_chunk_bytes: u64,
     pub media_resolution: String,
+    pub pdf_dpi: u32,
     pub max_workers: usize,
     pub max_video_workers: usize,
     pub video_encoder_preference: VideoEncoderPreference,
@@ -105,6 +112,11 @@ impl AppConfig {
         let video = root
             .as_ref()
             .and_then(|r| r.video.as_ref())
+            .cloned()
+            .unwrap_or_default();
+        let pdf = root
+            .as_ref()
+            .and_then(|r| r.pdf.as_ref())
             .cloned()
             .unwrap_or_default();
         let presets = root
@@ -145,6 +157,7 @@ impl AppConfig {
         let mut media_resolution = video
             .media_resolution
             .unwrap_or_else(|| "default".to_string());
+        let mut pdf_dpi = pdf.dpi.unwrap_or(DEFAULT_PDF_DPI);
 
         let mut encoder_pref = video.encoder.clone();
         let pricing_file = root
@@ -241,6 +254,14 @@ impl AppConfig {
             }
         }
 
+        if let Some(pdf_dpi_env) = get_env(&["RECAPIT_PDF_DPI", "LECTURE_SUMMARIZER_PDF_DPI"]) {
+            if let Ok(parsed) = pdf_dpi_env.parse::<u32>() {
+                if parsed > 0 {
+                    pdf_dpi = parsed;
+                }
+            }
+        }
+
         if let Some(res_override) = get_env(&[
             "RECAPIT_VIDEO_MEDIA_RESOLUTION",
             "LECTURE_SUMMARIZER_VIDEO_MEDIA_RESOLUTION",
@@ -277,6 +298,7 @@ impl AppConfig {
             video_max_chunk_seconds,
             video_max_chunk_bytes,
             media_resolution,
+            pdf_dpi,
             max_workers,
             max_video_workers,
             video_encoder_preference,

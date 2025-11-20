@@ -50,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
             output_dir,
             kind,
             pdf_mode,
+            pdf_dpi,
             model,
             format,
             recursive,
@@ -106,6 +107,24 @@ async fn main() -> anyhow::Result<()> {
                     .and_then(|value| value.as_str())
                 {
                     effective_pdf_mode = parse_pdf_mode(preset_pdf);
+                }
+            }
+
+            let mut effective_pdf_dpi = cfg.pdf_dpi;
+
+            if let Some(value) = preset_config
+                .get("pdf_dpi")
+                .and_then(|value| value.as_u64())
+                .and_then(|value| u32::try_from(value).ok())
+            {
+                if value > 0 {
+                    effective_pdf_dpi = value;
+                }
+            }
+
+            if let Some(value) = pdf_dpi {
+                if value > 0 {
+                    effective_pdf_dpi = value;
                 }
             }
 
@@ -249,6 +268,7 @@ async fn main() -> anyhow::Result<()> {
                 Some(cfg.video_max_chunk_bytes),
                 cfg.video_token_limit,
                 Some(tokens_per_second),
+                Some(effective_pdf_dpi),
                 Some(Box::new(capability_checker)),
             )?;
             let ingestor = CompositeIngestor::new()?;
@@ -295,6 +315,7 @@ async fn main() -> anyhow::Result<()> {
                 save_intermediates,
                 max_workers,
                 max_video_workers,
+                pdf_dpi: effective_pdf_dpi,
             };
 
             tx.send(Progress {
@@ -327,9 +348,10 @@ async fn main() -> anyhow::Result<()> {
             source,
             kind,
             pdf_mode,
+            pdf_dpi,
         } => {
             let cfg = config::AppConfig::load(None)?;
-            run_planner_plan(&cfg, &source, &kind, &pdf_mode, None, false, false)?;
+            run_planner_plan(&cfg, &source, &kind, &pdf_mode, None, false, false, pdf_dpi)?;
         }
         cli::Command::Convert { command } => match command {
             cli::ConvertCommand::LatexToMd {
@@ -374,6 +396,7 @@ async fn main() -> anyhow::Result<()> {
                 recursive,
                 config,
                 json,
+                pdf_dpi,
             } => {
                 let cfg = config::AppConfig::load(config.as_deref())?;
                 run_planner_plan(
@@ -384,6 +407,7 @@ async fn main() -> anyhow::Result<()> {
                     model.as_deref(),
                     recursive,
                     json,
+                    pdf_dpi,
                 )?;
             }
             cli::PlannerCommand::Ingest {
@@ -707,9 +731,12 @@ fn run_planner_plan(
     model_override: Option<&str>,
     recursive: bool,
     json_output: bool,
+    pdf_dpi: Option<u32>,
 ) -> anyhow::Result<()> {
     let model = model_override.unwrap_or(&cfg.default_model).to_string();
-    let (ingestor, mut normalizer) = build_ingestion_stack(cfg, &model)?;
+    let dpi_value = pdf_dpi.unwrap_or(cfg.pdf_dpi);
+
+    let (ingestor, mut normalizer) = build_ingestion_stack(cfg, &model, dpi_value)?;
 
     let job = Job {
         source: source.to_string(),
@@ -727,6 +754,7 @@ fn run_planner_plan(
         save_intermediates: cfg.save_intermediates,
         max_workers: cfg.max_workers,
         max_video_workers: cfg.max_video_workers,
+        pdf_dpi: dpi_value,
     };
 
     normalizer.prepare(&job)?;
@@ -788,6 +816,7 @@ fn run_planner_ingest(
         save_intermediates: cfg.save_intermediates,
         max_workers: cfg.max_workers,
         max_video_workers: cfg.max_video_workers,
+        pdf_dpi: cfg.pdf_dpi,
     };
     let assets = ingestor.discover(&job)?;
 
@@ -810,6 +839,7 @@ fn run_planner_ingest(
 fn build_ingestion_stack(
     cfg: &config::AppConfig,
     model: &str,
+    pdf_dpi: u32,
 ) -> anyhow::Result<(CompositeIngestor, CompositeNormalizer)> {
     let capability_table = constants::model_capabilities();
     let model_key = model.to_string();
@@ -828,6 +858,7 @@ fn build_ingestion_stack(
         Some(cfg.video_max_chunk_bytes),
         cfg.video_token_limit,
         Some(cfg.video_tokens_per_second),
+        Some(pdf_dpi),
         Some(Box::new(capability_checker)),
     )?;
     let ingestor = CompositeIngestor::new()?;
@@ -938,7 +969,7 @@ fn run_init(path: &Path, force: bool) -> anyhow::Result<()> {
             fs::create_dir_all(parent)?;
         }
     }
-    const TEMPLATE: &str = "# Recapit configuration\n# Adjust defaults for the summarize command.\n# Available presets live under presets.<name>.\n\ndefaults:\n  model: \"gemini-3-pro-preview\"\n  output_dir: \"output\"\n  exports: [\"srt\"]\n\nsave:\n  full_response: false\n  intermediates: true\n\nvideo:\n  token_limit: 300000\n  tokens_per_second: 300\n  max_chunk_seconds: 7200\n  max_chunk_bytes: 524288000\n  encoder: \"auto\"\n  media_resolution: \"default\"\n\npresets:\n  speed:\n    pdf_mode: \"images\"\n  quality:\n    pdf_mode: \"pdf\"\n";
+    const TEMPLATE: &str = "# Recapit configuration\n# Adjust defaults for the summarize command.\n# Available presets live under presets.<name>.\n\ndefaults:\n  model: \"gemini-3-pro-preview\"\n  output_dir: \"output\"\n  exports: [\"srt\"]\n\nsave:\n  full_response: false\n  intermediates: true\n\nvideo:\n  token_limit: 300000\n  tokens_per_second: 300\n  max_chunk_seconds: 7200\n  max_chunk_bytes: 524288000\n  encoder: \"auto\"\n  media_resolution: \"default\"\n\npdf:\n  dpi: 200\n\npresets:\n  speed:\n    pdf_mode: \"images\"\n  quality:\n    pdf_mode: \"pdf\"\n";
     fs::write(&target, TEMPLATE)?;
     println!("Wrote {}", target.display());
     Ok(())

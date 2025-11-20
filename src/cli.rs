@@ -23,6 +23,11 @@ pub enum Command {
         kind: String,
         #[arg(long, default_value = "auto")]
         pdf_mode: String,
+        #[arg(
+            long = "pdf-dpi",
+            help = "DPI for PDF -> PNG rasterization (default 200)"
+        )]
+        pdf_dpi: Option<u32>,
         #[arg(long)]
         model: Option<String>,
         #[arg(long)]
@@ -57,6 +62,11 @@ pub enum Command {
         kind: String,
         #[arg(long, default_value = "auto")]
         pdf_mode: String,
+        #[arg(
+            long = "pdf-dpi",
+            help = "DPI for PDF -> PNG rasterization (default 200)"
+        )]
+        pdf_dpi: Option<u32>,
     },
     /// Conversion utilities
     Convert {
@@ -140,6 +150,11 @@ pub enum PlannerCommand {
         kind: String,
         #[arg(long, default_value = "auto")]
         pdf_mode: String,
+        #[arg(
+            long = "pdf-dpi",
+            help = "DPI for PDF -> PNG rasterization (default 200)"
+        )]
+        pdf_dpi: Option<u32>,
         #[arg(long)]
         model: Option<String>,
         #[arg(long, default_value_t = false)]

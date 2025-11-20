@@ -180,6 +180,7 @@ impl Engine {
             "save_intermediates": job.save_intermediates,
             "max_workers": job.max_workers,
             "max_video_workers": job.max_video_workers,
+            "pdf_dpi": job.pdf_dpi,
         });
         let text = self
             .provider
