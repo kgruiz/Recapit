@@ -587,8 +587,7 @@ fn run_conversion(
 
     let cfg = config::AppConfig::load(None)?;
     let loader = templates::TemplateLoader::new(cfg.templates_dir.clone());
-    let default_model =
-        model_override.unwrap_or_else(|| constants::GEMINI_2_FLASH_THINKING_EXP.to_string());
+    let default_model = model_override.unwrap_or_else(|| constants::DEFAULT_MODEL.to_string());
 
     let request_limits = constants::rate_limits_per_minute()
         .into_iter()
@@ -939,7 +938,7 @@ fn run_init(path: &Path, force: bool) -> anyhow::Result<()> {
             fs::create_dir_all(parent)?;
         }
     }
-    const TEMPLATE: &str = "# Recapit configuration\n# Adjust defaults for the summarize command.\n# Available presets live under presets.<name>.\n\ndefaults:\n  model: \"gemini-2.0-flash\"\n  output_dir: \"output\"\n  exports: [\"srt\"]\n\nsave:\n  full_response: false\n  intermediates: true\n\nvideo:\n  token_limit: 300000\n  tokens_per_second: 300\n  max_chunk_seconds: 7200\n  max_chunk_bytes: 524288000\n  encoder: \"auto\"\n  media_resolution: \"default\"\n\npresets:\n  speed:\n    pdf_mode: \"images\"\n  quality:\n    pdf_mode: \"pdf\"\n";
+    const TEMPLATE: &str = "# Recapit configuration\n# Adjust defaults for the summarize command.\n# Available presets live under presets.<name>.\n\ndefaults:\n  model: \"gemini-3-pro-preview\"\n  output_dir: \"output\"\n  exports: [\"srt\"]\n\nsave:\n  full_response: false\n  intermediates: true\n\nvideo:\n  token_limit: 300000\n  tokens_per_second: 300\n  max_chunk_seconds: 7200\n  max_chunk_bytes: 524288000\n  encoder: \"auto\"\n  media_resolution: \"default\"\n\npresets:\n  speed:\n    pdf_mode: \"images\"\n  quality:\n    pdf_mode: \"pdf\"\n";
     fs::write(&target, TEMPLATE)?;
     println!("Wrote {}", target.display());
     Ok(())

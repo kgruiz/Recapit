@@ -19,7 +19,7 @@ Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube v
 ## Requirements
 
 - Rust 1.79+ and Cargo
-- Google Gemini access and a `GEMINI_API_KEY` with permissions for the latest models (e.g. `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-pro`).
+- Google Gemini access and a `GEMINI_API_KEY` with permissions for the latest models (e.g. `gemini-3-pro-preview`, `gemini-2.5-flash`, `gemini-2.5-pro`).
 - Poppler (`pdftoppm`, `pdfinfo`) and FFmpeg; yt-dlp is required for YouTube URLs.
 
 ## Installation
@@ -51,7 +51,7 @@ Environment variables:
 | Setting | Description |
 | --- | --- |
 | `GEMINI_API_KEY` | Required. API key consumed by the CLI via `AppConfig::load`. |
-| `RECAPIT_DEFAULT_MODEL` | Optional. Override the default transcription model (defaults to `gemini-2.5-flash-lite`). |
+| `RECAPIT_DEFAULT_MODEL` | Optional. Override the default transcription model (defaults to `gemini-3-pro-preview`). |
 | `RECAPIT_OUTPUT_DIR` | Optional. Override the base output directory (defaults to each input's parent directory). |
 | `RECAPIT_TEMPLATES_DIR` | Optional. Point to an alternate prompt template directory. |
 | `RECAPIT_SAVE_FULL_RESPONSE` | Optional. Set to `1`/`true` to also write raw model text under `full-response/`. |

@@ -6,8 +6,7 @@ use std::collections::HashMap;
 pub const GEMINI_2_5_FLASH: &str = "gemini-2.5-flash";
 pub const GEMINI_2_5_FLASH_LITE: &str = "gemini-2.5-flash-lite";
 pub const GEMINI_2_5_PRO: &str = "gemini-2.5-pro";
-pub const GEMINI_2_FLASH: &str = "gemini-2.0-flash";
-pub const GEMINI_2_FLASH_THINKING_EXP: &str = "gemini-2.0-flash-thinking-exp-01-21";
+pub const GEMINI_3_PRO_PREVIEW: &str = "gemini-3-pro-preview";
 
 pub fn model_capabilities() -> HashMap<&'static str, &'static [&'static str]> {
     HashMap::from([
@@ -20,28 +19,28 @@ pub fn model_capabilities() -> HashMap<&'static str, &'static [&'static str]> {
             GEMINI_2_5_PRO,
             &["text", "image", "audio", "video", "pdf"][..],
         ),
-        (GEMINI_2_FLASH, &["text", "image"][..]),
-        (GEMINI_2_FLASH_THINKING_EXP, &["text", "image"][..]),
+        (
+            GEMINI_3_PRO_PREVIEW,
+            &["text", "image", "audio", "video", "pdf"][..],
+        ),
     ])
 }
 
 pub fn rate_limits_per_minute() -> HashMap<&'static str, u32> {
     HashMap::from([
-        (GEMINI_2_5_FLASH, 20),
-        (GEMINI_2_5_FLASH_LITE, 10),
-        (GEMINI_2_5_PRO, 6),
-        (GEMINI_2_FLASH, 15),
-        (GEMINI_2_FLASH_THINKING_EXP, 10),
+        (GEMINI_3_PRO_PREVIEW, 50),
+        (GEMINI_2_5_PRO, 150),
+        (GEMINI_2_5_FLASH, 1_000),
+        (GEMINI_2_5_FLASH_LITE, 4_000),
     ])
 }
 
 pub fn token_limits_per_minute() -> HashMap<&'static str, u32> {
     HashMap::from([
-        (GEMINI_2_5_FLASH, 600_000),
-        (GEMINI_2_5_FLASH_LITE, 600_000),
-        (GEMINI_2_5_PRO, 600_000),
-        (GEMINI_2_FLASH, 600_000),
-        (GEMINI_2_FLASH_THINKING_EXP, 400_000),
+        (GEMINI_3_PRO_PREVIEW, 1_000_000),
+        (GEMINI_2_5_PRO, 2_000_000),
+        (GEMINI_2_5_FLASH, 1_000_000),
+        (GEMINI_2_5_FLASH_LITE, 4_000_000),
     ])
 }
 
@@ -60,12 +59,8 @@ pub fn default_model_pricing() -> HashMap<&'static str, ModelPricing> {
             ModelPricing::new((0.10, 0.40), (0.30, 1.20)),
         ),
         (
-            GEMINI_2_FLASH,
-            ModelPricing::new((0.10, 0.40), (0.70, 2.80)),
-        ),
-        (
-            GEMINI_2_FLASH_THINKING_EXP,
-            ModelPricing::new((0.15, 0.50), (0.70, 2.80)),
+            GEMINI_3_PRO_PREVIEW,
+            ModelPricing::new((4.00, 18.00), (4.00, 18.00)),
         ),
         ("default", ModelPricing::new((0.0, 0.0), (0.0, 0.0))),
     ])
@@ -98,7 +93,7 @@ impl PricePair {
     }
 }
 
-pub const DEFAULT_MODEL: &str = GEMINI_2_5_FLASH_LITE;
+pub const DEFAULT_MODEL: &str = GEMINI_3_PRO_PREVIEW;
 pub const DEFAULT_VIDEO_TOKEN_LIMIT: u32 = 300_000;
 pub const DEFAULT_VIDEO_TOKENS_PER_SECOND: f64 = 300.0;
 pub const DEFAULT_MAX_WORKERS: usize = 4;
