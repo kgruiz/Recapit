@@ -69,7 +69,7 @@ Environment variables prefixed with `LECTURE_SUMMARIZER_` remain supported for c
 
 All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
 
-Prefer configuration files? Run `recapit init` to create `recapit.yaml`; it stores defaults for `default_model`, `output_dir`, `exports`, video chunk parameters, and per-preset overrides. CLI flags override environment variables, and environment variables override the YAML file, giving you explicit precedence: `CLI > ENV > YAML`.
+Prefer configuration files? Create `recapit.yaml` in the repo root to store defaults for `default_model`, `output_dir`, `exports`, video chunk parameters, and per-preset overrides. CLI flags override environment variables, and environment variables override the YAML file, giving you explicit precedence: `CLI > ENV > YAML`.
 
 ## CLI Usage
 
@@ -79,14 +79,11 @@ After installation the `recapit` command becomes available. Export `GEMINI_API_K
 
 | Command | Purpose | Highlights |
 | --- | --- | --- |
-| `recapit <SOURCE>` | Default transcribe + summarize workflow (alias: `recapit transcribe <SOURCE>`) | Honors presets/config, supports exports (`srt`, `vtt`, `markdown`, `json`), YouTube URLs, directory recursion |
-| `recapit plan` | Preview how an asset will be normalized | No API calls; outputs chunk descriptors and modality |
-| `recapit planner plan` | Structured planner output (JSON or human) | Accepts `--model`, `--recursive`, `--json` |
-| `recapit planner ingest` | Show discovered assets without normalization | Helpful for debugging ingest rules |
-| `recapit <SOURCE> --to markdown|json` | Batch-convert existing transcripts (LaTeX or Markdown) into Markdown/JSON via Gemini | Reuses conversion presets, supports `--file-pattern`, `--recursive`, `--skip-existing` |
+| `recapit <SOURCE>` | Default transcribe workflow | Honors presets/config, supports exports (`srt`, `vtt`, `markdown`, `json`), YouTube URLs, directory recursion |
+| `recapit <SOURCE> --dry-run [--json]` | Preview ingestion + normalization only | No Gemini calls; shows assets/chunks; `--json` for machine-readable output |
+| `recapit <SOURCE> --to markdown|json [--from auto|latex|markdown]` | Batch-convert existing LaTeX/Markdown to Markdown or JSON via Gemini | Supports `--file-pattern`, `--recursive`, `--skip-existing` |
 | `recapit report cost` | Summarize token/cost telemetry from a previous run | Works on `run-summary.json` or directories |
 | `recapit cleanup cache|downloads` | Remove cached downloads or normalized artifacts | Safe-by-default; pass `--yes` to apply |
-| `recapit init` | Scaffold `recapit.yaml` with editable defaults | Includes starter presets and save toggles |
 
 All commands support `--config` to point at an alternate YAML file. Presets from `recapit.yaml` automatically merge with CLI flags.
 
@@ -96,8 +93,8 @@ All commands support `--config` to point at an alternate YAML file. Presets from
 export GEMINI_API_KEY="..."
 
 # Inspect how an asset will be processed (no API calls)
-recapit plan input/video.mp4
-recapit plan https://example.com/report.pdf --json
+recapit input/video.mp4 --dry-run
+recapit https://example.com/report.pdf --dry-run --json
 
 # Transcribe a deck with the “speed” preset, keeping raw responses, JSON exports, and LaTeX output
 RECAPIT_SAVE_FULL_RESPONSE=1 recapit slides/deck.pdf \
@@ -111,9 +108,6 @@ RECAPIT_SAVE_INTERMEDIATES=1 recapit "https://www.youtube.com/watch?v=dQw4w9WgXc
   --preset quality \
   --media-resolution low \
   --export srt vtt
-
-# Generate a starter config with built-in presets
-recapit init
 
 # Post-processing helpers powered by the conversion utilities
 # Convert legacy LaTeX transcripts to Markdown
