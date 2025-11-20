@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[command(
     name = "recapit",
     version,
-    about = "Rust rewrite with ratatui progress"
+    about = "CLI for document and media transcription"
 )]
 pub struct Cli {
     /// Primary action: transcribe/convert the given source unless a subcommand is used

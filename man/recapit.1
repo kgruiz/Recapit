@@ -1,0 +1,59 @@
+.TH RECAPIT 1 "November 2025" "recapit" "User Commands"
+.SH NAME
+recapit \- transcribe documents, slides, images, video, or convert LaTeX/Markdown
+.SH SYNOPSIS
+.B recapit
+.I SOURCE
+[general options]
+.br
+.B recapit
+--dry-run [--json] [general options]
+.br
+.B recapit
+.I SOURCE
+--to \fImarkdown|json\fP [--from \fIauto|latex|markdown\fP] [conversion options]
+.br
+.B recapit report cost
+[--json] [-i \fIrun-summary.json\fP]
+.br
+.B recapit cleanup cache
+[--dry-run] [--yes]
+.br
+.B recapit cleanup downloads
+-p \fIPATH\fP [--dry-run] [--yes]
+.SH DESCRIPTION
+Recapit ingests PDFs, images, videos, and URLs, normalizes them (rasterizing PDFs, chunking video), and sends them to Google Gemini models to produce cleaned Markdown or LaTeX transcripts. It can also convert LaTeX/Markdown sources to Markdown or JSON using the same models.
+.SH OPTIONS
+.TP
+.B --kind auto|document|slides|lecture|image|video
+Force the transcription kind.
+.TP
+.B --pdf-mode auto|images|pdf
+Select PDF ingestion strategy.
+.TP
+.B --pdf-dpi NUM
+DPI used when rasterizing PDFs (default 200).
+.TP
+.B --dry-run
+Plan ingestion/normalization without calling Gemini; use --json for machine-readable output.
+.TP
+.B --to markdown|json
+Convert input files instead of transcribing.
+.TP
+.B --from auto|latex|markdown
+Hint the input format for conversion (default auto).
+.TP
+.B --export srt|vtt|markdown|json
+Write additional export formats.
+.TP
+.B --preset NAME
+Use a preset from recapit.yaml (built-ins: basic, speed, quality).
+.TP
+.B --config FILE
+Override config file path.
+.SH FILES
+.TP
+.I recapit.yaml
+Optional configuration with defaults and presets.
+.SH SEE ALSO
+https://github.com/recapit/recapit
