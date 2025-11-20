@@ -26,4 +26,17 @@ fi
 
 cargo install --path "$SCRIPT_DIR" --locked --force "$@"
 
+# Install man page (defaults to ~/.local/share/man unless MANPREFIX is set)
+MANPREFIX=${MANPREFIX:-"$HOME/.local/share/man"}
+MANDIR="$MANPREFIX/man1"
+MANPAGE_SOURCE="$SCRIPT_DIR/man/recapit.1"
+
+if [ -f "$MANPAGE_SOURCE" ]; then
+  if mkdir -p "$MANDIR" && cp "$MANPAGE_SOURCE" "$MANDIR/"; then
+    printf 'installed man page to %s\n' "$MANDIR"
+  else
+    printf 'warning: failed to install man page to %s (check permissions)\n' "$MANDIR" >&2
+  fi
+fi
+
 printf 'recapit installation complete.\n'

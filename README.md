@@ -30,6 +30,8 @@ Clone the repository, then run the helper script to install (or update) the CLI 
 ./install
 ```
 
+The installer also drops `man/recapit.1` into `${MANPREFIX:-~/.local/share/man}/man1`, so `man recapit` works after installation (set `MANPREFIX` to change the target).
+
 The script ensures `cargo` is available, warns if external tools such as `ffmpeg`, `yt-dlp`, or Poppler’s `pdftoppm`/`pdfinfo` are missing, and finally executes `cargo install --path . --locked --force`. Any extra flags you pass to `./install` are forwarded to `cargo install`.
 
 Prefer to invoke Cargo directly? Run:
