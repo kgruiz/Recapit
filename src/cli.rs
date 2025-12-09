@@ -58,6 +58,8 @@ pub struct Cli {
     pub dry_run: bool,
     #[arg(long = "json", action = ArgAction::SetTrue, help = "Machine-readable output for --dry-run")]
     pub json: bool,
+    #[arg(long, action = ArgAction::SetTrue, help = "Suppress TUI/progress and final summary")]
+    pub quiet: bool,
 
     #[command(subcommand)]
     pub cmd: Option<Command>,

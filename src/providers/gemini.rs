@@ -21,6 +21,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use crate::core::{Asset, Provider, SourceKind};
+use crate::progress::{Progress, ProgressScope, ProgressStage};
 use crate::telemetry::{RequestEvent, RunMonitor};
 use crate::utils::ensure_dir;
 
@@ -34,6 +35,7 @@ pub struct GeminiProvider {
     model: String,
     http: Client,
     monitor: RunMonitor,
+    progress: Option<tokio::sync::mpsc::UnboundedSender<Progress>>,
     upload_cache: Mutex<HashMap<String, CachedUpload>>,
     cleanup: Mutex<HashSet<String>>,
     quota: Option<crate::quota::QuotaMonitor>,
@@ -62,9 +64,21 @@ impl GeminiProvider {
             model,
             http,
             monitor,
+            progress: None,
             upload_cache: Mutex::new(HashMap::new()),
             cleanup: Mutex::new(HashSet::new()),
             quota,
+        }
+    }
+
+    pub fn with_progress(mut self, progress: tokio::sync::mpsc::UnboundedSender<Progress>) -> Self {
+        self.progress = Some(progress);
+        self
+    }
+
+    fn send_progress(&self, progress: Progress) {
+        if let Some(tx) = &self.progress {
+            let _ = tx.send(progress);
         }
     }
 
@@ -813,6 +827,11 @@ impl GeminiProvider {
             return Ok(String::new());
         }
 
+        let job_id = meta_string(meta, "job_id").unwrap_or_else(|| "job".into());
+        let job_label = meta_string(meta, "job_label").unwrap_or_else(|| job_id.clone());
+        let chunk_total_meta = meta_u64(meta, "chunk_total").unwrap_or(assets.len() as u64);
+        let show_chunk_progress = chunk_total_meta > 1;
+
         let base = meta_string(meta, "output_base")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("output"));
@@ -985,6 +1004,30 @@ impl GeminiProvider {
 
             let chunk_meta_value = Value::Object(chunk_meta_map.clone());
             entry_obj.insert("status".into(), Value::String("running".into()));
+
+            let chunk_scope = ProgressScope::ChunkDetail {
+                job_id: job_id.clone(),
+                index: chunk_index,
+                total: chunk_total_meta,
+            };
+
+            self.send_progress(Progress {
+                scope: chunk_scope.clone(),
+                stage: ProgressStage::Discover,
+                current: 1,
+                total: 4,
+                status: "discover".into(),
+                finished: false,
+            });
+            self.send_progress(Progress {
+                scope: chunk_scope.clone(),
+                stage: ProgressStage::Normalize,
+                current: 2,
+                total: 4,
+                status: "normalize".into(),
+                finished: false,
+            });
+
             let (text, event_assets) = self.generate(
                 instruction,
                 std::slice::from_ref(asset),
@@ -1003,6 +1046,41 @@ impl GeminiProvider {
                 entry_obj.insert("file_uri".into(), Value::String(file_uri.to_string()));
             }
             responses.push(text.trim().to_string());
+
+            self.send_progress(Progress {
+                scope: chunk_scope.clone(),
+                stage: ProgressStage::Transcribe,
+                current: 3,
+                total: 4,
+                status: "transcribe".into(),
+                finished: false,
+            });
+            self.send_progress(Progress {
+                scope: chunk_scope.clone(),
+                stage: ProgressStage::Write,
+                current: 4,
+                total: 4,
+                status: "write".into(),
+                finished: true,
+            });
+
+            if show_chunk_progress {
+                self.send_progress(Progress {
+                    scope: ProgressScope::ChunkProgress {
+                        job_id: job_id.clone(),
+                        total: chunk_total_meta,
+                    },
+                    stage: ProgressStage::Transcribe,
+                    current: chunk_index + 1,
+                    total: chunk_total_meta,
+                    status: format!(
+                        "{job_label}: chunk {} of {}",
+                        chunk_index + 1,
+                        chunk_total_meta
+                    ),
+                    finished: chunk_index + 1 == chunk_total_meta,
+                });
+            }
         }
 
         write_manifest(&manifest_path, &mut manifest)?;

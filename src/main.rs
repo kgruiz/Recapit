@@ -7,6 +7,7 @@ mod cost;
 mod engine;
 mod ingest;
 mod pdf;
+mod progress;
 mod prompts;
 mod providers;
 mod quota;
@@ -23,8 +24,9 @@ use cli::{ConversionTarget, OutputFormatArg};
 use conversion::{collect_tex_files, LatexConverter};
 use core::{Asset, Ingestor, Job, Kind, Normalizer, OutputFormat, PdfMode};
 use crossterm::style::Stylize;
-use engine::{Engine, Progress, ProgressKind};
+use engine::Engine;
 use ingest::{CompositeIngestor, CompositeNormalizer};
+use progress::Progress;
 use providers::gemini::GeminiProvider;
 use quota::{QuotaConfig, QuotaMonitor};
 use render::writer::CompositeWriter;
@@ -307,7 +309,11 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
     }
 
     let (tx, rx) = mpsc::unbounded_channel::<Progress>();
-    let tui_handle = tokio::spawn(tui::run_tui(rx));
+    let tui_handle = if cli.quiet {
+        None
+    } else {
+        Some(tokio::spawn(tui::run_tui(rx)))
+    };
 
     let monitor = telemetry::RunMonitor::new();
     let request_limits = crate::constants::rate_limits_per_minute()
@@ -335,7 +341,8 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
         job.model.clone(),
         monitor.clone(),
         Some(quota.clone()),
-    );
+    )
+    .with_progress(tx.clone());
     let normalizer = CompositeNormalizer::new(
         None,
         cfg.video_encoder_preference,
@@ -348,6 +355,8 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
     )?;
     let ingestor = CompositeIngestor::new()?;
     let cost =
+        cost::CostEstimator::from_path(cfg.pricing_file.as_deref(), cfg.pricing_defaults.clone())?;
+    let summary_cost =
         cost::CostEstimator::from_path(cfg.pricing_file.as_deref(), cfg.pricing_defaults.clone())?;
     let converter = LatexConverter::new(cfg.api_key.clone(), monitor.clone(), Some(quota.clone()))?;
     let mut engine = Engine::new(
@@ -362,40 +371,31 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
         &cfg,
     )?;
 
-    tx.send(Progress {
-        task: "setup".into(),
-        kind: ProgressKind::Discover,
-        current: 0,
-        total: 1,
-        status: "init".into(),
-    })
-    .ok();
-
     let result = engine.run(&job).await?;
-
-    tx.send(Progress {
-        task: "setup".into(),
-        kind: ProgressKind::Discover,
-        current: 1,
-        total: 1,
-        status: "done".into(),
-    })
-    .ok();
-    if let Some(path) = result {
-        tx.send(Progress {
-            task: "done".into(),
-            kind: ProgressKind::Write,
-            current: 1,
-            total: 1,
-            status: path.display().to_string(),
-        })
-        .ok();
-    }
 
     drop(engine);
     drop(tx);
 
-    tui_handle.await??;
+    if let Some(handle) = tui_handle {
+        handle.await??;
+    }
+
+    if !cli.quiet {
+        let summary = monitor.summarize();
+        let costs = summary_cost.estimate(&monitor.events());
+        if let Some(path) = result {
+            println!("output: {}", path.display());
+        }
+        println!(
+            "tokens in {} out {} total {} · est cost ${:.6} · elapsed {:.2}s · requests {}",
+            summary.total_input_tokens,
+            summary.total_output_tokens,
+            summary.total_tokens,
+            costs.total_cost,
+            summary.total_duration_seconds,
+            summary.total_requests
+        );
+    }
 
     Ok(())
 }

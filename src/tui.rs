@@ -10,24 +10,14 @@ use std::io::{stdout, Write};
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::engine::{Progress, ProgressKind};
+use crate::progress::{Progress, ProgressScope, ProgressStage};
 
 struct RowState {
-    kind: ProgressKind,
+    stage: ProgressStage,
     cur: u64,
     total: u64,
     status: String,
-}
-
-impl Default for RowState {
-    fn default() -> Self {
-        Self {
-            kind: ProgressKind::Discover,
-            cur: 0,
-            total: 1,
-            status: String::new(),
-        }
-    }
+    finished_at: Option<std::time::Instant>,
 }
 
 pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> {
@@ -43,22 +33,32 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
     execute!(out, cursor::Hide)?;
 
     let base_row = row;
-    let mut rows: HashMap<String, RowState> = HashMap::new();
-    let mut order: Vec<String> = Vec::new();
+    let mut rows: HashMap<ProgressScope, RowState> = HashMap::new();
+    let mut order: Vec<ProgressScope> = Vec::new();
     let mut closed = false;
 
     loop {
         loop {
             match rx.try_recv() {
                 Ok(evt) => {
-                    let entry = rows.entry(evt.task.clone()).or_default();
-                    if !order.contains(&evt.task) {
-                        order.push(evt.task.clone());
+                    let key = evt.scope.clone();
+                    let entry = rows.entry(key.clone()).or_insert(RowState {
+                        stage: evt.stage,
+                        cur: 0,
+                        total: 1,
+                        status: String::new(),
+                        finished_at: None,
+                    });
+                    if !order.contains(&key) {
+                        order.push(key.clone());
                     }
-                    entry.kind = evt.kind;
-                    entry.cur = evt.current;
+                    entry.stage = evt.stage;
+                    entry.cur = evt.current.min(evt.total.max(1));
                     entry.total = evt.total.max(1);
                     entry.status = evt.status;
+                    if evt.finished {
+                        entry.finished_at = Some(std::time::Instant::now());
+                    }
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
@@ -74,9 +74,42 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
             Clear(ClearType::FromCursorDown),
             PrintStyledContent("progress:".with(Color::DarkGrey))
         )?;
+
+        // Trim finished rows after a short delay.
+        let now = std::time::Instant::now();
+        rows.retain(|_, state| match state.finished_at {
+            Some(done) => now.duration_since(done).as_millis() < 1200,
+            None => true,
+        });
+        order.retain(|scope| rows.contains_key(scope));
+
+        // Determine whether to show the run bar when there is only one job and no chunk bars.
+        let job_count = rows
+            .keys()
+            .filter(|s| matches!(s, ProgressScope::Job { .. }))
+            .count();
+        let chunk_progress_count = rows
+            .keys()
+            .filter(|s| matches!(s, ProgressScope::ChunkProgress { .. }))
+            .count();
+        let chunk_detail_count = rows
+            .keys()
+            .filter(|s| matches!(s, ProgressScope::ChunkDetail { .. }))
+            .count();
+
         let start_row = base_row + 1;
-        for (idx, task) in order.iter().enumerate() {
-            if let Some(state) = rows.get(task) {
+        let mut render_idx = 0;
+        for scope in order.clone() {
+            if let Some(state) = rows.get(&scope) {
+                if matches!(scope, ProgressScope::Run)
+                    && job_count == 1
+                    && chunk_progress_count == 0
+                    && chunk_detail_count == 0
+                {
+                    // Collapse run bar when single job/chunk to show only one bar.
+                    continue;
+                }
+
                 let percent = if state.total > 0 {
                     (state.cur as f64 / state.total as f64).min(1.0)
                 } else {
@@ -94,6 +127,10 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
                 } else {
                     bar.clone().with(Color::Yellow)
                 };
+                let mut label = scope.to_string();
+                if !matches!(scope, ProgressScope::Run) {
+                    label = format!("{label} · {}", state.stage.label());
+                }
                 let status_style = if percent >= 1.0 {
                     state.status.clone().with(Color::Green)
                 } else {
@@ -101,23 +138,24 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
                 };
                 queue!(
                     out,
-                    cursor::MoveTo(0, start_row + idx as u16),
+                    cursor::MoveTo(0, start_row + render_idx as u16),
                     Clear(ClearType::CurrentLine),
-                    PrintStyledContent(format!("{task:10}  ").with(Color::White)),
-                    PrintStyledContent("[".with(Color::DarkGrey)),
+                    PrintStyledContent(format!("{label:20}").with(Color::White)),
+                    PrintStyledContent(" [".with(Color::DarkGrey)),
                     PrintStyledContent(styled_bar),
-                    PrintStyledContent("]  ".with(Color::DarkGrey)),
+                    PrintStyledContent("] ".with(Color::DarkGrey)),
                     PrintStyledContent(percent_label.with(Color::Cyan)),
-                    PrintStyledContent("  ".with(Color::DarkGrey)),
+                    PrintStyledContent(" ".with(Color::DarkGrey)),
                     PrintStyledContent(count_label.with(Color::Magenta)),
-                    PrintStyledContent("  ".with(Color::DarkGrey)),
+                    PrintStyledContent(" ".with(Color::DarkGrey)),
                     PrintStyledContent(status_style)
                 )?;
+                render_idx += 1;
             }
         }
         queue!(
             out,
-            cursor::MoveTo(0, start_row + order.len() as u16),
+            cursor::MoveTo(0, start_row + render_idx as u16),
             Clear(ClearType::CurrentLine)
         )?;
         out.flush()?;

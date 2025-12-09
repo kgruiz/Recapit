@@ -13,28 +13,12 @@ use crate::core::{
 };
 use crate::cost::CostEstimator;
 use crate::pdf;
+use crate::progress::{Progress, ProgressScope, ProgressStage};
 use crate::prompts::TemplatePromptStrategy;
 use crate::render::subtitles::SubtitleExporter;
 use crate::telemetry::RunMonitor;
 use crate::templates::TemplateLoader;
 use crate::utils::slugify;
-
-#[derive(Debug, Clone)]
-pub enum ProgressKind {
-    Discover,
-    Normalize,
-    Transcribe,
-    Write,
-}
-
-#[derive(Debug, Clone)]
-pub struct Progress {
-    pub task: String,
-    pub kind: ProgressKind,
-    pub current: u64,
-    pub total: u64,
-    pub status: String,
-}
 
 pub struct Engine {
     pub ingestor: Box<dyn Ingestor>,
@@ -93,7 +77,29 @@ impl Engine {
 
     pub async fn run(&mut self, job: &Job) -> Result<Option<PathBuf>> {
         self.normalizer.prepare(job)?;
-        self.emit("discover", ProgressKind::Discover, 0, 1, "start");
+
+        let job_label = if job.source.contains("://") {
+            job.source.clone()
+        } else {
+            Path::new(&job.source)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("source")
+                .to_string()
+        };
+        let job_id = slugify(&job_label);
+
+        // Run-level start (single job today, but keep structure for future multi-job runs).
+        self.emit(Progress {
+            scope: ProgressScope::Run,
+            stage: ProgressStage::Discover,
+            current: 0,
+            total: 1,
+            status: job_label.clone(),
+            finished: false,
+        });
+
+        // Discover
         let assets = self.ingestor.discover(job)?;
         if assets.is_empty() {
             self.monitor
@@ -102,32 +108,62 @@ impl Engine {
         }
         let discover_total = assets.len() as u64;
         let media_summary = media_summary(&assets);
-        self.emit(
-            "discover",
-            ProgressKind::Discover,
-            discover_total,
-            discover_total,
-            format!("{discover_total} items · {media_summary}"),
-        );
+
+        // For single-job single-chunk scenario we drive the single bar through phases; for chunked we keep run bar static until job completion.
+        self.emit(Progress {
+            scope: ProgressScope::Job {
+                id: job_id.clone(),
+                label: job_label.clone(),
+            },
+            stage: ProgressStage::Discover,
+            current: discover_total,
+            total: discover_total,
+            status: format!("{discover_total} items · {media_summary}"),
+            finished: false,
+        });
 
         let kind = job.kind.unwrap_or_else(|| infer_kind(&assets));
-        self.emit(
-            "normalize",
-            ProgressKind::Normalize,
-            0,
-            assets.len() as u64,
-            "queue",
-        );
+
+        // Normalize
+        self.emit(Progress {
+            scope: ProgressScope::Job {
+                id: job_id.clone(),
+                label: job_label.clone(),
+            },
+            stage: ProgressStage::Normalize,
+            current: 0,
+            total: assets.len() as u64,
+            status: "queue".into(),
+            finished: false,
+        });
         let normalized = self.normalizer.normalize(&assets, job.pdf_mode)?;
         let normalize_total = normalized.len() as u64;
         let page_total = estimate_page_total(&normalized);
-        self.emit(
-            "normalize",
-            ProgressKind::Normalize,
-            normalize_total,
-            normalize_total,
-            format!("{} ready", counts_summary(normalize_total, page_total)),
-        );
+        self.emit(Progress {
+            scope: ProgressScope::Job {
+                id: job_id.clone(),
+                label: job_label.clone(),
+            },
+            stage: ProgressStage::Normalize,
+            current: normalize_total,
+            total: normalize_total,
+            status: format!("{} ready", counts_summary(normalize_total, page_total)),
+            finished: false,
+        });
+
+        if normalize_total > 1 {
+            self.emit(Progress {
+                scope: ProgressScope::ChunkProgress {
+                    job_id: job_id.clone(),
+                    total: normalize_total,
+                },
+                stage: ProgressStage::Transcribe,
+                current: 0,
+                total: normalize_total,
+                status: format!("{job_label}: 0/{normalize_total} chunks"),
+                finished: false,
+            });
+        }
         let modality = modality_for(&normalized);
 
         let base = job
@@ -157,16 +193,20 @@ impl Engine {
         let instruction = prompt.instruction(format, &preamble);
 
         let segment_total = normalized.len() as u64;
-        self.emit(
-            "transcribe",
-            ProgressKind::Transcribe,
-            0,
-            segment_total,
-            format!(
+        self.emit(Progress {
+            scope: ProgressScope::Job {
+                id: job_id.clone(),
+                label: job_label.clone(),
+            },
+            stage: ProgressStage::Transcribe,
+            current: 0,
+            total: segment_total,
+            status: format!(
                 "{} · mode {modality}",
                 counts_summary(segment_total, page_total)
             ),
-        );
+            finished: false,
+        });
         let base_dir_str = base_dir.to_string_lossy().to_string();
         let meta = serde_json::json!({
             "kind": kind.as_str(),
@@ -181,23 +221,49 @@ impl Engine {
             "max_workers": job.max_workers,
             "max_video_workers": job.max_video_workers,
             "pdf_dpi": job.pdf_dpi,
+            "job_id": job_id,
+            "job_label": job_label,
         });
         let text = self
             .provider
             .transcribe(&instruction, &normalized, modality, &meta)?;
-        self.emit(
-            "transcribe",
-            ProgressKind::Transcribe,
-            normalize_total,
-            normalize_total,
-            format!("{} processed", counts_summary(normalize_total, page_total)),
-        );
+        self.emit(Progress {
+            scope: ProgressScope::Job {
+                id: meta["job_id"].as_str().unwrap_or_default().to_string(),
+                label: meta["job_label"].as_str().unwrap_or_default().to_string(),
+            },
+            stage: ProgressStage::Transcribe,
+            current: normalize_total,
+            total: normalize_total,
+            status: format!("{} processed", counts_summary(normalize_total, page_total)),
+            finished: false,
+        });
 
-        self.emit("write", ProgressKind::Write, 0, 1, format.as_str());
+        self.emit(Progress {
+            scope: ProgressScope::Job {
+                id: meta["job_id"].as_str().unwrap_or_default().to_string(),
+                label: meta["job_label"].as_str().unwrap_or_default().to_string(),
+            },
+            stage: ProgressStage::Write,
+            current: 0,
+            total: 1,
+            status: format.as_str().into(),
+            finished: false,
+        });
         let output_path = self
             .writer
             .write(format, &base_dir, &output_name, &preamble, &text)?;
-        self.emit("write", ProgressKind::Write, 1, 1, "done");
+        self.emit(Progress {
+            scope: ProgressScope::Job {
+                id: meta["job_id"].as_str().unwrap_or_default().to_string(),
+                label: meta["job_label"].as_str().unwrap_or_default().to_string(),
+            },
+            stage: ProgressStage::Write,
+            current: 1,
+            total: 1,
+            status: "done".into(),
+            finished: true,
+        });
 
         let mut extra_files = Vec::new();
         if job.save_full_response {
@@ -362,6 +428,14 @@ impl Engine {
             .map(|(k, v)| (k, Some(v)))
             .collect::<HashMap<_, _>>();
         let events_path = base_dir.join("run-events.ndjson");
+        self.emit(Progress {
+            scope: ProgressScope::Run,
+            stage: ProgressStage::Write,
+            current: 1,
+            total: 1,
+            status: output_path.display().to_string(),
+            finished: false,
+        });
         self.monitor.flush_summary(
             &base_dir.join("run-summary.json"),
             &self.cost,
@@ -374,21 +448,8 @@ impl Engine {
         Ok(Some(output_path))
     }
 
-    fn emit(
-        &self,
-        task: &str,
-        kind: ProgressKind,
-        current: u64,
-        total: u64,
-        status: impl Into<String>,
-    ) {
-        let _ = self.progress.send(Progress {
-            task: task.into(),
-            kind,
-            current,
-            total,
-            status: status.into(),
-        });
+    fn emit(&self, progress: Progress) {
+        let _ = self.progress.send(progress);
     }
 }
 
