@@ -222,7 +222,14 @@ pub async fn run_tui(
     }
 
     terminal::disable_raw_mode()?;
-    let final_row = base_row + 1 + order.len() as u16;
+    let (_, term_rows) = terminal::size().unwrap_or((80, 24));
+    let current_row = cursor::position().map(|(_, r)| r).unwrap_or(base_row);
+    let mut final_row = current_row.saturating_add(1);
+
+    if final_row >= term_rows {
+        final_row = term_rows.saturating_sub(1);
+    }
+
     execute!(
         out,
         cursor::MoveTo(0, final_row),
