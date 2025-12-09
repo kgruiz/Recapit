@@ -106,6 +106,9 @@ RECAPIT_SAVE_FULL_RESPONSE=1 recapit slides/deck.pdf \
   --export json \
   --output-dir output/decks
 
+# Batch multiple sources in one run (each gets its own slugged output dir)
+recapit slides/deck.pdf notes/lecture01.pdf images/scan.png
+
 # Transcribe a YouTube lecture, keeping intermediates for reuse and forcing low-res media hints
 RECAPIT_SAVE_INTERMEDIATES=1 recapit "https://www.youtube.com/watch?v=dQw4w9WgXcQ" \
   --preset quality \
