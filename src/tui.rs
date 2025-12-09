@@ -36,6 +36,8 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
     let mut rows: HashMap<ProgressScope, RowState> = HashMap::new();
     let mut order: Vec<ProgressScope> = Vec::new();
     let mut closed = false;
+    let frames = ["|", "/", "-", "\\"];
+    let mut frame_idx: usize = 0;
 
     loop {
         loop {
@@ -74,6 +76,8 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
             Clear(ClearType::FromCursorDown),
             PrintStyledContent("progress:".with(Color::DarkGrey))
         )?;
+
+        frame_idx = (frame_idx + 1) % frames.len();
 
         // Trim finished rows after a short delay.
         let now = std::time::Instant::now();
@@ -131,6 +135,11 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
                 if !matches!(scope, ProgressScope::Run) {
                     label = format!("{label} · {}", state.stage.label());
                 }
+                let spin = if percent >= 1.0 {
+                    " "
+                } else {
+                    frames[frame_idx]
+                };
                 let status_style = if percent >= 1.0 {
                     state.status.clone().with(Color::Green)
                 } else {
@@ -140,7 +149,7 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
                     out,
                     cursor::MoveTo(0, start_row + render_idx as u16),
                     Clear(ClearType::CurrentLine),
-                    PrintStyledContent(format!("{label:20}").with(Color::White)),
+                    PrintStyledContent(format!("{spin} {label:20}").with(Color::White)),
                     PrintStyledContent(" [".with(Color::DarkGrey)),
                     PrintStyledContent(styled_bar),
                     PrintStyledContent("] ".with(Color::DarkGrey)),
