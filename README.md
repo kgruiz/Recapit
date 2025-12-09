@@ -42,6 +42,11 @@ Or run directly without installing:
 cargo run -- transcribe input.pdf --export srt
 ```
 
+### API key, free tier, and billing
+
+You must supply a Gemini API key via `GEMINI_API_KEY`. Google provides a free tier for Gemini 2.5 Flash and Flash‑Lite (input/output tokens are “Free of charge” up to published limits); you can use that by creating a standalone key in Google AI Studio and **not** attaching it to a Cloud project with billing. Keys linked to a billed Cloud project are charged after free limits. See the [official pricing page](https://ai.google.dev/gemini-api/docs/pricing) for details and current limits.
+Even on the free tier, this tool still shows token counts and estimated dollar cost in its summary; that estimate reflects list pricing and doesn’t change your free/paid status.
+
 ## Configuration
 
 Environment variables:
