@@ -91,11 +91,11 @@ After installation the `recapit` command becomes available. Export `GEMINI_API_K
 
 | Command | Purpose | Highlights |
 | --- | --- | --- |
-| `recapit <SOURCE>` | Default transcribe workflow | Honors presets/config, supports exports (`srt`, `vtt`, `markdown`, `json`), YouTube URLs, directory recursion |
-| `recapit <SOURCE> --dry-run [--json]` | Preview ingestion + normalization only | No Gemini calls; shows assets/chunks; `--json` for machine-readable output |
-| `recapit <SOURCE> --to markdown|json [--from auto|latex|markdown]` | Batch-convert existing LaTeX/Markdown to Markdown or JSON via Gemini | Supports `--file-pattern`, `--recursive`, `--skip-existing` |
+| `recapit [SOURCE]` | Default transcribe workflow | Honors presets/config, supports exports (`srt`, `vtt`, `markdown`, `json`), YouTube URLs, directory recursion |
+| `recapit [SOURCE] --dry-run [--json]` | Preview ingestion + normalization only | No Gemini calls; shows assets/chunks; `--json` for machine-readable output |
+| `recapit [SOURCE] --to markdown\|json [--from auto\|latex\|markdown]` | Batch-convert existing LaTeX/Markdown to Markdown or JSON via Gemini | Supports `--file-pattern`, `--recursive`, `--skip-existing` |
 | `recapit report cost` | Summarize token/cost telemetry from a previous run | Works on `run-summary.json` or directories |
-| `recapit cleanup cache|downloads` | Remove cached downloads or normalized artifacts | Safe-by-default; pass `--yes` to apply |
+| `recapit cleanup cache\|downloads` | Remove cached downloads or normalized artifacts | Safe-by-default; pass `--yes` to apply |
 
 All commands support `--config` to point at an alternate YAML file. Presets from `recapit.yaml` automatically merge with CLI flags.
 
@@ -157,7 +157,8 @@ Use `--hide-summary`, `--detailed-costs`, and `--summary-path` to adjust the con
 ## Output Structure
 
 Each source asset produces a slugified directory next to the input. For example, a `Lecture01.pdf` transcription now yields:
-```
+
+```text
 path/to/slides/
   lecture01/
     page-images/
@@ -173,7 +174,6 @@ If `RECAPIT_SAVE_FULL_RESPONSE` (or its `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` 
 JSON (`*.json`) exports are written beside the primary transcript when you enable the export hooks.
 
 Video inputs produce chunk-aware transcripts: with Markdown you get headings such as `## Chunk N (HH:MM:SS–HH:MM:SS)` inside `<stem>-transcribed.md`; with LaTeX the sections mirror the same structure inside `<stem>-transcribed.tex`. When the `save_full_response` toggle is enabled (via presets, `recapit.yaml`, or environment variables), every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you enable `save_intermediates` (e.g., `RECAPIT_SAVE_INTERMEDIATES=1` or `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`). Concurrency is bounded by `max_video_workers` so you can align ffmpeg load with your hardware budget.
-
 
 Every CLI run additionally writes a JSON telemetry report (default `run-summary.json`). The report contains:
 
