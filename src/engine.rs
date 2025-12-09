@@ -159,6 +159,10 @@ impl Engine {
         let modality = modality_for(&normalized);
 
         let output_format = job.format;
+        let needs_folder = job.save_metadata
+            || job.save_full_response
+            || job.save_intermediates
+            || !job.export.is_empty();
 
         let mut output_name = format!(
             "{}-transcribed",
@@ -167,15 +171,14 @@ impl Engine {
                 .and_then(|s| s.to_str())
                 .unwrap_or("output")
         );
-        let mut base_dir = if job.save_metadata {
-            job.output_dir
-                .clone()
-                .unwrap_or_else(|| PathBuf::from(&output_name))
+        let base_root = job.output_dir.clone().unwrap_or_else(|| PathBuf::from("."));
+        let mut base_dir = if needs_folder {
+            base_root.join(&output_name)
         } else {
-            job.output_dir.clone().unwrap_or_else(|| PathBuf::from("."))
+            base_root
         };
 
-        if job.save_metadata {
+        if needs_folder {
             let resolved = crate::utils::resolve_path_with_prompt(&base_dir, true)?
                 .ok_or_else(|| anyhow!("operation cancelled for {}", base_dir.display()))?;
             base_dir = resolved;
@@ -196,6 +199,7 @@ impl Engine {
             } else {
                 return Ok(None);
             }
+            ensure_dir(&base_dir)?;
         }
 
         let prompt = self.prompts.get(&kind).expect("prompt strategy missing");

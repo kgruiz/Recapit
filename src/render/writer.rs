@@ -41,9 +41,7 @@ struct MarkdownWriter;
 impl MarkdownWriter {
     fn write(&self, base: &Path, name: &str, header: &str, body: &str) -> anyhow::Result<PathBuf> {
         fs::create_dir_all(base)?;
-        let dir = base.join(name);
-        fs::create_dir_all(&dir)?;
-        let path = dir.join(format!("{name}.md"));
+        let path = base.join(format!("{name}.md"));
 
         let mut content = String::new();
         if !header.is_empty() {
@@ -77,9 +75,7 @@ impl LatexWriter {
         body: &str,
     ) -> anyhow::Result<PathBuf> {
         fs::create_dir_all(base)?;
-        let dir = base.join(name);
-        fs::create_dir_all(&dir)?;
-        let path = dir.join(format!("{name}.tex"));
+        let path = base.join(format!("{name}.tex"));
 
         let mut content = String::new();
         content.push_str(preamble);
