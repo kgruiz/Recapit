@@ -2,20 +2,6 @@
 
 Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube videos, and standalone images into cleaned Markdown or LaTeX using Google Gemini models. It bundles asset discovery, ffmpeg/yt-dlp normalization, quota-aware retries, and prompt preambles into one binary. The default model is `gemini-3-pro-preview`, with full support for the generally available Gemini 2.5 family (`gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`).
 
-## Highlights
-
-- **Unified pipelines** – one orchestration layer handles PDF-to-image fan out, optional direct PDF ingestion, LLM interactions, and Markdown structuring for slides, lectures, documents, and ad-hoc images.
-- **Parallel processing** – document/image transcription and video chunk uploads run across configurable worker pools to shrink wall-clock time on larger batches.
-- **Quota-aware throttling** – shared token buckets and a quota monitor keep per-model RPM/TPM and upload concurrency within Gemini’s published limits, automatically backing off when 429s appear.
-- **Telemetry & cost tracking** – every request records tokens, duration, and metadata; CLI runs print a summary (with optional per-model breakdowns) and persist a JSON report with token usage and estimated spend.
-- **Smart defaults** – works out of the box with built-in prompts and Markdown headers; override prompts via `templates/` or custom strategies in `prompts/` when you need fine control.
-- **Resumable video ingestion** – manifests record normalized MP4 hashes, chunk ranges, and file URIs so reruns with `--skip-existing` only process dirty chunks.
-- **Auto classification** – invoke the tool without subcommands (or via `transcribe`) and heuristics choose the right prompt for slides, notes, worksheets, or documents.
-- **Image-first PDF handling** – every PDF is rasterized to per-page PNGs at 200 DPI by default for consistent transcription; change DPI with `--pdf-dpi` (or `pdf.dpi` in `recapit.yaml`) or opt into direct PDF ingestion with `--pdf-mode pdf`/`PDFMode.PDF` when your chosen model supports it.
-- **Drop-in CLI** – invoke the Typer CLI from the shell with zero boilerplate and steer behaviour through presets or configuration files.
-- **Structured outputs** – cleaned Markdown lands beside the source file by default; choose `--format latex` (or set the config default) when you want direct LaTeX instead. Flip `RECAPIT_SAVE_FULL_RESPONSE` on if you also want raw model dumps and `RECAPIT_SAVE_INTERMEDIATES` to keep normalized/manifest artifacts.
-- **Preset-aware CLI** – compose presets in `recapit.yaml` and layer them with command-line overrides to adjust models, exports, concurrency, and media resolution without duplicating flags.
-
 ## Quick Start
 
 ```shell
