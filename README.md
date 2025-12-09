@@ -1,6 +1,6 @@
 # Recapit
 
-Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube videos, and standalone images into cleaned Markdown (or LaTeX when requested) using Google Gemini models. It handles asset discovery, ffmpeg/yt-dlp normalization, quota-aware retries, and prompt preambles in one binary.
+Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube videos, and standalone images into cleaned Markdown or LaTeX using Google Gemini models. It bundles asset discovery, ffmpeg/yt-dlp normalization, quota-aware retries, and prompt preambles into one binary. The default model is `gemini-3-pro-preview`, with full support for the generally available Gemini 2.5 family (`gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`).
 
 ## Highlights
 
@@ -16,10 +16,20 @@ Recapit is a Rust CLI for turning slide decks, lecture handouts, PDFs, YouTube v
 - **Structured outputs** – cleaned Markdown lands beside the source file by default; choose `--format latex` (or set the config default) when you want direct LaTeX instead. Flip `RECAPIT_SAVE_FULL_RESPONSE` on if you also want raw model dumps and `RECAPIT_SAVE_INTERMEDIATES` to keep normalized/manifest artifacts.
 - **Preset-aware CLI** – compose presets in `recapit.yaml` and layer them with command-line overrides to adjust models, exports, concurrency, and media resolution without duplicating flags.
 
+## Quick Start
+
+```shell
+./install
+export GEMINI_API_KEY="your-key"
+recapit input.pdf
+```
+
+The command above installs the CLI, sets your API key, and transcribes `input.pdf` to Markdown beside the source file. Add `--format latex` for LaTeX output or `--export srt vtt` for subtitles.
+
 ## Requirements
 
-- Rust 1.79+ and Cargo
-- Google Gemini access and a `GEMINI_API_KEY` with permissions for the latest models (e.g. `gemini-3-pro-preview`, `gemini-2.5-flash`, `gemini-2.5-pro`).
+- Rust 1.79+ and Cargo.
+- Google Gemini access and a `GEMINI_API_KEY` with permissions for `gemini-3-pro-preview` (default) or the GA Gemini 2.5 family (`gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`).
 - Poppler (`pdftoppm`, `pdfinfo`) and FFmpeg; yt-dlp is required for YouTube URLs.
 
 ## Installation
