@@ -16,7 +16,7 @@ The command above installs the CLI, sets your API key, and transcribes `input.pd
 
 - Rust 1.79+ and Cargo.
 - Google Gemini access and a `GEMINI_API_KEY` with permissions for `gemini-3-pro-preview` (default) or the GA Gemini 2.5 family (`gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`).
-- Poppler (`pdftoppm`, `pdfinfo`) and FFmpeg; yt-dlp is required for YouTube URLs.
+- Poppler (`pdftoppm`, `pdfinfo`) and FFmpeg are required, and yt-dlp is required for YouTube URLs.
 
 ## Installation
 
@@ -44,8 +44,8 @@ cargo run -- transcribe input.pdf --export srt
 
 ### API key, free tier, and billing
 
-You must supply a Gemini API key via `GEMINI_API_KEY`. Google provides a free tier for Gemini 2.5 Flash and Flash‑Lite (input/output tokens are “Free of charge” up to published limits); you can use that by creating a standalone key in Google AI Studio and **not** attaching it to a Cloud project with billing. Keys linked to a billed Cloud project are charged after free limits. See the [official pricing page](https://ai.google.dev/gemini-api/docs/pricing) for details and current limits.
-Even on the free tier, this tool still shows token counts and estimated dollar cost in its summary; that estimate reflects list pricing and doesn’t change your free/paid status.
+You must supply a Gemini API key via `GEMINI_API_KEY`. Google provides a free tier for Gemini 2.5 Flash and Flash‑Lite (input/output tokens are “Free of charge” up to published limits). You can use that by creating a standalone key in Google AI Studio and **not** attaching it to a Cloud project with billing. Keys linked to a billed Cloud project are charged after free limits. See the [official pricing page](https://ai.google.dev/gemini-api/docs/pricing) for details and current limits.
+Even on the free tier, this tool still shows token counts and estimated dollar cost in its summary, and that estimate reflects list pricing and doesn’t change your free/paid status.
 
 ## Configuration
 
@@ -72,7 +72,7 @@ Environment variables prefixed with `LECTURE_SUMMARIZER_` remain supported for c
 
 All prompt and preamble files are optional: the app ships with reasonable built-in defaults. Drop files into `templates/` when you want to override them (e.g., `document-template.txt`, `document-prompt.txt`). The auto classifier inspects filenames and the first-page aspect ratio to decide between slide-, lecture-, or document-style prompts. For ambiguous cases, force a mode with `--kind slides|lecture|document`.
 
-Prefer configuration files? Create `recapit.yaml` in the repo root to store defaults for `default_model`, `output_dir`, `exports`, video chunk parameters, and per-preset overrides. CLI flags override environment variables, and environment variables override the YAML file, giving you explicit precedence: `CLI > ENV > YAML`.
+Prefer configuration files? Create `recapit.yaml` in the repo root to store defaults for `default_model`, `output_dir`, `exports`, video chunk parameters, and per-preset overrides. CLI flags override environment variables, and environment variables override the YAML file, giving you explicit precedence of `CLI > ENV > YAML`.
 
 ## CLI Usage
 
@@ -139,7 +139,7 @@ Every run writes:
 - `<slug>/<slug>-transcribed.md|tex` – primary transcript (Markdown by default, LaTeX when you use `--format latex`).
 - `run-summary.json` – totals, estimated spend, and a list of output artifacts.
 - `run-events.ndjson` – per-request telemetry (one JSON object per API call).
-- `chunks.json` – manifest for normalized video assets (video inputs only); manifests include hashes and chunk response paths so reruns with `--skip-existing` honor prior work.
+- `chunks.json` – manifest for normalized video assets (video inputs only). Manifests include hashes and chunk response paths so reruns with `--skip-existing` honor prior work.
 - Optional `.srt`/`.vtt` subtitle files or `.json` exports when `--export` is provided.
 - Optional `full-response/` artifacts and chunk intermediates when the corresponding save toggles are enabled.
 
@@ -164,7 +164,7 @@ If `RECAPIT_SAVE_FULL_RESPONSE` (or its `LECTURE_SUMMARIZER_SAVE_FULL_RESPONSE` 
 
 JSON (`*.json`) exports are written beside the primary transcript when you enable the export hooks.
 
-Video inputs produce chunk-aware transcripts: with Markdown you get headings such as `## Chunk N (HH:MM:SS–HH:MM:SS)` inside `<stem>-transcribed.md`; with LaTeX the sections mirror the same structure inside `<stem>-transcribed.tex`. When the `save_full_response` toggle is enabled (via presets, `recapit.yaml`, or environment variables), every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you enable `save_intermediates` (e.g., `RECAPIT_SAVE_INTERMEDIATES=1` or `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`). Concurrency is bounded by `max_video_workers` so you can align ffmpeg load with your hardware budget.
+Video inputs produce chunk-aware transcripts. With Markdown you get headings such as `## Chunk N (HH:MM:SS–HH:MM:SS)` inside `<stem>-transcribed.md`, and with LaTeX the sections mirror the same structure inside `<stem>-transcribed.tex`. When the `save_full_response` toggle is enabled (via presets, `recapit.yaml`, or environment variables), every raw chunk response is also captured under `full-response/chunks/`. Intermediates such as normalized MP4s and chunk slices are discarded by default unless you enable `save_intermediates` (e.g., `RECAPIT_SAVE_INTERMEDIATES=1` or `LECTURE_SUMMARIZER_SAVE_INTERMEDIATES=1`). Concurrency is bounded by `max_video_workers` so you can align ffmpeg load with your hardware budget.
 
 Every CLI run additionally writes a JSON telemetry report (default `run-summary.json`). The report contains:
 

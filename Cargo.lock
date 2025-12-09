@@ -1416,7 +1416,7 @@ dependencies = [
 
 [[package]]
 name = "recapit"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "anyhow",
  "base64",
