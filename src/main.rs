@@ -372,6 +372,15 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
     .ok();
 
     let result = engine.run(&job).await?;
+
+    tx.send(Progress {
+        task: "setup".into(),
+        kind: ProgressKind::Discover,
+        current: 1,
+        total: 1,
+        status: "done".into(),
+    })
+    .ok();
     if let Some(path) = result {
         tx.send(Progress {
             task: "done".into(),
