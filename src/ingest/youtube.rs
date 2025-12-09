@@ -94,7 +94,7 @@ impl YouTubeDownloader {
     pub fn new(cache_dir: Option<PathBuf>) -> Result<Self> {
         let base = cache_dir.unwrap_or_else(|| {
             dirs::cache_dir()
-                .unwrap_or_else(|| env::temp_dir())
+                .unwrap_or_else(env::temp_dir)
                 .join("recapit")
                 .join("youtube")
         });
@@ -190,10 +190,7 @@ impl YouTubeDownloader {
         };
 
         let size_bytes = path.metadata().ok().map(|meta| meta.len());
-        let sha = match sha256sum(&path) {
-            Ok(hash) => Some(hash),
-            Err(_) => None,
-        };
+        let sha = sha256sum(&path).ok();
         let mime = format!("video/{}", ext.trim_start_matches('.'));
 
         Ok(YouTubeDownload {

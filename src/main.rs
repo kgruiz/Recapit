@@ -112,7 +112,7 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
     // Handle conversion-first flow (single source only)
     if let Some(target) = cli.to {
         let source = sources
-            .get(0)
+            .first()
             .ok_or_else(|| anyhow!("A source path is required for conversion"))?;
         let default_pattern = match cli.from {
             cli::ConversionSource::Latex => "*.tex".to_string(),
@@ -413,7 +413,7 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
             capability_table
                 .get(model_key.as_str())
                 .or_else(|| capability_table.get(crate::constants::DEFAULT_MODEL))
-                .map(|caps| caps.iter().any(|c| *c == capability))
+                .map(|caps| caps.contains(&capability))
                 .unwrap_or(true)
         };
 
@@ -739,7 +739,7 @@ fn build_ingestion_stack(
         capability_table
             .get(model_key.as_str())
             .or_else(|| capability_table.get(constants::DEFAULT_MODEL))
-            .map(|caps| caps.iter().any(|c| *c == capability))
+            .map(|caps| caps.contains(&capability))
             .unwrap_or(true)
     };
 

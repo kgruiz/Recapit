@@ -68,7 +68,7 @@ impl Engine {
             writer,
             monitor,
             cost,
-            subtitles: Some(SubtitleExporter::default()),
+            subtitles: Some(SubtitleExporter),
             progress,
             converter,
             templates: loader,
@@ -528,7 +528,7 @@ fn estimate_page_total(assets: &[Asset]) -> Option<u64> {
         if asset.media == "pdf" && seen.insert(asset.path.clone()) {
             if let Ok(count) = pdf::page_count(&asset.path) {
                 let count = count as u64;
-                if max_pages.map_or(true, |current| count > current) {
+                if max_pages.is_none_or(|current| count > current) {
                     max_pages = Some(count);
                 }
             }

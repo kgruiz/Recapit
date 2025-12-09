@@ -3,7 +3,6 @@ use crate::telemetry::RequestEvent;
 use crate::video::DEFAULT_TOKENS_PER_SECOND;
 use anyhow::{Context, Result};
 use serde::Serialize;
-use serde_yaml;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;

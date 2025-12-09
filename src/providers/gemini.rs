@@ -196,7 +196,7 @@ impl GeminiProvider {
             .path
             .file_name()
             .and_then(|s| s.to_str())
-            .unwrap_or_else(|| "upload");
+            .unwrap_or("upload");
         let start_payload = json!({"file": {"display_name": display_name}});
 
         let upload_url = {

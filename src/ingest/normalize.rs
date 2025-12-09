@@ -68,7 +68,7 @@ impl CompositeNormalizer {
         let mut normalized = Vec::new();
         for asset in assets {
             match asset.media.as_str() {
-                "pdf" => normalized.extend(self.normalize_pdf(asset, resolved.clone())?),
+                "pdf" => normalized.extend(self.normalize_pdf(asset, resolved)?),
                 "video" | "audio" => normalized.extend(self.normalize_video(asset)?),
                 _ => normalized.push(asset.clone()),
             }
@@ -116,7 +116,7 @@ impl CompositeNormalizer {
         let slug = asset
             .path
             .file_stem()
-            .map(|s| slugify(&s.to_string_lossy()))
+            .map(|s| slugify(s.to_string_lossy()))
             .unwrap_or_else(|| "document".into());
         self.job_root().join("page-images").join(slug)
     }
@@ -168,7 +168,7 @@ impl CompositeNormalizer {
         let slug = realized
             .path
             .file_stem()
-            .map(|s| slugify(&s.to_string_lossy()))
+            .map(|s| slugify(s.to_string_lossy()))
             .unwrap_or_else(|| "video".into());
         let normalized_dir = job_root
             .join("pickles")
@@ -176,7 +176,7 @@ impl CompositeNormalizer {
             .join(slug.clone());
         ensure_dir(&normalized_dir)?;
 
-        let encoder_specs = select_encoder_chain(self.encoder_preference.clone());
+        let encoder_specs = select_encoder_chain(self.encoder_preference);
         let normalization =
             crate::video::normalize_video(&realized.path, &normalized_dir, &encoder_specs)?;
         let normalized_path = normalization.path.clone();

@@ -129,7 +129,7 @@ pub async fn run_tui(
                     "  -/- ".to_string()
                 };
                 let label_text = if !matches!(scope, ProgressScope::Run) {
-                    format!("{} · {}", scope.to_string(), state.stage.label())
+                    format!("{} · {}", scope, state.stage.label())
                 } else {
                     scope.to_string()
                 };

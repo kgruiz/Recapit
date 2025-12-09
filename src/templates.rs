@@ -136,10 +136,7 @@ impl TemplateLoader {
 }
 
 fn read_file(path: PathBuf) -> Option<String> {
-    match fs::read_to_string(path) {
-        Ok(text) => Some(text),
-        Err(_) => None,
-    }
+    fs::read_to_string(path).ok()
 }
 
 struct FormatPreambles {
