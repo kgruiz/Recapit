@@ -123,30 +123,51 @@ pub async fn run_tui(
                     0.0
                 };
                 let percent_label = format!("{:>3}%", (percent * 100.0).round() as u64);
+
                 let count_label = if state.total > 0 {
                     format!("{:>5}/{:<5}", state.cur.min(state.total), state.total)
                 } else {
                     "  -/- ".to_string()
                 };
+
                 let label_text = if !matches!(scope, ProgressScope::Run) {
                     format!("{} · {}", scope, state.stage.label())
                 } else {
                     scope.to_string()
                 };
+
                 let spin = if percent >= 1.0 {
                     " "
                 } else {
                     frames[frame_idx]
                 };
-                let fixed_len = 2 /*spin+space*/
+
+                let min_bar_width = 10;
+                let base_len = 2 /*spin+space*/
                     + label_text.len()
-                    + 3 /*space + []*/
-                    + 2 /*spaces around bar*/
-                    + 4 /*percent placeholder*/
-                    + 1
-                    + 11 /*count placeholder*/
-                    + 1;
-                let bar_width = cols.saturating_sub(fixed_len).max(10);
+                    + 2 /*leading space+bracket*/
+                    + 2 /*trailing bracket+space*/
+                    + percent_label.len()
+                    + 1 /*space*/
+                    + count_label.len()
+                    + 1; /*space before status*/
+
+                let available = cols.saturating_sub(base_len);
+
+                let mut status_text = state.status.clone();
+
+                if available <= min_bar_width {
+                    status_text.clear();
+                } else {
+                    let max_status_len = available - min_bar_width;
+
+                    if status_text.len() > max_status_len {
+                        status_text = truncate_status(&status_text, max_status_len);
+                    }
+                }
+
+                let status_len = status_text.len();
+                let bar_width = available.saturating_sub(status_len).max(1);
                 let bar = progress_bar(percent, bar_width);
                 let styled_bar = if percent >= 1.0 {
                     bar.clone().with(Color::Green)
@@ -154,9 +175,9 @@ pub async fn run_tui(
                     bar.clone().with(Color::Yellow)
                 };
                 let status_style = if percent >= 1.0 {
-                    state.status.clone().with(Color::Green)
+                    status_text.clone().with(Color::Green)
                 } else {
-                    state.status.clone().with(Color::White)
+                    status_text.clone().with(Color::White)
                 };
                 queue!(
                     out,
@@ -220,4 +241,19 @@ fn progress_bar(progress: f64, width: usize) -> String {
         bar.push(if idx < filled { '#' } else { ' ' });
     }
     bar
+}
+
+fn truncate_status(status: &str, max_len: usize) -> String {
+    if status.len() <= max_len {
+        return status.to_string();
+    }
+
+    if max_len <= 3 {
+        return status.chars().take(max_len).collect();
+    }
+
+    let keep_len = max_len - 3;
+    let mut truncated: String = status.chars().take(keep_len).collect();
+    truncated.push_str("...");
+    truncated
 }
