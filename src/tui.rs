@@ -8,7 +8,7 @@ use crossterm::{
 use std::collections::HashMap;
 use std::io::{stdout, Write};
 use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::progress::{Progress, ProgressScope, ProgressStage};
 
@@ -20,7 +20,10 @@ struct RowState {
     finished_at: Option<std::time::Instant>,
 }
 
-pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> {
+pub async fn run_tui(
+    mut rx: UnboundedReceiver<Progress>,
+    cancel: UnboundedSender<()>,
+) -> anyhow::Result<()> {
     let mut out = stdout();
     let (col, mut row) = cursor::position()?;
     if col != 0 {
@@ -190,6 +193,7 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
                         || (key.code == KeyCode::Char('c')
                             && key.modifiers.contains(KeyModifiers::CONTROL)))
                 {
+                    let _ = cancel.send(());
                     break;
                 }
             }

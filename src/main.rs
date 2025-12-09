@@ -245,10 +245,11 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
     }
 
     let (tx, rx) = mpsc::unbounded_channel::<Progress>();
+    let (cancel_tx, mut cancel_rx) = mpsc::unbounded_channel::<()>();
     let tui_handle = if cli.quiet {
         None
     } else {
-        Some(tokio::spawn(tui::run_tui(rx)))
+        Some(tokio::spawn(tui::run_tui(rx, cancel_tx.clone())))
     };
 
     let request_limits = crate::constants::rate_limits_per_minute()
@@ -459,7 +460,21 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
         })
         .ok();
 
-        let result = engine.run(&job).await?;
+        let result = tokio::select! {
+            res = engine.run(&job) => res,
+            _ = cancel_rx.recv() => {
+                println!("run cancelled by user (Ctrl+C)");
+                break;
+            }
+            _ = tokio::signal::ctrl_c() => {
+                println!("run cancelled by Ctrl+C");
+                break;
+            }
+        };
+        let result = match result {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
 
         tx.send(Progress {
             scope: ProgressScope::Run,
