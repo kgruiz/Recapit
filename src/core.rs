@@ -82,7 +82,9 @@ pub struct Job {
     pub source: String,
     pub job_label: String,
     pub job_id: String,
+    #[allow(dead_code)]
     pub job_index: usize,
+    #[allow(dead_code)]
     pub job_total: usize,
     pub recursive: bool,
     pub kind: Option<Kind>,
@@ -96,6 +98,7 @@ pub struct Job {
     pub media_resolution: Option<String>,
     pub save_full_response: bool,
     pub save_intermediates: bool,
+    pub save_metadata: bool,
     pub max_workers: usize,
     pub max_video_workers: usize,
     pub pdf_dpi: u32,

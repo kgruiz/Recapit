@@ -61,6 +61,8 @@ pub struct Cli {
     pub json: bool,
     #[arg(long, action = ArgAction::SetTrue, help = "Suppress TUI/progress and final summary")]
     pub quiet: bool,
+    #[arg(long, action = ArgAction::SetTrue, help = "Write run metadata (summary, events) alongside transcript in an output folder")]
+    pub save_metadata: bool,
 
     #[command(subcommand)]
     pub cmd: Option<Command>,

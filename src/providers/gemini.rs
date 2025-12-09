@@ -838,122 +838,159 @@ impl GeminiProvider {
         let name = meta_string(meta, "output_name").unwrap_or_else(|| "output".into());
         let skip_existing = meta_bool(meta, "skip_existing").unwrap_or(false);
         let save_intermediates = meta_bool(meta, "save_intermediates").unwrap_or(false);
+        let save_metadata = meta_bool(meta, "save_metadata").unwrap_or(false);
         let chunk_dir = if save_intermediates {
             let dir = base.join("full-response").join("chunks");
             ensure_dir(&dir)?;
             Some(dir)
+        } else if save_metadata {
+            None
         } else {
             None
         };
 
-        let manifest_path = assets
-            .iter()
-            .filter_map(|asset| meta_string(&asset.meta, "manifest_path"))
-            .map(PathBuf::from)
-            .next()
-            .unwrap_or_else(|| base.join("chunks.json"));
-
-        let manifest_path_str = manifest_path.to_string_lossy().to_string();
-        let mut manifest = match fs::read_to_string(&manifest_path) {
-            Ok(text) => match serde_json::from_str::<Value>(&text) {
-                Ok(value) => value,
-                Err(err) => {
-                    self.monitor.note_event(
-                        "manifest.warn",
-                        json!({
-                            "reason": "parse_error",
-                            "path": manifest_path_str,
-                            "error": err.to_string(),
-                        }),
-                    );
-                    json!({"version": 1, "chunks": []})
-                }
-            },
-            Err(err) => {
-                if err.kind() != ErrorKind::NotFound {
-                    self.monitor.note_event(
-                        "manifest.warn",
-                        json!({
-                            "reason": "read_failed",
-                            "path": manifest_path_str,
-                            "error": err.to_string(),
-                        }),
-                    );
-                }
-                json!({"version": 1, "chunks": []})
-            }
+        let manifest_path = if save_intermediates || save_metadata {
+            assets
+                .iter()
+                .filter_map(|asset| meta_string(&asset.meta, "manifest_path"))
+                .map(PathBuf::from)
+                .next()
+                .unwrap_or_else(|| base.join("chunks.json"))
+        } else {
+            PathBuf::new()
         };
-        let chunks_array = manifest_chunks(&mut manifest)?;
-        let mut chunk_index_lookup = HashMap::new();
-        for (idx, entry) in chunks_array.iter().enumerate() {
-            if let Some(index) = entry.get("index").and_then(|v| v.as_u64()) {
-                chunk_index_lookup.insert(index, idx);
-            }
-        }
+
+        let (manifest_path_str, mut manifest, mut chunk_index_lookup) =
+            if manifest_path.as_os_str().is_empty() {
+                (
+                    String::new(),
+                    json!({"version": 1, "chunks": []}),
+                    HashMap::new(),
+                )
+            } else {
+                let manifest_path_str = manifest_path.to_string_lossy().to_string();
+                let mut manifest = match fs::read_to_string(&manifest_path) {
+                    Ok(text) => match serde_json::from_str::<Value>(&text) {
+                        Ok(value) => value,
+                        Err(err) => {
+                            self.monitor.note_event(
+                                "manifest.warn",
+                                json!({
+                                    "reason": "parse_error",
+                                    "path": manifest_path_str,
+                                    "error": err.to_string(),
+                                }),
+                            );
+                            json!({"version": 1, "chunks": []})
+                        }
+                    },
+                    Err(err) => {
+                        if err.kind() != ErrorKind::NotFound {
+                            self.monitor.note_event(
+                                "manifest.warn",
+                                json!({
+                                    "reason": "read_failed",
+                                    "path": manifest_path_str,
+                                    "error": err.to_string(),
+                                }),
+                            );
+                        }
+                        json!({"version": 1, "chunks": []})
+                    }
+                };
+                let chunks_array = manifest_chunks(&mut manifest)?;
+                let mut chunk_index_lookup = HashMap::new();
+                for (idx, entry) in chunks_array.iter().enumerate() {
+                    if let Some(index) = entry.get("index").and_then(|v| v.as_u64()) {
+                        chunk_index_lookup.insert(index, idx);
+                    }
+                }
+                (manifest_path_str, manifest, chunk_index_lookup)
+            };
 
         let mut responses = Vec::new();
         for asset in assets {
             let chunk_index = meta_u64(&asset.meta, "chunk_index").unwrap_or(0);
-            let entry_index = chunk_index_lookup.get(&chunk_index).copied();
-            let entry = if let Some(idx) = entry_index {
-                chunks_array.get_mut(idx).unwrap()
+            let entry_obj = if manifest_path.as_os_str().is_empty() {
+                None
             } else {
-                let mut map = Map::new();
-                map.insert("index".into(), Value::from(chunk_index));
-                map.insert("status".into(), Value::String("pending".into()));
-                chunks_array.push(Value::Object(map));
-                let idx = chunks_array.len() - 1;
-                chunk_index_lookup.insert(chunk_index, idx);
-                self.monitor.note_event(
-                    "manifest.chunk.create",
-                    json!({
-                        "chunk_index": chunk_index,
-                        "manifest_path": manifest_path_str,
-                    }),
-                );
-                chunks_array.get_mut(idx).unwrap()
+                let chunks_array = manifest_chunks(&mut manifest)?;
+                let entry_index = chunk_index_lookup.get(&chunk_index).copied();
+                Some(if let Some(idx) = entry_index {
+                    chunks_array.get_mut(idx).unwrap()
+                } else {
+                    let mut map = Map::new();
+                    map.insert("index".into(), Value::from(chunk_index));
+                    map.insert("status".into(), Value::String("pending".into()));
+                    chunks_array.push(Value::Object(map));
+                    let idx = chunks_array.len() - 1;
+                    chunk_index_lookup.insert(chunk_index, idx);
+                    self.monitor.note_event(
+                        "manifest.chunk.create",
+                        json!({
+                            "chunk_index": chunk_index,
+                            "manifest_path": manifest_path_str,
+                        }),
+                    );
+                    chunks_array.get_mut(idx).unwrap()
+                })
             };
 
-            let entry_obj = entry
-                .as_object_mut()
-                .ok_or_else(|| anyhow!("manifest chunk entry not object"))?;
-            entry_obj.insert("index".into(), Value::from(chunk_index));
-            entry_obj.insert(
-                "path".into(),
-                Value::String(asset.path.to_string_lossy().to_string()),
-            );
-            entry_obj.insert(
-                "start_seconds".into(),
-                meta_f64(&asset.meta, "chunk_start_seconds")
-                    .map(Value::from)
-                    .unwrap_or(Value::Null),
-            );
-            entry_obj.insert(
-                "end_seconds".into(),
-                meta_f64(&asset.meta, "chunk_end_seconds")
-                    .map(Value::from)
-                    .unwrap_or(Value::Null),
-            );
+            let mut entry_obj = if let Some(entry) = entry_obj {
+                Some(
+                    entry
+                        .as_object_mut()
+                        .ok_or_else(|| anyhow!("manifest chunk entry not object"))?,
+                )
+            } else {
+                None
+            };
+            if let Some(entry_obj) = entry_obj.as_mut() {
+                entry_obj.insert("index".into(), Value::from(chunk_index));
+                entry_obj.insert(
+                    "path".into(),
+                    Value::String(asset.path.to_string_lossy().to_string()),
+                );
+                entry_obj.insert(
+                    "start_seconds".into(),
+                    meta_f64(&asset.meta, "chunk_start_seconds")
+                        .map(Value::from)
+                        .unwrap_or(Value::Null),
+                );
+                entry_obj.insert(
+                    "end_seconds".into(),
+                    meta_f64(&asset.meta, "chunk_end_seconds")
+                        .map(Value::from)
+                        .unwrap_or(Value::Null),
+                );
+            }
 
             let response_path = chunk_dir
                 .as_ref()
                 .map(|dir| dir.join(format!("{name}-chunk{chunk_index:02}.txt")));
             if let Some(path) = &response_path {
-                entry_obj.insert(
-                    "response_path".into(),
-                    Value::String(path.to_string_lossy().to_string()),
-                );
-            } else {
+                if let Some(entry_obj) = entry_obj.as_deref_mut() {
+                    entry_obj.insert(
+                        "response_path".into(),
+                        Value::String(path.to_string_lossy().to_string()),
+                    );
+                }
+            } else if let Some(entry_obj) = entry_obj.as_deref_mut() {
                 entry_obj.insert("response_path".into(), Value::Null);
             }
             if let Some(uri) = asset.meta.get("file_uri").and_then(|value| value.as_str()) {
-                entry_obj.insert("file_uri".into(), Value::String(uri.to_string()));
+                if let Some(entry_obj) = entry_obj.as_mut() {
+                    entry_obj.insert("file_uri".into(), Value::String(uri.to_string()));
+                }
             }
-            entry_obj
-                .entry("status".to_string())
-                .or_insert_with(|| Value::String("pending".into()));
+            if let Some(entry_obj) = entry_obj.as_mut() {
+                entry_obj
+                    .entry("status".to_string())
+                    .or_insert_with(|| Value::String("pending".into()));
+            }
             let existing_file_uri = entry_obj
-                .get("file_uri")
+                .as_ref()
+                .and_then(|obj| obj.get("file_uri"))
                 .and_then(|value| value.as_str())
                 .map(|s| s.to_string());
 
@@ -967,7 +1004,9 @@ impl GeminiProvider {
                 let path = response_path.as_ref().unwrap();
                 let text = fs::read_to_string(path)?;
                 responses.push(text.trim().to_string());
-                entry_obj.insert("status".into(), Value::String("done".into()));
+                if let Some(entry_obj) = entry_obj.as_mut() {
+                    entry_obj.insert("status".into(), Value::String("done".into()));
+                }
                 self.monitor.note_event(
                     "chunk.skip",
                     json!({
@@ -1003,7 +1042,9 @@ impl GeminiProvider {
             }
 
             let chunk_meta_value = Value::Object(chunk_meta_map.clone());
-            entry_obj.insert("status".into(), Value::String("running".into()));
+            if let Some(entry_obj) = entry_obj.as_mut() {
+                entry_obj.insert("status".into(), Value::String("running".into()));
+            }
 
             let chunk_scope = ProgressScope::ChunkDetail {
                 job_id: job_id.clone(),
@@ -1037,13 +1078,17 @@ impl GeminiProvider {
             if let Some(path) = response_path.as_ref() {
                 save_chunk_text(path, &text)?;
             }
-            entry_obj.insert("status".into(), Value::String("done".into()));
+            if let Some(entry_obj) = entry_obj.as_mut() {
+                entry_obj.insert("status".into(), Value::String("done".into()));
+            }
             if let Some(file_uri) = event_assets
                 .first()
                 .and_then(|meta| meta.get("file_uri"))
                 .and_then(|v| v.as_str())
             {
-                entry_obj.insert("file_uri".into(), Value::String(file_uri.to_string()));
+                if let Some(entry_obj) = entry_obj.as_mut() {
+                    entry_obj.insert("file_uri".into(), Value::String(file_uri.to_string()));
+                }
             }
             responses.push(text.trim().to_string());
 
@@ -1083,7 +1128,9 @@ impl GeminiProvider {
             }
         }
 
-        write_manifest(&manifest_path, &mut manifest)?;
+        if save_intermediates || save_metadata {
+            write_manifest(&manifest_path, &mut manifest)?;
+        }
         Ok(responses.join("\n\n"))
     }
 }

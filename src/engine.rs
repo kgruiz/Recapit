@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde_json::{json, Map, Value};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -18,7 +18,7 @@ use crate::prompts::TemplatePromptStrategy;
 use crate::render::subtitles::SubtitleExporter;
 use crate::telemetry::RunMonitor;
 use crate::templates::TemplateLoader;
-use crate::utils::slugify;
+use crate::utils::ensure_dir;
 
 pub struct Engine {
     pub ingestor: Box<dyn Ingestor>,
@@ -158,31 +158,49 @@ impl Engine {
         }
         let modality = modality_for(&normalized);
 
-        let base = job
-            .output_dir
-            .clone()
-            .unwrap_or_else(|| Path::new("output").to_path_buf());
-        let source_slug = slugify(if job.source.contains("://") {
-            "remote"
-        } else {
-            Path::new(&job.source)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("source")
-        });
-        let base_dir = base.join(&source_slug);
-        let output_name = format!(
+        let output_format = job.format;
+
+        let mut output_name = format!(
             "{}-transcribed",
             Path::new(&job.source)
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("output")
         );
+        let mut base_dir = if job.save_metadata {
+            job.output_dir
+                .clone()
+                .unwrap_or_else(|| PathBuf::from(&output_name))
+        } else {
+            job.output_dir.clone().unwrap_or_else(|| PathBuf::from("."))
+        };
 
-        let format = job.format;
+        if job.save_metadata {
+            let resolved = crate::utils::resolve_path_with_prompt(&base_dir, true)?
+                .ok_or_else(|| anyhow!("operation cancelled for {}", base_dir.display()))?;
+            base_dir = resolved;
+            ensure_dir(&base_dir)?;
+        } else {
+            let target = match output_format {
+                OutputFormat::Markdown => base_dir.join(format!("{output_name}.md")),
+                OutputFormat::Latex => base_dir.join(format!("{output_name}.tex")),
+            };
+            if let Some(resolved) = crate::utils::resolve_path_with_prompt(&target, false)? {
+                let parent = resolved.parent().unwrap_or(Path::new(".")).to_path_buf();
+                output_name = resolved
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(&output_name)
+                    .to_string();
+                base_dir = parent;
+            } else {
+                return Ok(None);
+            }
+        }
+
         let prompt = self.prompts.get(&kind).expect("prompt strategy missing");
-        let preamble = prompt.preamble(format);
-        let instruction = prompt.instruction(format, &preamble);
+        let preamble = prompt.preamble(output_format);
+        let instruction = prompt.instruction(output_format, &preamble);
 
         let segment_total = normalized.len() as u64;
         self.emit(Progress {
@@ -205,11 +223,12 @@ impl Engine {
             "source": job.source,
             "skip_existing": job.skip_existing,
             "media_resolution": job.media_resolution,
-            "format": format.as_str(),
+            "format": output_format.as_str(),
             "output_base": base_dir_str,
             "output_name": output_name,
             "save_full_response": job.save_full_response,
             "save_intermediates": job.save_intermediates,
+            "save_metadata": job.save_metadata,
             "max_workers": job.max_workers,
             "max_video_workers": job.max_video_workers,
             "pdf_dpi": job.pdf_dpi,
@@ -239,12 +258,12 @@ impl Engine {
             stage: ProgressStage::Write,
             current: 0,
             total: 1,
-            status: format.as_str().into(),
+            status: output_format.as_str().into(),
             finished: false,
         });
-        let output_path = self
-            .writer
-            .write(format, &base_dir, &output_name, &preamble, &text)?;
+        let output_path =
+            self.writer
+                .write(output_format, &base_dir, &output_name, &preamble, &text)?;
         self.emit(Progress {
             scope: ProgressScope::Job {
                 id: meta["job_id"].as_str().unwrap_or_default().to_string(),
@@ -280,7 +299,7 @@ impl Engine {
             }
         }
 
-        match format {
+        match output_format {
             OutputFormat::Markdown => {
                 let mut markdown_source: Option<String> = None;
                 for fmt in &job.export {
@@ -414,12 +433,6 @@ impl Engine {
 
         self.provider.cleanup()?;
 
-        let limits = crate::constants::rate_limits_per_minute();
-        let limit_map = limits
-            .into_iter()
-            .map(|(k, v)| (k, Some(v)))
-            .collect::<HashMap<_, _>>();
-        let events_path = base_dir.join("run-events.ndjson");
         self.emit(Progress {
             scope: ProgressScope::Run,
             stage: ProgressStage::Write,
@@ -428,14 +441,22 @@ impl Engine {
             status: output_path.display().to_string(),
             finished: false,
         });
-        self.monitor.flush_summary(
-            &base_dir.join("run-summary.json"),
-            &self.cost,
-            job,
-            &files,
-            &limit_map,
-            Some(&events_path),
-        )?;
+        if job.save_metadata {
+            let limits = crate::constants::rate_limits_per_minute();
+            let limit_map = limits
+                .into_iter()
+                .map(|(k, v)| (k, Some(v)))
+                .collect::<HashMap<_, _>>();
+            let events_path = base_dir.join("run-events.ndjson");
+            self.monitor.flush_summary(
+                &base_dir.join("run-summary.json"),
+                &self.cost,
+                job,
+                &files,
+                &limit_map,
+                Some(&events_path),
+            )?;
+        }
 
         Ok(Some(output_path))
     }
