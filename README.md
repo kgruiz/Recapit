@@ -150,7 +150,12 @@ Use `--hide-summary`, `--detailed-costs`, and `--summary-path` to adjust the con
 
 ## Output Structure
 
-Each source asset produces a slugified directory next to the input. For example, a `Lecture01.pdf` transcription now yields:
+Output layout depends on what you asked for:
+
+- **Transcript only (default, no exports/metadata/full-response/intermediates):** write a single file (`<stem>-transcribed.md|tex`) alongside the input (or inside `--output-dir` if provided).
+- **Any extras (exports, `--save-metadata`, `--save-full-response`, `--save-intermediates`):** create a slugified folder next to the input (or under `--output-dir`) named `<stem>-transcribed/` and put all artifacts there.
+
+Example foldered layout when extras are enabled:
 
 ```text
 path/to/slides/
