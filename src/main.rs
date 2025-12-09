@@ -26,7 +26,7 @@ use core::{Asset, Ingestor, Job, Kind, Normalizer, OutputFormat, PdfMode};
 use crossterm::style::Stylize;
 use engine::Engine;
 use ingest::{CompositeIngestor, CompositeNormalizer};
-use progress::Progress;
+use progress::{Progress, ProgressScope, ProgressStage};
 use providers::gemini::GeminiProvider;
 use quota::{QuotaConfig, QuotaMonitor};
 use render::writer::CompositeWriter;
@@ -36,6 +36,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
+use utils::slugify;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -100,13 +101,19 @@ fn resolve_media_resolution(value: Option<&str>) -> anyhow::Result<(String, Opti
 }
 
 async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
-    let source = cli
-        .source
-        .clone()
-        .ok_or_else(|| anyhow!("A source path or URL is required unless using a subcommand"))?;
+    let sources = if cli.source.is_empty() {
+        return Err(anyhow!(
+            "A source path or URL is required unless using a subcommand"
+        ));
+    } else {
+        cli.source.clone()
+    };
 
-    // Handle conversion-first flow
+    // Handle conversion-first flow (single source only)
     if let Some(target) = cli.to {
+        let source = sources
+            .get(0)
+            .ok_or_else(|| anyhow!("A source path is required for conversion"))?;
         let default_pattern = match cli.from {
             cli::ConversionSource::Latex => "*.tex".to_string(),
             cli::ConversionSource::Markdown => "*.md".to_string(),
@@ -122,7 +129,7 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
             ConversionTarget::Json => ConversionKind::Json,
         };
         return run_conversion(
-            PathBuf::from(&source),
+            PathBuf::from(source),
             cli.output_dir.clone(),
             pattern,
             cli.skip_existing,
@@ -147,63 +154,6 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
         )
     })?;
 
-    let cli_kind = parse_kind(&cli.kind);
-    let effective_kind = if cli_kind.is_some() {
-        cli_kind
-    } else {
-        preset_config
-            .get("kind")
-            .and_then(|value| value.as_str())
-            .and_then(parse_kind)
-    };
-
-    let mut effective_pdf_mode = parse_pdf_mode(&cli.pdf_mode);
-    if matches!(effective_pdf_mode, PdfMode::Auto) {
-        if let Some(preset_pdf) = preset_config
-            .get("pdf_mode")
-            .and_then(|value| value.as_str())
-        {
-            effective_pdf_mode = parse_pdf_mode(preset_pdf);
-        }
-    }
-
-    let mut effective_pdf_dpi = cfg.pdf_dpi;
-    if let Some(value) = preset_config
-        .get("pdf_dpi")
-        .and_then(|value| value.as_u64())
-        .and_then(|value| u32::try_from(value).ok())
-    {
-        if value > 0 {
-            effective_pdf_dpi = value;
-        }
-    }
-    if let Some(value) = cli.pdf_dpi {
-        if value > 0 {
-            effective_pdf_dpi = value;
-        }
-    }
-
-    let effective_model = cli
-        .model
-        .clone()
-        .or_else(|| {
-            preset_config
-                .get("model")
-                .and_then(|value| value.as_str())
-                .map(|s| s.to_string())
-        })
-        .unwrap_or_else(|| cfg.default_model.clone());
-
-    let cli_format = cli.format.map(|value| match value {
-        OutputFormatArg::Markdown => OutputFormat::Markdown,
-        OutputFormatArg::Latex => OutputFormat::Latex,
-    });
-    let preset_format = preset_config
-        .get("format")
-        .and_then(|value| value.as_str())
-        .and_then(OutputFormat::from_str);
-    let effective_format = cli_format.or(preset_format).unwrap_or(cfg.default_format);
-
     let cli_recursive = if cli.no_recursive {
         Some(false)
     } else if cli.recursive {
@@ -211,13 +161,6 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
     } else {
         None
     };
-    let effective_recursive = cli_recursive
-        .or_else(|| {
-            preset_config
-                .get("recursive")
-                .and_then(|value| value.as_bool())
-        })
-        .unwrap_or(false);
 
     let mut exports = if cli.export.is_empty() {
         cfg.exports.clone()
@@ -252,21 +195,75 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
     {
         save_intermediates = value;
     }
-    let mut max_workers = cfg.max_workers;
-    if let Some(value) = preset_config.get("max_workers").and_then(|v| v.as_u64()) {
-        if value > 0 {
-            max_workers = value as usize;
-        }
+
+    if cli.dry_run {
+        let source = sources.first().unwrap();
+        let job = Job {
+            source: source.clone(),
+            job_label: source.clone(),
+            job_id: slugify(source),
+            job_index: 0,
+            job_total: 1,
+            recursive: cli_recursive
+                .or_else(|| {
+                    preset_config
+                        .get("recursive")
+                        .and_then(|value| value.as_bool())
+                })
+                .unwrap_or(false),
+            kind: parse_kind(&cli.kind).or_else(|| {
+                preset_config
+                    .get("kind")
+                    .and_then(|value| value.as_str())
+                    .and_then(parse_kind)
+            }),
+            pdf_mode: parse_pdf_mode(&cli.pdf_mode),
+            output_dir: cli.output_dir.clone(),
+            model: cli
+                .model
+                .clone()
+                .unwrap_or_else(|| cfg.default_model.clone()),
+            preset: Some(preset_key.clone()),
+            export: exports.clone(),
+            format: cli
+                .format
+                .map(|v| match v {
+                    OutputFormatArg::Markdown => OutputFormat::Markdown,
+                    OutputFormatArg::Latex => OutputFormat::Latex,
+                })
+                .unwrap_or(cfg.default_format),
+            skip_existing: cli.skip_existing,
+            media_resolution: resolve_media_resolution(Some(cfg.media_resolution.as_str()))?.1,
+            save_full_response,
+            save_intermediates,
+            max_workers: cfg.max_workers,
+            max_video_workers: cfg.max_video_workers,
+            pdf_dpi: cfg.pdf_dpi,
+        };
+        return run_plan(&cfg, job, cli.json);
     }
-    let mut max_video_workers = cfg.max_video_workers;
-    if let Some(value) = preset_config
-        .get("max_video_workers")
-        .and_then(|v| v.as_u64())
-    {
-        if value > 0 {
-            max_video_workers = value as usize;
-        }
-    }
+
+    let (tx, rx) = mpsc::unbounded_channel::<Progress>();
+    let tui_handle = if cli.quiet {
+        None
+    } else {
+        Some(tokio::spawn(tui::run_tui(rx)))
+    };
+
+    let request_limits = crate::constants::rate_limits_per_minute()
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+    let token_limits = crate::constants::token_limits_per_minute()
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+    let quota = QuotaMonitor::new(QuotaConfig::new(request_limits, token_limits));
+
+    let cost =
+        cost::CostEstimator::from_path(cfg.pricing_file.as_deref(), cfg.pricing_defaults.clone())?;
+    let summary_cost =
+        cost::CostEstimator::from_path(cfg.pricing_file.as_deref(), cfg.pricing_defaults.clone())?;
 
     let media_candidate = cli
         .media_resolution
@@ -279,101 +276,214 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
         })
         .unwrap_or_else(|| cfg.media_resolution.clone());
     let (media_label, media_enum) = resolve_media_resolution(Some(media_candidate.as_str()))?;
+    let cli_format_arg = cli.format.clone();
 
     let mut tokens_per_second = cfg.video_tokens_per_second;
     if media_label == "low" && tokens_per_second > 100.0 {
         tokens_per_second = 100.0;
     }
 
-    let job = Job {
-        source: source.clone(),
-        recursive: effective_recursive,
-        kind: effective_kind,
-        pdf_mode: effective_pdf_mode,
-        output_dir: cli.output_dir.clone(),
-        model: effective_model.clone(),
-        preset: Some(preset_key.clone()),
-        export: exports,
-        format: effective_format,
-        skip_existing: cli.skip_existing,
-        media_resolution: media_enum,
-        save_full_response,
-        save_intermediates,
-        max_workers,
-        max_video_workers,
-        pdf_dpi: effective_pdf_dpi,
-    };
+    let total_jobs = sources.len();
+    tx.send(Progress {
+        scope: ProgressScope::Run,
+        stage: ProgressStage::Discover,
+        current: 0,
+        total: total_jobs as u64,
+        status: "start".into(),
+        finished: false,
+    })
+    .ok();
 
-    if cli.dry_run {
-        return run_plan(&cfg, job, cli.json);
+    let mut summaries = Vec::new();
+
+    for (idx, source) in sources.iter().enumerate() {
+        let job_label = if source.contains("://") {
+            source.clone()
+        } else {
+            Path::new(source)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("source")
+                .to_string()
+        };
+        let job_id = slugify(&job_label);
+
+        let cli_kind = parse_kind(&cli.kind);
+        let effective_kind = if cli_kind.is_some() {
+            cli_kind
+        } else {
+            preset_config
+                .get("kind")
+                .and_then(|value| value.as_str())
+                .and_then(parse_kind)
+        };
+
+        let mut effective_pdf_mode = parse_pdf_mode(&cli.pdf_mode);
+        if matches!(effective_pdf_mode, PdfMode::Auto) {
+            if let Some(preset_pdf) = preset_config
+                .get("pdf_mode")
+                .and_then(|value| value.as_str())
+            {
+                effective_pdf_mode = parse_pdf_mode(preset_pdf);
+            }
+        }
+
+        let mut effective_pdf_dpi = cfg.pdf_dpi;
+        if let Some(value) = preset_config
+            .get("pdf_dpi")
+            .and_then(|value| value.as_u64())
+            .and_then(|value| u32::try_from(value).ok())
+        {
+            if value > 0 {
+                effective_pdf_dpi = value;
+            }
+        }
+        if let Some(value) = cli.pdf_dpi {
+            if value > 0 {
+                effective_pdf_dpi = value;
+            }
+        }
+
+        let effective_model = cli
+            .model
+            .clone()
+            .or_else(|| {
+                preset_config
+                    .get("model")
+                    .and_then(|value| value.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| cfg.default_model.clone());
+
+        let cli_format = cli_format_arg.clone().map(|value| match value {
+            OutputFormatArg::Markdown => OutputFormat::Markdown,
+            OutputFormatArg::Latex => OutputFormat::Latex,
+        });
+        let preset_format = preset_config
+            .get("format")
+            .and_then(|value| value.as_str())
+            .and_then(OutputFormat::from_str);
+        let effective_format = cli_format.or(preset_format).unwrap_or(cfg.default_format);
+
+        let effective_recursive = cli_recursive
+            .or_else(|| {
+                preset_config
+                    .get("recursive")
+                    .and_then(|value| value.as_bool())
+            })
+            .unwrap_or(false);
+
+        let mut max_workers = cfg.max_workers;
+        if let Some(value) = preset_config.get("max_workers").and_then(|v| v.as_u64()) {
+            if value > 0 {
+                max_workers = value as usize;
+            }
+        }
+        let mut max_video_workers = cfg.max_video_workers;
+        if let Some(value) = preset_config
+            .get("max_video_workers")
+            .and_then(|v| v.as_u64())
+        {
+            if value > 0 {
+                max_video_workers = value as usize;
+            }
+        }
+
+        let job = Job {
+            source: source.clone(),
+            job_label: job_label.clone(),
+            job_id: job_id.clone(),
+            job_index: idx,
+            job_total: total_jobs,
+            recursive: effective_recursive,
+            kind: effective_kind,
+            pdf_mode: effective_pdf_mode,
+            output_dir: cli.output_dir.clone(),
+            model: effective_model.clone(),
+            preset: Some(preset_key.clone()),
+            export: exports.clone(),
+            format: effective_format,
+            skip_existing: cli.skip_existing,
+            media_resolution: media_enum.clone(),
+            save_full_response,
+            save_intermediates,
+            max_workers,
+            max_video_workers,
+            pdf_dpi: effective_pdf_dpi,
+        };
+
+        let capability_table = crate::constants::model_capabilities();
+        let model_key = job.model.clone();
+        let capability_checker = move |capability: &str| {
+            capability_table
+                .get(model_key.as_str())
+                .or_else(|| capability_table.get(crate::constants::DEFAULT_MODEL))
+                .map(|caps| caps.iter().any(|c| *c == capability))
+                .unwrap_or(true)
+        };
+
+        let monitor = telemetry::RunMonitor::new();
+        let provider = GeminiProvider::new(
+            cfg.api_key.clone(),
+            job.model.clone(),
+            monitor.clone(),
+            Some(quota.clone()),
+        )
+        .with_progress(tx.clone());
+        let normalizer = CompositeNormalizer::new(
+            None,
+            cfg.video_encoder_preference,
+            Some(cfg.video_max_chunk_seconds),
+            Some(cfg.video_max_chunk_bytes),
+            cfg.video_token_limit,
+            Some(tokens_per_second),
+            Some(job.pdf_dpi),
+            Some(Box::new(capability_checker)),
+        )?;
+        let ingestor = CompositeIngestor::new()?;
+        let converter =
+            LatexConverter::new(cfg.api_key.clone(), monitor.clone(), Some(quota.clone()))?;
+        let mut engine = Engine::new(
+            Box::new(ingestor),
+            Box::new(normalizer),
+            Box::new(provider),
+            Box::new(CompositeWriter::new()),
+            tx.clone(),
+            monitor.clone(),
+            cost.clone(),
+            Some(converter),
+            &cfg,
+        )?;
+
+        tx.send(Progress {
+            scope: ProgressScope::Run,
+            stage: ProgressStage::Discover,
+            current: idx as u64,
+            total: total_jobs as u64,
+            status: job_label.clone(),
+            finished: false,
+        })
+        .ok();
+
+        let result = engine.run(&job).await?;
+
+        tx.send(Progress {
+            scope: ProgressScope::Run,
+            stage: ProgressStage::Write,
+            current: (idx + 1) as u64,
+            total: total_jobs as u64,
+            status: job_label.clone(),
+            finished: idx + 1 == total_jobs,
+        })
+        .ok();
+
+        drop(engine);
+
+        let summary = monitor.summarize();
+        let costs = summary_cost.estimate(&monitor.events());
+        summaries.push((job_label, result.clone(), summary, costs));
     }
 
-    let (tx, rx) = mpsc::unbounded_channel::<Progress>();
-    let tui_handle = if cli.quiet {
-        None
-    } else {
-        Some(tokio::spawn(tui::run_tui(rx)))
-    };
-
-    let monitor = telemetry::RunMonitor::new();
-    let request_limits = crate::constants::rate_limits_per_minute()
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .collect();
-    let token_limits = crate::constants::token_limits_per_minute()
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .collect();
-    let quota = QuotaMonitor::new(QuotaConfig::new(request_limits, token_limits));
-
-    let capability_table = crate::constants::model_capabilities();
-    let model_key = job.model.clone();
-    let capability_checker = move |capability: &str| {
-        capability_table
-            .get(model_key.as_str())
-            .or_else(|| capability_table.get(crate::constants::DEFAULT_MODEL))
-            .map(|caps| caps.iter().any(|c| *c == capability))
-            .unwrap_or(true)
-    };
-
-    let provider = GeminiProvider::new(
-        cfg.api_key.clone(),
-        job.model.clone(),
-        monitor.clone(),
-        Some(quota.clone()),
-    )
-    .with_progress(tx.clone());
-    let normalizer = CompositeNormalizer::new(
-        None,
-        cfg.video_encoder_preference,
-        Some(cfg.video_max_chunk_seconds),
-        Some(cfg.video_max_chunk_bytes),
-        cfg.video_token_limit,
-        Some(tokens_per_second),
-        Some(job.pdf_dpi),
-        Some(Box::new(capability_checker)),
-    )?;
-    let ingestor = CompositeIngestor::new()?;
-    let cost =
-        cost::CostEstimator::from_path(cfg.pricing_file.as_deref(), cfg.pricing_defaults.clone())?;
-    let summary_cost =
-        cost::CostEstimator::from_path(cfg.pricing_file.as_deref(), cfg.pricing_defaults.clone())?;
-    let converter = LatexConverter::new(cfg.api_key.clone(), monitor.clone(), Some(quota.clone()))?;
-    let mut engine = Engine::new(
-        Box::new(ingestor),
-        Box::new(normalizer),
-        Box::new(provider),
-        Box::new(CompositeWriter::new()),
-        tx.clone(),
-        monitor.clone(),
-        cost,
-        Some(converter),
-        &cfg,
-    )?;
-
-    let result = engine.run(&job).await?;
-
-    drop(engine);
     drop(tx);
 
     if let Some(handle) = tui_handle {
@@ -381,20 +491,38 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
     }
 
     if !cli.quiet {
-        let summary = monitor.summarize();
-        let costs = summary_cost.estimate(&monitor.events());
-        if let Some(path) = result {
-            println!("output: {}", path.display());
+        let mut total_in = 0;
+        let mut total_out = 0;
+        let mut total_tokens = 0;
+        let mut total_cost = 0.0;
+        let mut total_time = 0.0;
+
+        for (label, output, summary, costs) in &summaries {
+            total_in += summary.total_input_tokens;
+            total_out += summary.total_output_tokens;
+            total_tokens += summary.total_tokens;
+            total_cost += costs.total_cost;
+            total_time += summary.total_duration_seconds;
+            println!(
+                "job {}: tokens in {} out {} total {} · est cost ${:.6} · elapsed {:.2}s{}",
+                label,
+                summary.total_input_tokens,
+                summary.total_output_tokens,
+                summary.total_tokens,
+                costs.total_cost,
+                summary.total_duration_seconds,
+                output
+                    .as_ref()
+                    .map(|p| format!(" · output {}", p.display()))
+                    .unwrap_or_default()
+            );
         }
-        println!(
-            "tokens in {} out {} total {} · est cost ${:.6} · elapsed {:.2}s · requests {}",
-            summary.total_input_tokens,
-            summary.total_output_tokens,
-            summary.total_tokens,
-            costs.total_cost,
-            summary.total_duration_seconds,
-            summary.total_requests
-        );
+        if summaries.len() > 1 {
+            println!(
+                "total: tokens in {} out {} total {} · est cost ${:.6} · elapsed {:.2}s",
+                total_in, total_out, total_tokens, total_cost, total_time
+            );
+        }
     }
 
     Ok(())

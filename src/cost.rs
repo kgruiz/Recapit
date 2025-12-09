@@ -38,6 +38,7 @@ impl Default for CostSummary {
     }
 }
 
+#[derive(Clone)]
 pub struct CostEstimator {
     pricing: HashMap<String, ModelPricing>,
 }

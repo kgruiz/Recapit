@@ -8,8 +8,9 @@ use std::path::PathBuf;
     about = "CLI for document and media transcription"
 )]
 pub struct Cli {
-    /// Primary action: transcribe/convert the given source unless a subcommand is used
-    pub source: Option<String>,
+    /// Primary action: transcribe/convert the given source(s) unless a subcommand is used
+    #[arg(required_unless_present = "cmd", num_args = 1.., value_name = "SOURCE")]
+    pub source: Vec<String>,
 
     #[arg(short = 'o', long)]
     pub output_dir: Option<PathBuf>,

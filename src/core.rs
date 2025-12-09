@@ -80,6 +80,10 @@ pub struct Asset {
 #[derive(Debug, Clone)]
 pub struct Job {
     pub source: String,
+    pub job_label: String,
+    pub job_id: String,
+    pub job_index: usize,
+    pub job_total: usize,
     pub recursive: bool,
     pub kind: Option<Kind>,
     pub pdf_mode: PdfMode,

@@ -78,16 +78,8 @@ impl Engine {
     pub async fn run(&mut self, job: &Job) -> Result<Option<PathBuf>> {
         self.normalizer.prepare(job)?;
 
-        let job_label = if job.source.contains("://") {
-            job.source.clone()
-        } else {
-            Path::new(&job.source)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("source")
-                .to_string()
-        };
-        let job_id = slugify(&job_label);
+        let job_label = job.job_label.clone();
+        let job_id = job.job_id.clone();
 
         // Run-level start (single job today, but keep structure for future multi-job runs).
         self.emit(Progress {
