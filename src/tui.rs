@@ -73,8 +73,7 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
         queue!(
             out,
             cursor::MoveTo(0, base_row),
-            Clear(ClearType::FromCursorDown),
-            PrintStyledContent("progress:".with(Color::DarkGrey))
+            Clear(ClearType::FromCursorDown)
         )?;
 
         frame_idx = (frame_idx + 1) % frames.len();
@@ -101,7 +100,8 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
             .filter(|s| matches!(s, ProgressScope::ChunkDetail { .. }))
             .count();
 
-        let start_row = base_row + 1;
+        let start_row = base_row;
+        let cols = terminal::size().map(|(c, _)| c as usize).unwrap_or(80);
         let mut render_idx = 0;
         for scope in order.clone() {
             if let Some(state) = rows.get(&scope) {
@@ -125,20 +125,30 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
                 } else {
                     "  -/- ".to_string()
                 };
-                let bar = progress_bar(percent);
-                let styled_bar = if percent >= 1.0 {
-                    bar.clone().with(Color::Green)
+                let label_text = if !matches!(scope, ProgressScope::Run) {
+                    format!("{} · {}", scope.to_string(), state.stage.label())
                 } else {
-                    bar.clone().with(Color::Yellow)
+                    scope.to_string()
                 };
-                let mut label = scope.to_string();
-                if !matches!(scope, ProgressScope::Run) {
-                    label = format!("{label} · {}", state.stage.label());
-                }
                 let spin = if percent >= 1.0 {
                     " "
                 } else {
                     frames[frame_idx]
+                };
+                let fixed_len = 2 /*spin+space*/
+                    + label_text.len()
+                    + 3 /*space + []*/
+                    + 2 /*spaces around bar*/
+                    + 4 /*percent placeholder*/
+                    + 1
+                    + 11 /*count placeholder*/
+                    + 1;
+                let bar_width = cols.saturating_sub(fixed_len).max(10);
+                let bar = progress_bar(percent, bar_width);
+                let styled_bar = if percent >= 1.0 {
+                    bar.clone().with(Color::Green)
+                } else {
+                    bar.clone().with(Color::Yellow)
                 };
                 let status_style = if percent >= 1.0 {
                     state.status.clone().with(Color::Green)
@@ -149,7 +159,7 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
                     out,
                     cursor::MoveTo(0, start_row + render_idx as u16),
                     Clear(ClearType::CurrentLine),
-                    PrintStyledContent(format!("{spin} {label:20}").with(Color::White)),
+                    PrintStyledContent(format!("{spin} {label_text} ").with(Color::White)),
                     PrintStyledContent(" [".with(Color::DarkGrey)),
                     PrintStyledContent(styled_bar),
                     PrintStyledContent("] ".with(Color::DarkGrey)),
@@ -199,8 +209,7 @@ pub async fn run_tui(mut rx: UnboundedReceiver<Progress>) -> anyhow::Result<()> 
     Ok(())
 }
 
-fn progress_bar(progress: f64) -> String {
-    let width = 50usize;
+fn progress_bar(progress: f64, width: usize) -> String {
     let filled = (progress * width as f64).round() as usize;
     let mut bar = String::with_capacity(width);
     for idx in 0..width {

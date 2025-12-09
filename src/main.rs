@@ -298,15 +298,7 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
     let mut summaries = Vec::new();
 
     for (idx, source) in sources.iter().enumerate() {
-        let job_label = if source.contains("://") {
-            source.clone()
-        } else {
-            Path::new(source)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("source")
-                .to_string()
-        };
+        let job_label = source.clone();
         let job_id = slugify(&job_label);
 
         let cli_kind = parse_kind(&cli.kind);
