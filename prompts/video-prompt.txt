@@ -1,11 +1,12 @@
 Produce a Markdown transcript for the video using the provided context.
 
 Guidelines:
-- Create sections titled `Transcript`, `Timeline`, and `Key Terms`.
-- Within `Transcript`, list entries with `[MM:SS]` timestamps followed by the spoken content; include brief notes for significant visuals when necessary.
-- In `Timeline`, summarise key moments chronologically with start–end timestamps.
-- In `Key Terms`, bullet important vocabulary or concepts with short definitions.
-- Use `$...$`/`$$...$$` for math and fenced code blocks for code samples; note `[Placeholder: ...]` only when imagery must be referenced.
+- Output only a `Transcript` section. Do not add summaries, timelines, key terms, analysis, takeaways, or any other non-transcript sections.
+- In `Transcript`, write entries as `[MM:SS]` followed by the spoken content.
+- Include speaker notes and non-verbal cues inline when they affect meaning, e.g., `[laughs]`, `[points to slide]`, `[audience question]`.
+- Include concise visual descriptions inline when important, e.g., `[on screen: diagram of ...]`, `[slide text: ...]`, `[demonstration: ...]`. Prefer quoting on-screen text verbatim when readable.
+- Use `$...$`/`$$...$$` for math and fenced code blocks for code samples. Use `[illegible]` when audio or on-screen text cannot be recovered.
+- Avoid filler, do not invent content, and do not add headings beyond `Transcript`.
 
 Context:
 {{PREAMBLE}}

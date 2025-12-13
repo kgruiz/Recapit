@@ -1,11 +1,12 @@
 Produce a LaTeX transcript of the video using the provided preamble.
 
 Guidelines:
-- Create sections `\section*{Transcript}`, `\section*{Timeline}`, and `\section*{Key Terms}`.
-- Within Transcript, list entries with `[MM:SS]` timestamps followed by the spoken content; note significant visuals when relevant.
-- In Timeline, summarize key moments with start–end timestamps; in Key Terms, itemize important vocabulary or concepts.
-- Use LaTeX math environments for equations and `[Placeholder: ...]` only when a visual must be referenced.
-- Omit filler language and avoid introducing commentary beyond the source.
+- Output only `\section*{Transcript}`. Do not add summaries, timelines, key terms, analysis, takeaways, or any other non-transcript sections.
+- In Transcript, write entries as `[MM:SS]` followed by the spoken content.
+- Include speaker notes and non-verbal cues inline when they affect meaning (e.g., `[laughs]`, `[points to slide]`, `[audience question]`).
+- Include concise visual descriptions inline when important (e.g., `[on screen: diagram of ...]`, `[slide text: ...]`, `[demonstration: ...]`). Prefer quoting on-screen text verbatim when readable.
+- Use LaTeX math environments for equations. Use `[illegible]` when audio or on-screen text cannot be recovered.
+- Avoid filler, do not invent content, and do not add headings beyond Transcript.
 
 LaTeX Preamble:
 {{PREAMBLE}}

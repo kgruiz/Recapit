@@ -18,12 +18,12 @@ impl TemplatePromptStrategy {
             (Kind::Lecture, OutputFormat::Markdown) => "{{PREAMBLE}}\nTranscribe the lecture notes verbatim in Markdown. Preserve the original order, headings, lists, tables, and math, adding timestamps only when present in the source.",
             (Kind::Document, OutputFormat::Markdown) => "{{PREAMBLE}}\nTranscribe the document faithfully in Markdown. Reproduce headings, lists, tables, and math exactly as they appear without adding extra commentary or structure.",
             (Kind::Image, OutputFormat::Markdown) => "{{PREAMBLE}}\nTranscribe text from the image into Markdown. Keep source ordering, mark unreadable regions as [illegible], and use $...$ or $$...$$ for math.",
-            (Kind::Video, OutputFormat::Markdown) => "{{PREAMBLE}}\nProduce a Markdown transcript with sections for 'Transcript', 'Timeline', and 'Key Terms'. Include [MM:SS] timestamps, summarize key visuals, and note gestures when relevant.",
+            (Kind::Video, OutputFormat::Markdown) => "{{PREAMBLE}}\nProduce a Markdown transcript with a single 'Transcript' section. Use [MM:SS] timestamps for entries, include brief inline speaker notes and key visual descriptions when important, and do not add any non-transcript sections (no timeline, key terms, summary, or analysis).",
             (Kind::Slides, OutputFormat::Latex) => "{{PREAMBLE}}\nTranscribe each slide faithfully in LaTeX. Use \\section*{} for slide titles, maintain bullet structure with itemize/enumerate, and preserve math environments.",
             (Kind::Lecture, OutputFormat::Latex) => "{{PREAMBLE}}\nTranscribe the lecture notes directly into LaTeX. Preserve source ordering, headings, lists, tables, and math, noting [sic] only when text is unclear.",
             (Kind::Document, OutputFormat::Latex) => "{{PREAMBLE}}\nTranscribe the document content verbatim into LaTeX, keeping the original structure, math environments, and tables exactly as given.",
             (Kind::Image, OutputFormat::Latex) => "{{PREAMBLE}}\nTranscribe the image content into LaTeX. Reproduce text in order, render math with LaTeX notation, and annotate unreadable pieces as [illegible].",
-            (Kind::Video, OutputFormat::Latex) => "{{PREAMBLE}}\nProduce a LaTeX transcript with sections for Transcript, Timeline, and Key Terms. Include [MM:SS] timestamps, describe key visuals, and preserve important gestures or speaker notes.",
+            (Kind::Video, OutputFormat::Latex) => "{{PREAMBLE}}\nProduce a LaTeX transcript with a single Transcript section. Use [MM:SS] timestamps for entries, include brief inline speaker notes and key visual descriptions when important, and do not add any non-transcript sections (no timeline, key terms, summary, or analysis).",
         }
     }
 }
