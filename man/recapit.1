@@ -34,6 +34,9 @@ Select PDF ingestion strategy.
 .B --pdf-dpi NUM
 DPI used when rasterizing PDFs (default 200).
 .TP
+.B --pages RANGE
+Only process selected PDF pages (1-based). Examples: 1-3,5,10- or -2. Pass once to apply to all sources, or once per source.
+.TP
 .B --dry-run
 Plan ingestion/normalization without calling Gemini; use --json for machine-readable output.
 .TP

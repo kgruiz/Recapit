@@ -132,6 +132,7 @@ recapit cleanup downloads --yes
 `recapit transcribe` (and the shorthand `recapit <SOURCE>`) accept the standard `--kind`/`--pdf-mode` overrides, plus:
 
 - `--preset <name>` to preload overrides from `recapit.yaml` (e.g., select models, exports, concurrency).
+- `--pages <range>` to process only selected PDF pages (1-based). Examples: `1-3,5,10-` or `-2`. Pass once to apply to all sources, or once per source when supplying multiple inputs.
 - `--format markdown|latex` to choose the primary transcript format (defaults to Markdown).
 - `--export srt|vtt|markdown|json` to emit additional artifacts. Markdown is already the default output (the flag is retained for compatibility), and JSON exports use the new conversion pipeline under the hood.
 - Save toggles (`save_full_response`, `save_intermediates`) follow precedence `CLI preset > config file > environment`. Set `RECAPIT_SAVE_FULL_RESPONSE=1` or `RECAPIT_SAVE_INTERMEDIATES=1` (or edit the preset) to turn them on for a run.

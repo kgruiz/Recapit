@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+use crate::selection::IndexSelection;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
@@ -95,6 +97,7 @@ pub struct Job {
     pub export: Vec<String>,
     pub format: OutputFormat,
     pub skip_existing: bool,
+    pub page_selection: Option<IndexSelection>,
     pub media_resolution: Option<String>,
     pub save_full_response: bool,
     pub save_intermediates: bool,

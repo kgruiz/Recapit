@@ -19,6 +19,11 @@ pub struct Cli {
     #[arg(long, default_value = "auto")]
     pub pdf_mode: String,
     #[arg(
+        long,
+        help = "Only process selected PDF pages (1-based). Examples: 1-3,5,10- or -2"
+    )]
+    pub pages: Vec<String>,
+    #[arg(
         long = "pdf-dpi",
         help = "DPI for PDF -> PNG rasterization (default 200)"
     )]

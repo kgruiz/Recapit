@@ -87,22 +87,34 @@ impl CompositeNormalizer {
                     .file_stem()
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_else(|| "page".into());
-                let pages = match pdf_to_png(&asset.path, &output_dir, Some(&prefix), self.pdf_dpi)
-                {
+                let selection = self
+                    .job
+                    .as_ref()
+                    .and_then(|job| job.page_selection.as_ref());
+                let pages = match pdf_to_png(
+                    &asset.path,
+                    &output_dir,
+                    Some(&prefix),
+                    self.pdf_dpi,
+                    selection,
+                ) {
                     Ok(pages) => pages,
                     Err(_) => return Ok(vec![asset.clone()]),
                 };
                 let mut result = Vec::new();
                 for (idx, page) in pages.iter().enumerate() {
+                    let page_index = page.page_number.saturating_sub(1);
                     result.push(Asset {
-                        path: page.clone(),
+                        path: page.path.clone(),
                         media: "image".into(),
-                        page_index: Some(idx as u32),
+                        page_index: Some(page_index),
                         source_kind: asset.source_kind,
                         mime: Some("image/png".into()),
                         meta: json!({
                             "source_pdf": asset.path,
-                            "page_index": idx,
+                            "page_number": page.page_number,
+                            "page_index": page_index,
+                            "page_selected_index": idx,
                             "page_total": pages.len(),
                         }),
                     });

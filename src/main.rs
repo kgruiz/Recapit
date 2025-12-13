@@ -12,6 +12,7 @@ mod prompts;
 mod providers;
 mod quota;
 mod render;
+mod selection;
 mod telemetry;
 mod templates;
 mod tui;
@@ -30,6 +31,7 @@ use progress::{Progress, ProgressScope, ProgressStage};
 use providers::gemini::GeminiProvider;
 use quota::{QuotaConfig, QuotaMonitor};
 use render::writer::CompositeWriter;
+use selection::IndexSelection;
 use serde_json::{json, Map, Value};
 use serde_yaml::Value as YamlValue;
 use std::collections::HashMap;
@@ -198,6 +200,16 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
 
     if cli.dry_run {
         let source = sources.first().unwrap();
+        let page_selection = resolve_page_selection(
+            &cli.pages,
+            preset_config.get("pages").and_then(|value| value.as_str()),
+            0,
+            sources.len(),
+        )?;
+        let mut pdf_mode = parse_pdf_mode(&cli.pdf_mode);
+        if page_selection.is_some() {
+            pdf_mode = PdfMode::Images;
+        }
         let job = Job {
             source: source.clone(),
             job_label: source.clone(),
@@ -217,7 +229,7 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
                     .and_then(|value| value.as_str())
                     .and_then(parse_kind)
             }),
-            pdf_mode: parse_pdf_mode(&cli.pdf_mode),
+            pdf_mode,
             output_dir: cli.output_dir.clone(),
             model: cli
                 .model
@@ -233,6 +245,7 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
                 })
                 .unwrap_or(cfg.default_format),
             skip_existing: cli.skip_existing,
+            page_selection,
             media_resolution: resolve_media_resolution(Some(cfg.media_resolution.as_str()))?.1,
             save_full_response,
             save_intermediates,
@@ -383,6 +396,17 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
             }
         }
 
+        let page_selection = resolve_page_selection(
+            &cli.pages,
+            preset_config.get("pages").and_then(|value| value.as_str()),
+            idx,
+            sources.len(),
+        )?;
+        let mut pdf_mode = effective_pdf_mode;
+        if page_selection.is_some() {
+            pdf_mode = PdfMode::Images;
+        }
+
         let job = Job {
             source: source.clone(),
             job_label: job_label.clone(),
@@ -391,13 +415,14 @@ async fn run_primary(cli: cli::Cli) -> anyhow::Result<()> {
             job_total: total_jobs,
             recursive: effective_recursive,
             kind: effective_kind,
-            pdf_mode: effective_pdf_mode,
+            pdf_mode,
             output_dir: cli.output_dir.clone(),
             model: effective_model.clone(),
             preset: Some(preset_key.clone()),
             export: exports.clone(),
             format: effective_format,
             skip_existing: cli.skip_existing,
+            page_selection,
             media_resolution: media_enum.clone(),
             save_full_response,
             save_intermediates,
@@ -556,6 +581,33 @@ fn parse_pdf_mode(input: &str) -> PdfMode {
     }
 }
 
+fn resolve_page_selection(
+    cli_pages: &[String],
+    preset_pages: Option<&str>,
+    source_index: usize,
+    source_total: usize,
+) -> anyhow::Result<Option<IndexSelection>> {
+    let raw = if cli_pages.is_empty() {
+        preset_pages
+    } else if cli_pages.len() == 1 {
+        Some(cli_pages[0].as_str())
+    } else if cli_pages.len() == source_total {
+        Some(cli_pages[source_index].as_str())
+    } else {
+        anyhow::bail!(
+            "--pages provided {} time(s), but {} source(s) were supplied. Pass --pages once to apply to all sources, or pass it once per source.",
+            cli_pages.len(),
+            source_total
+        );
+    };
+
+    if let Some(value) = raw {
+        return Ok(Some(IndexSelection::parse(value)?));
+    }
+
+    Ok(None)
+}
+
 enum ConversionKind {
     Markdown,
     Json,
@@ -702,6 +754,7 @@ fn run_plan(cfg: &config::AppConfig, job: Job, json_output: bool) -> anyhow::Res
             "recursive": job.recursive,
             "kind": final_kind.as_str(),
             "pdf_mode": pdf_mode_to_str(job.pdf_mode),
+            "pages": job.page_selection.as_ref().map(|value| value.to_string()),
             "model": job.model,
             "preset": job.preset,
             "export": job.export,
